@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 urls = {repository = "https://github.com/google/lineax" }
-dependencies = ["jax>=0.4.8", "jaxtyping>=0.2.15", "equinox>=0.10.3"]
+dependencies = ["jax>=0.4.8", "jaxtyping>=0.2.19", "equinox>=0.10.3", "typing_extensions>=4.5.0"]
 
 [build-system]
 requires = ["hatchling"]

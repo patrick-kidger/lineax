@@ -12,12 +12,17 @@ import lineax as lx
 
 
 sys.path.append("../tests")
-from helpers import construct_matrix, getkey, has_tag, shaped_allclose
+from helpers import (  # pyright: ignore
+    construct_matrix,
+    getkey,
+    has_tag,
+    shaped_allclose,
+)
 
 
 jax.config.update("jax_enable_x64", True)
 
-if jax.config.jax_enable_x64:
+if jax.config.jax_enable_x64:  # pyright: ignore
     tol = 1e-12
 else:
     tol = 1e-6
@@ -157,14 +162,14 @@ def test_solvers(vmap_size, mat_size):
             lx_solve_time = timeit.timeit(bench_lx, number=1)
 
             print(
-                f"Optimistix's {lx_name} solved {batch_msg} of "
+                f"Lineax's {lx_name} solved {batch_msg} of "
                 f"size {mat_size} in {lx_solve_time} seconds."
             )
         else:
             fail_time = timeit.timeit(bench_lx, number=1)
             err = jnp.abs(lx_soln - true_x).max()
             print(
-                f"Optimistix's {lx_name} failed to solve {batch_msg} of "
+                f"Lineax's {lx_name} failed to solve {batch_msg} of "
                 f"size {mat_size} with error {err} in {fail_time} seconds"
             )
         if jax_solver is None:

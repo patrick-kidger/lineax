@@ -1,5 +1,5 @@
 from .bicgstab import BiCGStab as BiCGStab
-from .cg import CG as CG
+from .cg import CG as CG, NormalCG as NormalCG
 from .cholesky import Cholesky as Cholesky
 from .diagonal import Diagonal as Diagonal
 from .gmres import GMRES as GMRES

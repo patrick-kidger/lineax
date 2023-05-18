@@ -1,21 +1,29 @@
+from typing import Any
+from typing_extensions import TypeAlias
+
 import jax.lax as lax
 import jax.numpy as jnp
+from jaxtyping import Array, PyTree
 
-from .._operator import is_tridiagonal, tridiagonal
+from .._operator import AbstractLinearOperator, is_tridiagonal, tridiagonal
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import (
     pack_structures,
+    PackedStructures,
     ravel_vector,
     transpose_packed_structures,
     unravel_solution,
 )
 
 
-class Tridiagonal(AbstractLinearSolver):
+_TridiagonalState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
+
+
+class Tridiagonal(AbstractLinearSolver[_TridiagonalState]):
     """Tridiagonal solver for linear systems, using the Thomas algorithm."""
 
-    def init(self, operator, options):
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
         if operator.in_size() != operator.out_size():
             raise ValueError(
@@ -28,7 +36,12 @@ class Tridiagonal(AbstractLinearSolver):
             )
         return tridiagonal(operator), pack_structures(operator)
 
-    def compute(self, state, vector, options):
+    def compute(
+        self,
+        state: _TridiagonalState,
+        vector,
+        options,
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
         del state, options
         vector = ravel_vector(vector, packed_structures)
@@ -68,9 +81,9 @@ class Tridiagonal(AbstractLinearSolver):
         _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=32)
 
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {}
+        return solution, RESULTS.successful, {}  # pyright: ignore
 
-    def transpose(self, state, options):
+    def transpose(self, state: _TridiagonalState, options: dict[str, Any]):
         (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
         transpose_diagonals = (diagonal, upper_diagonal, lower_diagonal)

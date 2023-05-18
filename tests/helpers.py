@@ -21,7 +21,7 @@ def getkey():
 def _construct_matrix_impl(getkey, solver, tags, size):
     while True:
         matrix = jr.normal(getkey(), (size, size))
-        if isinstance(solver, lx.CG) and solver.normal:
+        if isinstance(solver, lx.NormalCG):
             cond_cutoff = math.sqrt(1000)
         else:
             cond_cutoff = 1000
@@ -49,7 +49,7 @@ def _construct_matrix_impl(getkey, solver, tags, size):
     return matrix
 
 
-def construct_matrix(getkey, solver, tags, size=3, num=1):
+def construct_matrix(getkey, solver, tags, num=1, *, size=3):
     return tuple(_construct_matrix_impl(getkey, solver, tags, size) for _ in range(num))
 
 

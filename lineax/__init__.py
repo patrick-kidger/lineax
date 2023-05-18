@@ -38,6 +38,7 @@ from ._solver import (
     Diagonal as Diagonal,
     GMRES as GMRES,
     LU as LU,
+    NormalCG as NormalCG,
     QR as QR,
     SVD as SVD,
     Triangular as Triangular,

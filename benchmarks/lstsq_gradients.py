@@ -11,7 +11,7 @@ import lineax as lx
 
 
 sys.path.append("../tests")
-from helpers import finite_difference_jvp
+from helpers import finite_difference_jvp  # pyright: ignore
 
 
 a_primal = (jnp.eye(3),)

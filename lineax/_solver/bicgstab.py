@@ -1,18 +1,24 @@
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
+from typing_extensions import TypeAlias
 
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
+from jaxtyping import Array, PyTree
 
 from .._misc import max_norm, tree_dot
-from .._operator import AbstractLinearOperator, IdentityLinearOperator
+from .._operator import AbstractLinearOperator
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
+from .misc import preconditioner_and_y0
 
 
-class BiCGStab(AbstractLinearSolver):
+_BiCGStabState: TypeAlias = AbstractLinearOperator
+
+
+class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
     """Biconjugate gradient stabilised method for linear systems.
 
     The operator should be square.
@@ -20,7 +26,7 @@ class BiCGStab(AbstractLinearSolver):
     Equivalent to `jax.scipy.sparse.linalg.bicgstab`.
 
     This supports the following `options` (as passed to
-    `optx.linear_solve(..., options=...)`).
+    `lx.linear_solve(..., options=...)`).
 
     - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
         to be used as a preconditioner. Defaults to
@@ -47,7 +53,7 @@ class BiCGStab(AbstractLinearSolver):
                     "of all three)."
                 )
 
-    def init(self, operator, options):
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         if operator.in_structure() != operator.out_structure():
             raise ValueError(
                 "`BiCGstab(..., normal=False)` may only be used for linear solves with "
@@ -55,37 +61,17 @@ class BiCGStab(AbstractLinearSolver):
             )
         return operator
 
-    def compute(self, state, vector, options):
+    def compute(
+        self, state: _BiCGStabState, vector: PyTree[Array], options: dict[str, Any]
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator = state
-        structure = operator.in_structure()
-
-        try:
-            preconditioner = options["preconditioner"]
-        except KeyError:
-            preconditioner = IdentityLinearOperator(structure)
+        preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
+        leaves, _ = jtu.tree_flatten(vector)
+        size = sum(leaf.size for leaf in leaves)
+        if self.max_steps is None:
+            max_steps = 2 * size + 2
         else:
-            if not isinstance(preconditioner, AbstractLinearOperator):
-                raise ValueError("The preconditioner must be a linear operator.")
-            if preconditioner.in_structure() != structure:
-                raise ValueError(
-                    "The preconditioner must have `in_structure` that matches the "
-                    "operator's `in_strucure`."
-                )
-            if preconditioner.out_structure() != structure:
-                raise ValueError(
-                    "The preconditioner must have `out_structure` that matches the "
-                    "operator's `in_structure`."
-                )
-        try:
-            y0 = options["y0"]
-        except KeyError:
-            y0 = ω(vector).call(jnp.zeros_like).ω
-        else:
-            if jax.eval_shape(lambda: y0) != jax.eval_shape(lambda: vector):
-                raise ValueError(
-                    "`y0` must have the same structure, shape, and dtype as `vector`"
-                )
-
+            max_steps = self.max_steps
         has_scale = not (
             isinstance(self.atol, (int, float))
             and isinstance(self.rtol, (int, float))
@@ -106,7 +92,7 @@ class BiCGStab(AbstractLinearSolver):
         def breakdown_occurred(omega, alpha, rho):
             # Empirically, the tolerance checks for breakdown are very tight.
             # These specific tolerances are heuristic.
-            if jax.config.jax_enable_x64:
+            if jax.config.jax_enable_x64:  # pyright: ignore
                 return (omega == 0.0) | (alpha == 0.0) | (rho == 0.0)
             else:
                 return (omega < 1e-16) | (alpha < 1e-16) | (rho < 1e-16)
@@ -127,8 +113,7 @@ class BiCGStab(AbstractLinearSolver):
             y, r, alpha, omega, rho, _, _, diff, step = carry
             out = jnp.invert(breakdown_occurred(omega, alpha, rho))
             out = out & not_converged(r, diff, y)
-            if self.max_steps is not None:
-                out = out & (step < self.max_steps)
+            out = out & (step < max_steps)
             return out
 
         def body_fun(carry):
@@ -183,31 +168,31 @@ class BiCGStab(AbstractLinearSolver):
         solution, residual, alpha, omega, rho, _, _, diff, num_steps = lax.while_loop(
             cond_fun, body_fun, init_carry
         )
+        if self.max_steps is None:
+            result = jnp.where(
+                (num_steps == max_steps),
+                RESULTS.singular,  # pyright: ignore
+                RESULTS.successful,  # pyright: ignore
+            )
+        else:
+            result = jnp.where(
+                (num_steps == self.max_steps),
+                RESULTS.max_steps_reached,  # pyright: ignore
+                RESULTS.successful,  # pyright: ignore
+            )
         # breakdown is only an issue if we did not converge
         breakdown = breakdown_occurred(omega, alpha, rho) & not_converged(
             residual, diff, solution
         )
 
-        result = jnp.where(
-            breakdown,
-            RESULTS.breakdown,
-            RESULTS.successful,
-        )
-        if self.max_steps is None:
-            result = result
-        else:
-            result = jnp.where(
-                (num_steps == self.max_steps),
-                RESULTS.max_steps_reached,
-                result,
-            )
+        result = jnp.where(breakdown, RESULTS.breakdown, result)  # pyright: ignore
         return (
             solution,
             result,
             {"num_steps": num_steps, "max_steps": self.max_steps},
         )
 
-    def transpose(self, state, options):
+    def transpose(self, state: _BiCGStabState, options: dict[str, Any]):
         del options
         operator = state
         transpose_options = {}

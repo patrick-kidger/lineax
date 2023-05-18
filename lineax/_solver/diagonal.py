@@ -1,15 +1,20 @@
-from typing import Optional
+from typing import Any, Optional, Union
+from typing_extensions import TypeAlias
 
 import jax.flatten_util as jfu
 import jax.numpy as jnp
+from jaxtyping import Array, PyTree
 
 from .._misc import resolve_rcond
-from .._operator import diagonal, has_unit_diagonal, is_diagonal
+from .._operator import AbstractLinearOperator, diagonal, has_unit_diagonal, is_diagonal
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 
 
-class Diagonal(AbstractLinearSolver):
+_DiagonalState: TypeAlias = tuple[Union[Array, None], bool]
+
+
+class Diagonal(AbstractLinearSolver[_DiagonalState]):
     """Diagonal solver for linear systems.
 
     Requires that the operator be diagonal. Then $Ax = b$, with $A = diag[a]$, is
@@ -21,7 +26,7 @@ class Diagonal(AbstractLinearSolver):
     well_posed: bool = False
     rcond: Optional[float] = None
 
-    def init(self, operator, options):
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
         if operator.in_size() != operator.out_size():
             raise ValueError(
@@ -37,7 +42,9 @@ class Diagonal(AbstractLinearSolver):
             diag = diagonal(operator)
         return diag, has_unit_diagonal(operator)
 
-    def compute(self, state, vector, options):
+    def compute(
+        self, state: _DiagonalState, vector: PyTree[Array], options: dict[str, Any]
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         diag, unit_diagonal = state
         del state, options
         # diagonal => symmetric => (in_structure == out_structure) =>
@@ -47,14 +54,16 @@ class Diagonal(AbstractLinearSolver):
         else:
             vector, unflatten = jfu.ravel_pytree(vector)
             if not self.well_posed:
-                (size,) = diag.shape
-                rcond = resolve_rcond(self.rcond, size, size, diag.dtype)
+                (size,) = diag.shape  # pyright: ignore
+                rcond = resolve_rcond(
+                    self.rcond, size, size, diag.dtype  # pyright: ignore
+                )  # pyright: ignore
                 abs_diag = jnp.abs(diag)
                 diag = jnp.where(abs_diag > rcond * jnp.max(abs_diag), diag, jnp.inf)
             solution = unflatten(vector / diag)
-        return solution, RESULTS.successful, {}
+        return solution, RESULTS.successful, {}  # pyright: ignore
 
-    def transpose(self, state, options):
+    def transpose(self, state: _DiagonalState, options: dict[str, Any]):
         # Matrix is symmetric
         return state, options
 

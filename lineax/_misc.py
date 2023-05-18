@@ -8,15 +8,13 @@ import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import Array, ArrayLike, Bool, PyTree
-
-from ._custom_types import Scalar
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar  # pyright:ignore
 
 
 def two_norm(x: PyTree) -> Scalar:
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
-        return 0
+        return jnp.array(0.0)
     return _two_norm(x)
 
 
@@ -39,12 +37,14 @@ def _two_norm_jvp(x, tx):
     return out, t_out
 
 
-def tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
+def tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Array:
     a = jtu.tree_leaves(a)
     b = jtu.tree_leaves(b)
     assert len(a) == len(b)
     return sum(
-        [jnp.vdot(ai, bi, precision=lax.Precision.HIGHEST) for ai, bi in zip(a, b)]
+        [
+            jnp.vdot(ai, bi, precision=lax.Precision.HIGHEST) for ai, bi in zip(a, b)
+        ]  # pyright:ignore
     )
 
 
@@ -107,7 +107,7 @@ def cached_eval_shape(fn, *args, **kwargs):
 
 
 def default_floating_dtype():
-    if jax.config.jax_enable_x64:
+    if jax.config.jax_enable_x64:  # pyright: ignore
         return jnp.float64
     else:
         return jnp.float32

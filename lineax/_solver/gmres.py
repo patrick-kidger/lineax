@@ -1,24 +1,29 @@
-from typing import Callable, Optional
+import functools as ft
+from typing import Any, Callable, cast, Optional
+from typing_extensions import TypeAlias
 
 import equinox.internal as eqxi
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
+from jaxtyping import Array, ArrayLike, Bool, Float, PyTree
 
 from .._misc import max_norm, two_norm
 from .._operator import (
     AbstractLinearOperator,
-    IdentityLinearOperator,
     MatrixLinearOperator,
 )
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver, linear_solve
+from .misc import preconditioner_and_y0
 from .qr import QR
 
 
-class GMRES(AbstractLinearSolver):
+_GMRESState: TypeAlias = AbstractLinearOperator
+
+
+class GMRES(AbstractLinearSolver[_GMRESState]):
     """GMRES solver for linear systems.
 
     The operator should be square.
@@ -26,7 +31,7 @@ class GMRES(AbstractLinearSolver):
     Similar to `jax.scipy.sparse.linalg.gmres`.
 
     This supports the following `options` (as passed to
-    `optx.linear_solve(..., options=...)`).
+    `lx.linear_solve(..., options=...)`).
 
     - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
         to be used as preconditioner. Defaults to
@@ -55,7 +60,7 @@ class GMRES(AbstractLinearSolver):
                     "of all three)."
                 )
 
-    def init(self, operator, options):
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         if operator.in_structure() != operator.out_structure():
             raise ValueError(
                 "`GMRES(..., normal=False)` may only be used for linear solves with "
@@ -82,7 +87,12 @@ class GMRES(AbstractLinearSolver):
     # 7. We add better safety checks for breakdown, and a safety check for stagnation
     #    of the iterates even when we don't explicitly get breakdown.
     #
-    def compute(self, state, vector, options):
+    def compute(
+        self,
+        state: _GMRESState,
+        vector: PyTree[Array],
+        options: dict[str, Any],
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         has_scale = not (
             isinstance(self.atol, (int, float))
             and isinstance(self.rtol, (int, float))
@@ -92,36 +102,13 @@ class GMRES(AbstractLinearSolver):
         if has_scale:
             b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
         operator = state
-        structure = operator.in_structure()
-
-        try:
-            preconditioner = options["preconditioner"]
-        except KeyError:
-            preconditioner = IdentityLinearOperator(structure)
-        else:
-            if not isinstance(preconditioner, AbstractLinearOperator):
-                raise ValueError("The preconditioner must be a linear operator.")
-            if preconditioner.in_structure() != structure:
-                raise ValueError(
-                    "The preconditioner must have `in_structure` that matches the "
-                    "operator's `in_strucure`."
-                )
-            if preconditioner.out_structure() != structure:
-                raise ValueError(
-                    "The preconditioner must have `out_structure` that matches the "
-                    "operator's `in_structure`."
-                )
-        try:
-            y0 = options["y0"]
-        except KeyError:
-            y0 = ω(vector).call(jnp.zeros_like).ω
-        else:
-            if jax.eval_shape(lambda: y0) != jax.eval_shape(lambda: vector):
-                raise ValueError(
-                    "`y0` must have the same structure, shape, and dtype as `vector`"
-                )
+        preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
         size = sum(leaf.size for leaf in leaves)
+        if self.max_steps is None:
+            max_steps = 2 * size
+        else:
+            max_steps = self.max_steps
         restart = min(self.restart, size)
 
         def not_converged(r, diff, y):
@@ -137,18 +124,25 @@ class GMRES(AbstractLinearSolver):
                 return True
 
         def cond_fun(carry):
-            y, r, breakdown, diff, _, step, stagnation_counter = carry
-            out = jnp.invert(breakdown) & (stagnation_counter < self.stagnation_iters)
+            y, r, _, deferred_breakdown, diff, _, step, stagnation_counter = carry
+            # NOTE: we defer ending due to breakdown by one loop! This is nonstandard,
+            # but lets us use a cauchy-like condition in the convergence criteria.
+            # If we do not defer breakdown, breakdown may detect convergence when
+            # the diff between two iterations is still quite large, and we only
+            # consider convergence when the diff is small.
+            out = jnp.invert(deferred_breakdown) & (
+                stagnation_counter < self.stagnation_iters
+            )
             out = out & not_converged(r, diff, y)
-            if self.max_steps is not None:
-                out = out & (step < self.max_steps)
+            out = out & (step < max_steps)
             # The first pass uses a dummy value for r0 in order to save on compiling
             # an extra matvec. The dummy step may raise a breakdown, and `step == 0`
             # avoids us from returning prematurely.
             return out | (step == 0)
 
         def body_fun(carry):
-            y, r, breakdown, diff, r_min, step, stagnation_counter = carry
+            # `breakdown` -> `deferred_breakdown` and `deferred_breakdown` -> `_`
+            y, r, deferred_breakdown, _, diff, r_min, step, stagnation_counter = carry
             y_new, r_new, breakdown, diff_new = self._gmres_compute(
                 operator, vector, y, r, restart, preconditioner, b_scale, step == 0
             )
@@ -164,12 +158,14 @@ class GMRES(AbstractLinearSolver):
             r_new_norm = self.norm(r_new)
             r_decreased = (r_new_norm - r_min) < 0
             stagnation_counter = jnp.where(r_decreased, 0, stagnation_counter + 1)
+            stagnation_counter = cast(Array, stagnation_counter)
             r_min = jnp.minimum(r_new_norm, r_min)
 
             return (
                 y_new,
                 r_new,
                 breakdown,
+                deferred_breakdown,
                 diff_new,
                 r_min,
                 step + 1,
@@ -184,15 +180,17 @@ class GMRES(AbstractLinearSolver):
             y0,  # y
             r0,  # residual
             False,  # breakdown
+            False,  # deferred_breakdown
             ω(y0).call(lambda x: jnp.full_like(x, jnp.inf)).ω,  # diff
             jnp.inf,  # r_min
             0,  # steps
-            0,  # stagnation counter
+            jnp.array(0),  # stagnation counter
         )
         (
             solution,
             residual,
-            breakdown,
+            _,  # breakdown
+            breakdown,  # deferred_breakdown
             diff,
             _,
             num_steps,
@@ -200,17 +198,21 @@ class GMRES(AbstractLinearSolver):
         ) = lax.while_loop(cond_fun, body_fun, init_carry)
 
         if self.max_steps is None:
-            result = RESULTS.successful
+            result = jnp.where(
+                (num_steps == max_steps),
+                RESULTS.singular,  # pyright: ignore
+                RESULTS.successful,  # pyright: ignore
+            )
         else:
             result = jnp.where(
                 (num_steps == self.max_steps),
-                RESULTS.max_steps_reached,
-                RESULTS.successful,
+                RESULTS.max_steps_reached,  # pyright: ignore
+                RESULTS.successful,  # pyright: ignore
             )
         result = jnp.where(
             stagnation_counter >= self.stagnation_iters,
-            RESULTS.stagnation,
-            result,
+            RESULTS.stagnation,  # pyright: ignore
+            result,  # pyright: ignore
         )
 
         # breakdown is only an issue if we broke down outside the tolerance
@@ -219,7 +221,7 @@ class GMRES(AbstractLinearSolver):
         breakdown = breakdown & not_converged(residual, diff, solution)
 
         # breakdown is the most serious potential issue
-        result = jnp.where(breakdown, RESULTS.breakdown, result)
+        result = jnp.where(breakdown, RESULTS.breakdown, result)  # pyright: ignore
         return (
             solution,
             result,
@@ -238,8 +240,11 @@ class GMRES(AbstractLinearSolver):
         # 2. Like the jax.scipy implementation we may want to add an incremental
         # version at a later date.
         #
+
         def main_gmres(y):
-            r_normalised, r_norm = self._normalise(r, eps=None)
+            # see the comment at the end of `_arnoldi_gram_schmidt` for a discussion
+            # of `initial_breakdown`
+            r_normalised, r_norm, initial_breakdown = self._normalise(r, eps=None)
             basis_init = jtu.tree_map(
                 lambda x: jnp.pad(x[..., None], ((0, 0),) * x.ndim + ((0, restart),)),
                 r_normalised,
@@ -251,17 +256,25 @@ class GMRES(AbstractLinearSolver):
                 return (step < restart) & jnp.invert(breakdown)
 
             def body_fun(carry):
-                basis, coeff_mat, _, step = carry
+                basis, coeff_mat, breakdown, step = carry
                 basis_new, coeff_mat_new, breakdown = self._arnoldi_gram_schmidt(
-                    operator, preconditioner, basis, coeff_mat, step, restart, b_scale
+                    operator,
+                    preconditioner,
+                    basis,
+                    coeff_mat,
+                    step,
+                    restart,
+                    b_scale,
+                    vector,
+                    breakdown,
                 )
                 return basis_new, coeff_mat_new, breakdown, step + 1
 
             def buffers(carry):
                 basis, coeff_mat, _, _ = carry
-                return (basis, coeff_mat)
+                return basis, coeff_mat
 
-            init_carry = (basis_init, coeff_mat_init, False, 0)
+            init_carry = (basis_init, coeff_mat_init, initial_breakdown, 0)
             basis, coeff_mat, breakdown, steps = eqxi.while_loop(
                 cond_fun, body_fun, init_carry, kind="lax", buffers=buffers
             )
@@ -289,70 +302,98 @@ class GMRES(AbstractLinearSolver):
 
         return y_new, r_new, breakdown, diff
 
-    def _arnoldi_gram_schmidt(
-        self, operator, preconditioner, basis, coeff_mat, step, restart, b_scale
-    ):
-        # Unwrap the buffer so we can do the matmuls in Gram-Schmidt easier.
-        # Note that we've already written to `basis` with 0s, so we are not reading
-        # from something which we have not yet written to. Further, we'll never
-        # autodiff through this. In total, we are avoiding the common buffer pitfalls.
-        basis_unwrapped = basis[...]
-        basis_step = preconditioner.mv(operator.mv(ω(basis_unwrapped)[..., step].ω))
-        step_norm = two_norm(basis_step)
-
-        # Note that the jax implementation:
+        # NOTE: in the jax implementation:
         # https://github.com/google/jax/blob/
         # c662fd216dec10cdb2cff4138b4318bb98853134/jax/_src/scipy/sparse/linalg.py#L327
-        # of _classical_iterative_gram_schmidt uses a while loop to call this.
+        # _classical_iterative_gram_schmidt uses a while loop to call this.
         # However, max_iterations is set to 2 in all calls they make to the function,
         # and the condition function requires steps < (max_iterations - 1).
         # This means that in fact they only apply Gram-Schmidt once, and using a
         # while_loop is unnecessary.
-        contract_matrix = jax.vmap(
-            lambda x, y: jnp.tensordot(
-                x, y, axes=y.ndim, precision=lax.Precision.HIGHEST
-            ),
-            in_axes=(-1, None),
+
+    def _arnoldi_gram_schmidt(
+        self,
+        operator,
+        preconditioner,
+        basis,
+        coeff_mat,
+        step,
+        restart,
+        b_scale,
+        vector,
+        initial_breakdown,
+    ):
+        #
+        # compute `basis.T @ basis_step` for each leaf of pytree
+        # and then compute the projected vector onto the basis
+        #
+        # `basis` is a pytree with buffers, meaning it can only be
+        # indexed into. Through this section, there are terms like `lambda _, x: ...`
+        # because`jtu.tree_map` only uses the first argument to determine the shape
+        # of the pytree. Since _Buffer is considered part of the pytree
+        # structure, we get leaves which are not buffers if we direclty pass `basis`.
+        # Instead, we make sure that the first argument of the tree map is something
+        # with the correct pytree structure, such as `vector` in the dummy case and
+        # basis_step when not, so that we correctly index into `basis`.
+        #
+        basis_step = preconditioner.mv(
+            operator.mv(jtu.tree_map(lambda _, x: x[..., step], vector, basis))
         )
-        # `basis.T @ basis_step` for each leaf of pytree
-        _proj = jtu.tree_map(contract_matrix, basis_unwrapped, basis_step)
-
-        # projection coeffs of `basis_step` onto existing columns.
-        # accumulated over all leaves of pytree.
+        step_norm = two_norm(basis_step)
+        contract_matrix = lambda x, y: ft.partial(
+            jnp.tensordot, axes=x.ndim, precision=lax.Precision.HIGHEST
+        )(x, y[...])
+        _proj = jtu.tree_map(contract_matrix, basis_step, basis)
         proj = jtu.tree_reduce(lambda x, y: x + y, _proj)
-
-        proj_on_cols = jtu.tree_map(lambda x: x @ proj, basis_unwrapped)
-
+        proj_on_cols = jtu.tree_map(lambda _, x: x[...] @ proj, vector, basis)
+        # now remove the component of the vector in that subspace
         basis_step_new = (basis_step**ω - proj_on_cols**ω).ω
-
         eps = step_norm * jnp.finfo(proj.dtype).eps
-        basis_step_normalised, step_norm_new = self._normalise(basis_step_new, eps=eps)
-        # the dummy initial val is to get the right structure for indexing into the
-        # buffer with a tree_map
+        basis_step_normalised, step_norm_new, breakdown = self._normalise(
+            basis_step_new, eps=eps
+        )
         basis_new = jtu.tree_map(
             lambda y, mat: mat.at[..., step + 1].set(y),
             basis_step_normalised,
             basis,
         )
-
         proj_new = proj.at[step + 1].set(step_norm_new)
-        # NOTE: this in_place update has a batch tracer, so we need to be
+        #
+        # NOTE: two somewhat complicated things are going on here:
+        #
+        # The `coeff_mat` in_place update has a batch tracer, so we need to be
         # careful and wrap it in a buffer, hence the use of eqxi.while_loop
         # instead of lax.while_loop throughout.
-        coeff_mat_new = coeff_mat.at[step, :].set(proj_new)
-        breakdown = step_norm_new < jnp.finfo(step_norm_new.dtype).eps
+        #
+        # `initial_breakdown` occurs when the previous loop returns a
+        # residual which is small enough to be interpreted as 0 by self._normalise,
+        # but which was passed through the solve anyway. This occurs when
+        # the residual is small but the diff is not, or if the
+        # correct solution was given to GMRES from the start. Both of these tend to
+        # happen at the start of `gmres_compute`.
+        # The latter may happen when using a sequence of iterative methods.
+        # If `initial_breakdown` occurs, then we leave the `coeff_mat` as it was
+        # at initialisation. Replacing it with the projection (which will be all 0s)
+        # will mean `coeff_mat` is not full-rank, and `QR` can only handle nonsquare
+        # matrices of full-rank.
+        #
+        coeff_mat_new = coeff_mat.at[step, :].set(
+            proj_new, pred=jnp.invert(initial_breakdown)
+        )
         return basis_new, coeff_mat_new, breakdown
 
-    def _normalise(self, x, eps):
+    def _normalise(
+        self, x: PyTree[Array], eps: Optional[Float[ArrayLike, ""]]
+    ) -> tuple[PyTree[Array], Float[Array, ""], Bool[ArrayLike, ""]]:
         norm = two_norm(x)
         if eps is None:
             eps = jnp.finfo(norm.dtype).eps
-        pred = norm > eps
-        safe_norm = jnp.where(pred, norm, jnp.inf)
+        breakdown = norm < eps
+        safe_norm = jnp.where(breakdown, jnp.inf, norm)
         x_normalised = (x**ω / safe_norm).ω
-        return x_normalised, norm
+        return x_normalised, norm, breakdown
 
-    def transpose(self, state, options):
+    def transpose(self, state: _GMRESState, options: dict[str, Any]):
         del options
         operator = state
         transpose_options = {}

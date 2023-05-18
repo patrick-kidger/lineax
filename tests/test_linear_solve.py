@@ -1,6 +1,7 @@
 import contextlib
 import functools as ft
 import random
+from typing import cast
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -13,6 +14,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 import pytest
+from jaxtyping import PyTree
 
 import lineax as lx
 
@@ -47,10 +49,10 @@ _solvers_tags_pseudoinverse = [
     (lx.SVD(), (), True),
     (lx.BiCGStab(rtol=tol, atol=tol), (), False),
     (lx.GMRES(rtol=tol, atol=tol), (), False),
-    (lx.CG(normal=True, rtol=tol, atol=tol), (), False),
-    (lx.CG(normal=False, rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
-    (lx.CG(normal=False, rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
-    (lx.CG(normal=True, rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
+    (lx.NormalCG(rtol=tol, atol=tol), (), False),
+    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
+    (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
+    (lx.NormalCG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
 ]
@@ -88,7 +90,7 @@ def _params(only_pseudo):
 
 def _construct_singular_matrix(getkey, solver, tags, num=1):
     matrices = construct_matrix(getkey, solver, tags, num)
-    if isinstance(solver, lx.Diagonal):
+    if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
         return tuple(matrix.at[0, :].set(0) for matrix in matrices)
     else:
         version = random.choice([0, 1, 2])
@@ -125,7 +127,7 @@ def test_pytree_wellposed(solver, getkey):
 
     if not isinstance(
         solver,
-        (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG),
+        (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG, lx.NormalCG),
     ):
         if jax.config.jax_enable_x64:  # pyright: ignore
             tol = 1e-10
@@ -147,8 +149,8 @@ def test_pytree_wellposed(solver, getkey):
 
         operator = lx.PyTreeLinearOperator(pytree, out_structure)
         b = operator.mv(true_x)
-        optx_x = lx.linear_solve(operator, b, solver).value
-        assert shaped_allclose(optx_x, true_x, atol=tol, rtol=tol)
+        lx_x = lx.linear_solve(operator, b, solver, throw=False)
+        assert shaped_allclose(lx_x.value, true_x, atol=tol, rtol=tol)
 
 
 @pytest.mark.parametrize("make_operator,solver,tags", _params(only_pseudo=True))
@@ -165,7 +167,7 @@ def test_small_singular(make_operator, solver, tags, ops, getkey):
     out_size, in_size = matrix.shape
     true_x = jr.normal(getkey(), (in_size,))
     b = matrix @ true_x
-    x = lx.linear_solve(operator, b, solver=solver).value
+    x = lx.linear_solve(operator, b, solver=solver, throw=False).value
     jax_x, *_ = jnp.linalg.lstsq(matrix, b)
     assert shaped_allclose(x, jax_x, atol=tol, rtol=tol)
 
@@ -175,24 +177,17 @@ def test_bicgstab_breakdown(getkey):
         tol = 1e-10
     else:
         tol = 1e-4
-    solver = lx.BiCGStab(atol=tol, rtol=tol)
+    solver = lx.GMRES(atol=tol, rtol=tol, restart=2)
 
-    matrix = jnp.array(
-        [
-            [0.15892892, 0.05884365, -0.60427412, 0.1891916],
-            [-1.5484863, 0.93608822, 1.94888868, 1.37069667],
-            [0.62687318, -0.13996738, -0.6824359, 0.30975754],
-            [-0.67428635, 1.52372255, -0.88277754, 0.69633816],
-        ]
-    )
-    true_x = jnp.array([0.51383273, 1.72983427, -0.43251078, -1.11764668])
-    operator = lx.MatrixLinearOperator(matrix)
+    matrix = jr.normal(jr.PRNGKey(0), (100, 100))
+    true_x = jr.normal(jr.PRNGKey(0), (100,))
     b = matrix @ true_x
-
-    optx_soln = lx.linear_solve(operator, b, solver, throw=False)
+    operator = lx.MatrixLinearOperator(matrix)
 
     # result != 0 implies lineax reported failure
-    assert jnp.all(optx_soln.result != lx.RESULTS.successful)
+    lx_soln = lx.linear_solve(operator, b, solver, throw=False)
+
+    assert jnp.all(lx_soln.result != lx.RESULTS.successful)
 
 
 def test_gmres_stagnation_or_breakdown(getkey):
@@ -215,9 +210,9 @@ def test_gmres_stagnation_or_breakdown(getkey):
     operator = lx.MatrixLinearOperator(matrix)
 
     # result != 0 implies lineax reported failure
-    optx_soln = lx.linear_solve(operator, b, solver, throw=False)
+    lx_soln = lx.linear_solve(operator, b, solver, throw=False)
 
-    assert jnp.all(optx_soln.result != lx.RESULTS.successful)
+    assert jnp.all(lx_soln.result != lx.RESULTS.successful)
 
 
 def test_gmres_large_dense(getkey):
@@ -232,34 +227,9 @@ def test_gmres_large_dense(getkey):
     true_x = jr.normal(getkey(), (100,))
     b = matrix @ true_x
 
-    optx_soln = lx.linear_solve(operator, b, solver).value
+    lx_soln = lx.linear_solve(operator, b, solver).value
 
-    assert shaped_allclose(optx_soln, true_x, atol=tol, rtol=tol)
-
-
-def test_cg_stabilisation():
-    a = jnp.array(
-        [
-            [0.47580394, 1.7310725, 1.4352472],
-            [-0.00429837, 0.43737498, 1.006149],
-            [0.00334679, -0.10773867, -0.22798078],
-        ],
-        dtype=jnp.float32,
-    )
-    true_x = jnp.array([1.4491767, -1.6469518, -0.02669191], dtype=jnp.float32)
-
-    problem = lx.MatrixLinearOperator(a)
-
-    solver = lx.CG(normal=True, rtol=0, atol=0, max_steps=50, stabilise_every=None)
-    x = lx.linear_solve(problem, a @ true_x, solver=solver, throw=False).value
-    assert jnp.all(jnp.invert(jnp.isfinite(x)))
-    # Likewise, this produces NaNs:
-    # jsp.sparse.linalg.cg(lambda x: a.T @ (a @ x), a.T @ a @ x, tol=0)[0]
-
-    solver = lx.CG(normal=True, rtol=0, atol=0, max_steps=50, stabilise_every=10)
-    x = lx.linear_solve(problem, a @ true_x, solver=solver, throw=False).value
-    assert jnp.all(jnp.invert(jnp.isnan(x)))
-    assert shaped_allclose(x, true_x, rtol=1e-3, atol=1e-3)
+    assert shaped_allclose(lx_soln, true_x, atol=tol, rtol=tol)
 
 
 def test_nontrivial_pytree_operator():
@@ -331,17 +301,25 @@ def test_nonsquare_pytree_operator2(solver):
 @pytest.mark.parametrize("solver, tags, pseudoinverse", _solvers_tags_pseudoinverse)
 @pytest.mark.parametrize("use_state", (True, False))
 @pytest.mark.parametrize(
-    "construct_matrix",
+    "make_matrix",
     (
         construct_matrix,
         _construct_singular_matrix,
     ),
 )
 def test_vmap(
-    getkey, make_operator, solver, tags, pseudoinverse, use_state, construct_matrix
+    getkey, make_operator, solver, tags, pseudoinverse, use_state, make_matrix
 ):
+    if (make_matrix is construct_matrix) or pseudoinverse:
 
-    if (construct_matrix is construct_matrix) or pseudoinverse:
+        def wrap_solve(matrix, vector):
+            operator = make_operator(matrix, tags)
+            if use_state:
+                state = solver.init(operator, options={})
+                return lx.linear_solve(operator, vector, solver, state=state).value
+            else:
+                return lx.linear_solve(operator, vector, solver).value
+
         for op_axis, vec_axis in (
             (None, 0),
             (eqx.if_array(0), None),
@@ -355,61 +333,41 @@ def test_vmap(
                 out_axes = eqx.if_array(0)
 
             (matrix,) = eqx.filter_vmap(
-                construct_matrix, axis_size=axis_size, out_axes=out_axes
+                make_matrix, axis_size=axis_size, out_axes=out_axes
             )(getkey, solver, tags)
-            breakpoint()
+            out_dim = matrix.shape[-2]
 
             if vec_axis is None:
-                vec = jr.normal(getkey(), (3,))
+                vec = jr.normal(getkey(), (out_dim,))
             else:
-                vec = jr.normal(getkey(), (10, 3))
+                vec = jr.normal(getkey(), (10, out_dim))
 
-            operator = eqx.filter_vmap(
-                make_operator, in_axes=op_axis, out_axes=out_axes
-            )(matrix, tags)
-
-            if use_state:
-
-                def linear_solve(operator, vector):
-                    state = solver.init(operator, options={})
-                    return lx.linear_solve(operator, vector, state=state, solver=solver)
-
-            else:
-
-                def linear_solve(operator, vector):
-                    return lx.linear_solve(operator, vector, solver)
-
-            as_matrix_vmapped = eqx.filter_vmap(
-                lambda x: x.as_matrix(), in_axes=op_axis, out_axes=eqxi.if_mapped(0)
-            )(operator)
-
-            true_result = eqx.filter_vmap(
-                jnp.linalg.solve, in_axes=(op_axis, vec_axis)
-            )(as_matrix_vmapped, vec)
-
-            result = eqx.filter_vmap(linear_solve, in_axes=(op_axis, vec_axis))(
-                operator, vec
-            ).value
-            assert shaped_allclose(result, true_result)
+            jax_result, _, _, _ = eqx.filter_vmap(
+                jnp.linalg.lstsq, in_axes=(op_axis, vec_axis)
+            )(matrix, vec)
+            lx_result = eqx.filter_vmap(wrap_solve, in_axes=(op_axis, vec_axis))(
+                matrix, vec
+            )
+            assert shaped_allclose(lx_result, jax_result)
 
 
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("solver, tags, pseudoinverse", _solvers_tags_pseudoinverse)
 @pytest.mark.parametrize("use_state", (True, False))
 @pytest.mark.parametrize(
-    "construct_matrix",
+    "make_matrix",
     (
         construct_matrix,
         _construct_singular_matrix,
     ),
 )
 def test_jvp(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, construct_matrix
+    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix
 ):
     t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
 
-    if (construct_matrix is construct_matrix) or pseudoinverse:
-        matrix, t_matrix = construct_matrix(getkey, solver, tags, num=2)
+    if (make_matrix is construct_matrix) or pseudoinverse:
+        matrix, t_matrix = make_matrix(getkey, solver, tags, num=2)
 
         out_size, _ = matrix.shape
         vec = jr.normal(getkey(), (out_size,))
@@ -426,7 +384,7 @@ def test_jvp(
         )
 
         if use_state:
-            state = solver.init(operator, options=None)
+            state = solver.init(operator, options={})
             linear_solve = ft.partial(lx.linear_solve, state=state)
         else:
             linear_solve = lx.linear_solve
@@ -477,16 +435,16 @@ def test_jvp(
 @pytest.mark.parametrize("solver, tags, pseudoinverse", _solvers_tags_pseudoinverse)
 @pytest.mark.parametrize("use_state", (True, False))
 @pytest.mark.parametrize(
-    "construct_matrix",
+    "make_matrix",
     (
         construct_matrix,
         _construct_singular_matrix,
     ),
 )
 def test_vmap_vmap(
-    getkey, make_operator, solver, tags, pseudoinverse, use_state, construct_matrix
+    getkey, make_operator, solver, tags, pseudoinverse, use_state, make_matrix
 ):
-    if (construct_matrix is construct_matrix) or pseudoinverse:
+    if (make_matrix is construct_matrix) or pseudoinverse:
         # combinations with nontrivial application across both vmaps
         axes = [
             (eqx.if_array(0), eqx.if_array(0), None, None),
@@ -512,9 +470,7 @@ def test_vmap_vmap(
                 out_axis2 = None
 
             (matrix,) = eqx.filter_vmap(
-                eqx.filter_vmap(
-                    construct_matrix, axis_size=axis_size1, out_axes=out_axis1
-                ),
+                eqx.filter_vmap(make_matrix, axis_size=axis_size1, out_axes=out_axis1),
                 axis_size=axis_size2,
                 out_axes=out_axis2,
             )(getkey, solver, tags)
@@ -576,7 +532,7 @@ def test_vmap_vmap(
                 eqx.filter_vmap(x, in_axes=vmap1_axes), in_axes=vmap2_axes
             )(as_matrix_vmapped, vec)
 
-            if construct_matrix is _construct_singular_matrix:
+            if make_matrix is _construct_singular_matrix:
                 true_result, _, _, _ = solve_with(jnp.linalg.lstsq)
             else:
                 true_result = solve_with(jnp.linalg.solve)
@@ -587,16 +543,16 @@ def test_vmap_vmap(
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("use_state", (True, False))
 @pytest.mark.parametrize(
-    "construct_matrix",
+    "make_matrix",
     (
         construct_matrix,
         _construct_singular_matrix,
     ),
 )
 def test_vmap_jvp(
-    getkey, solver, tags, make_operator, pseudoinverse, use_state, construct_matrix
+    getkey, solver, tags, make_operator, pseudoinverse, use_state, make_matrix
 ):
-    if (construct_matrix is construct_matrix) or pseudoinverse:
+    if (make_matrix is construct_matrix) or pseudoinverse:
         t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
         if pseudoinverse:
             jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]
@@ -624,7 +580,7 @@ def test_vmap_jvp(
                 out_axes = None
 
             def _make():
-                matrix, t_matrix = construct_matrix(getkey, solver, tags, num=2)
+                matrix, t_matrix = make_matrix(getkey, solver, tags, num=2)
                 operator, t_operator = eqx.filter_jvp(
                     make_operator, (matrix, tags), (t_matrix, t_tags)
                 )
@@ -688,17 +644,17 @@ def test_vmap_jvp(
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("use_state", (True, False))
 @pytest.mark.parametrize(
-    "construct_matrix",
+    "make_matrix",
     (
         construct_matrix,
         _construct_singular_matrix,
     ),
 )
 def test_jvp_jvp(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, construct_matrix
+    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix
 ):
     t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
-    if (construct_matrix is construct_matrix) or pseudoinverse:
+    if (make_matrix is construct_matrix) or pseudoinverse:
         matrix, t_matrix, tt_matrix, tt_t_matrix = construct_matrix(
             getkey, solver, tags, num=4
         )
@@ -722,7 +678,7 @@ def test_jvp_jvp(
         if use_state:
 
             def linear_solve1(operator, vector):
-                state = solver.init(operator, options=None)
+                state = solver.init(operator, options={})
                 state_dynamic, state_static = eqx.partition(state, eqx.is_inexact_array)
                 state_dynamic = lax.stop_gradient(state_dynamic)
                 state = eqx.combine(state_dynamic, state_static)
@@ -745,9 +701,9 @@ def test_jvp_jvp(
         jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
 
         def _make_primal_tangents(mode):
-            optx_args = ([], [], operator, t_operator, tt_operator, tt_t_operator)
+            lx_args = ([], [], operator, t_operator, tt_operator, tt_t_operator)
             jnp_args = ([], [], matrix, t_matrix, tt_matrix, tt_t_matrix)
-            for (primals, ttangents, op, t_op, tt_op, tt_t_op) in (optx_args, jnp_args):
+            for (primals, ttangents, op, t_op, tt_op, tt_t_op) in (lx_args, jnp_args):
                 if "op" in mode:
                     primals.append(op)
                     ttangents.append(tt_op)
@@ -760,9 +716,9 @@ def test_jvp_jvp(
                 if "t_vec" in mode:
                     primals.append(t_vec)
                     ttangents.append(tt_t_vec)
-            optx_out = tuple(optx_args[0]), tuple(optx_args[1])
+            lx_out = tuple(lx_args[0]), tuple(lx_args[1])
             jnp_out = tuple(jnp_args[0]), tuple(jnp_args[1])
-            return optx_out, jnp_out
+            return lx_out, jnp_out
 
         modes = (
             {"op"},
@@ -888,12 +844,12 @@ def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, getkey):
         else:
             matrix = matrix.at[2:, :].set(0)
     vector = jr.normal(getkey(), (out_size,))
-    optx_solve = lambda mat, vec: lx.linear_solve(
+    lx_solve = lambda mat, vec: lx.linear_solve(
         lx.MatrixLinearOperator(mat), vec, lx.QR()
     ).value
     jnp_solve = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]
     if jvp:
-        optx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, optx_solve))
+        lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
         jnp_solve = eqx.filter_jit(ft.partial(finite_difference_jvp, jnp_solve))
         t_matrix = jr.normal(getkey(), (out_size, in_size))
         t_vector = jr.normal(getkey(), (out_size,))
@@ -901,10 +857,10 @@ def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, getkey):
     else:
         args = (matrix, vector)
     with context:
-        x = optx_solve(*args)
+        x = lx_solve(*args)  # pyright: ignore
     if full_rank:
         true_x = jnp_solve(*args)
-        assert shaped_allclose(x, true_x)
+        assert shaped_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.parametrize("full_rank", (True, False))
@@ -927,27 +883,29 @@ def test_qr_nonsquare_vec(full_rank, jvp, wide, getkey):
         else:
             matrix = matrix.at[2:, :].set(0)
     vector = jr.normal(getkey(), (out_size,))
-    optx_solve = lambda vec: lx.linear_solve(
+    lx_solve = lambda vec: lx.linear_solve(
         lx.MatrixLinearOperator(matrix), vec, lx.QR()
     ).value
     jnp_solve = lambda vec: jnp.linalg.lstsq(matrix, vec)[0]
     if jvp:
-        optx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, optx_solve))
+        lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
         jnp_solve = eqx.filter_jit(ft.partial(finite_difference_jvp, jnp_solve))
         t_vector = jr.normal(getkey(), (out_size,))
         args = ((vector,), (t_vector,))
     else:
         args = (vector,)
     with context:
-        x = optx_solve(*args)
+        x = lx_solve(*args)  # pyright: ignore
     if full_rank:
         true_x = jnp_solve(*args)
-        assert shaped_allclose(x, true_x)
+        assert shaped_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
 _cg_solvers = (
-    (lx.CG(normal=False, rtol=tol, atol=tol), lx.positive_semidefinite_tag),
-    (lx.CG(normal=False, rtol=tol, atol=tol), lx.negative_semidefinite_tag),
+    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag),
+    (lx.CG(rtol=tol, atol=tol, max_steps=512), lx.negative_semidefinite_tag),
+    (lx.GMRES(rtol=tol, atol=tol), ()),
+    (lx.BiCGStab(rtol=tol, atol=tol), ()),
 )
 
 
@@ -956,18 +914,13 @@ _cg_solvers = (
 @pytest.mark.parametrize("use_state", (False, True))
 def test_cg_inf(getkey, solver, tags, use_state, make_operator):
     (matrix,) = _construct_singular_matrix(getkey, solver, tags)
-    matrix = matrix.T @ matrix
-
-    if has_tag(tags, lx.negative_semidefinite_tag):
-        matrix = -matrix
-
     operator = make_operator(matrix, tags)
 
     out_size, _ = matrix.shape
     vec = jr.normal(getkey(), (out_size,))
 
     if use_state:
-        state = solver.init(operator, options=None)
+        state = solver.init(operator, options={})
         linear_solve = ft.partial(lx.linear_solve, state=state)
     else:
         linear_solve = lx.linear_solve
@@ -978,7 +931,10 @@ def test_cg_inf(getkey, solver, tags, use_state, make_operator):
 
 # Like `jax.linear_transpose`, but performs DCE first. See JAX issue #15660.
 def _dce_linear_transpose(fn, *primals):
-    jaxpr, struct = jax.make_jaxpr(fn, return_shape=True)(*primals)
+    jaxpr, struct = cast(
+        tuple[jax.core.ClosedJaxpr, PyTree[jax.ShapeDtypeStruct]],
+        jax.make_jaxpr(fn, return_shape=True)(*primals),
+    )
     dce_jaxpr, used_inputs = pe.dce_jaxpr(jaxpr.jaxpr, [True] * len(jaxpr.out_avals))
     dce_fn = jax.core.jaxpr_as_fun(jax.core.ClosedJaxpr(dce_jaxpr, jaxpr.consts))
     flat_primals, treedef_primals = jtu.tree_flatten(primals)

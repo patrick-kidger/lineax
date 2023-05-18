@@ -1,14 +1,22 @@
+from typing import Any
+from typing_extensions import TypeAlias
+
 import jax.numpy as jnp
 import jax.scipy as jsp
+from jaxtyping import Array, PyTree
 
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import (
     pack_structures,
+    PackedStructures,
     ravel_vector,
     transpose_packed_structures,
     unravel_solution,
 )
+
+
+_QRState: TypeAlias = tuple[tuple[Array, Array], bool, PackedStructures]
 
 
 class QR(AbstractLinearSolver):
@@ -40,7 +48,12 @@ class QR(AbstractLinearSolver):
         packed_structures = pack_structures(operator)
         return qr, transpose, packed_structures
 
-    def compute(self, state, vector, options):
+    def compute(
+        self,
+        state: _QRState,
+        vector: PyTree[Array],
+        options: dict[str, Any],
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         (q, r), transpose, packed_structures = state
         del state, options
         vector = ravel_vector(vector, packed_structures)
@@ -55,9 +68,9 @@ class QR(AbstractLinearSolver):
                 r, q.T @ vector, trans="N", unit_diagonal=False
             )
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {}
+        return solution, RESULTS.successful, {}  # pyright: ignore
 
-    def transpose(self, state, options):
+    def transpose(self, state: _QRState, options: dict[str, Any]):
         (q, r), transpose, structures = state
         transposed_packed_structures = transpose_packed_structures(structures)
         transpose_state = (q, r), not transpose, transposed_packed_structures

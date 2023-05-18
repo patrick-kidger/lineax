@@ -1,5 +1,5 @@
 import math
-from typing import NewType
+from typing import Any, NewType
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -9,7 +9,46 @@ import jax.tree_util as jtu
 import numpy as np
 from jaxtyping import Array, PyTree, Shaped
 
-from .._operator import AbstractLinearOperator
+from .._operator import (
+    AbstractLinearOperator,
+    IdentityLinearOperator,
+    is_positive_semidefinite,
+)
+
+
+def preconditioner_and_y0(
+    operator: AbstractLinearOperator, vector: PyTree[Array], options: dict[str, Any]
+):
+    structure = operator.in_structure()
+    try:
+        preconditioner = options["preconditioner"]
+    except KeyError:
+        preconditioner = IdentityLinearOperator(structure)
+    else:
+        if not isinstance(preconditioner, AbstractLinearOperator):
+            raise ValueError("The preconditioner must be a linear operator.")
+        if preconditioner.in_structure() != structure:
+            raise ValueError(
+                "The preconditioner must have `in_structure` that matches the "
+                "operator's `in_strucure`."
+            )
+        if preconditioner.out_structure() != structure:
+            raise ValueError(
+                "The preconditioner must have `out_structure` that matches the "
+                "operator's `in_structure`."
+            )
+        if not is_positive_semidefinite(preconditioner):
+            raise ValueError("The preconditioner must be positive definite.")
+    try:
+        y0 = options["y0"]
+    except KeyError:
+        y0 = jtu.tree_map(jnp.zeros_like, vector)
+    else:
+        if jax.eval_shape(lambda: y0) != jax.eval_shape(lambda: vector):
+            raise ValueError(
+                "`y0` must have the same structure, shape, and dtype as `vector`"
+            )
+    return preconditioner, y0
 
 
 PackedStructures = NewType("PackedStructures", eqxi.Static)

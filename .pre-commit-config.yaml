@@ -1,14 +1,15 @@
 repos:
-  - repo: https://github.com/ambv/black
-    rev: 22.3.0
-    hooks:
-    - id: black
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: 'v0.0.255'
     hooks:
       - id: ruff
+        args: [--fix]
+  - repo: https://github.com/ambv/black
+    rev: 22.3.0
+    hooks:
+    - id: black
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.302
+    rev: v1.1.307
     hooks:
     - id: pyright
       additional_dependencies: ["jax", "equinox", "pytest"]

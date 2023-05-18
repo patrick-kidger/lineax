@@ -1,6 +1,7 @@
 import abc
 import functools as ft
-from typing import Any, Dict, Generic, Optional, Tuple, TypeVar
+from typing import Any, Generic, Optional, TypeVar
+from typing_extensions import TypeAlias
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -262,7 +263,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def init(
-        self, operator: AbstractLinearOperator, options: Dict[str, Any]
+        self, operator: AbstractLinearOperator, options: dict[str, Any]
     ) -> _SolverState:
         """Do any initial computation on just the `operator`.
 
@@ -277,13 +278,13 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         !!! Example
 
             ```python
-            operator = optx.MatrixLinearOperator(...)
+            operator = lx.MatrixLinearOperator(...)
             vector1 = ...
             vector2 = ...
-            solver = optx.LU()
+            solver = lx.LU()
             state = solver.init(operator, options={})
-            solution1 = optx.linear_solve(operator, vector1, solver, state=state)
-            solution2 = optx.linear_solve(operator, vector2, solver, state=state)
+            solution1 = lx.linear_solve(operator, vector1, solver, state=state)
+            solution2 = lx.linear_solve(operator, vector2, solver, state=state)
             ```
 
         **Arguments:**
@@ -299,8 +300,8 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def compute(
-        self, state: _SolverState, vector: PyTree[Array], options: Dict[str, Any]
-    ) -> Tuple[PyTree[Array], RESULTS, Dict[str, Any]]:
+        self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         """Solves a linear system.
 
         **Arguments:**
@@ -317,7 +318,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         - The solution to the linear system.
         - An integer indicating the success or failure of the solve. This is an integer
             which may be converted to a human-readable error message via
-            `optx.RESULTS[...]`.
+            `lx.RESULTS[...]`.
         - A dictionary of an extra statistics about the solve, e.g. the number of steps
             taken.
         """
@@ -374,8 +375,8 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def transpose(
-        self, state: _SolverState, options: Dict[str, Any]
-    ) -> Tuple[_SolverState, Dict[str, Any]]:
+        self, state: _SolverState, options: dict[str, Any]
+    ) -> tuple[_SolverState, dict[str, Any]]:
         """Transposes the result of [`lineax.AbstractLinearSolver.init`][].
 
         That is, it should be the case that
@@ -431,7 +432,7 @@ def _lookup(token) -> AbstractLinearSolver:
     return _lookup_dict[token]
 
 
-_AutoLinearSolverState = tuple[Any, Any]
+_AutoLinearSolverState: TypeAlias = tuple[Any, Any]
 
 
 class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
@@ -516,13 +517,18 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         token = self._auto_select_solver(operator)
         return token, _lookup(token).init(operator, options)
 
-    def compute(self, state: _AutoLinearSolverState, vector, options):
+    def compute(
+        self,
+        state: _AutoLinearSolverState,
+        vector: PyTree[Array],
+        options: dict[str, Any],
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         token, state = state
         solver = _lookup(token)
         solution, result, _ = solver.compute(state, vector, options)
         return solution, result, {}
 
-    def transpose(self, state: _AutoLinearSolverState, options):
+    def transpose(self, state: _AutoLinearSolverState, options: dict[str, Any]):
         token, state = state
         solver = _lookup(token)
         transpose_state, transpose_options = solver.transpose(state, options)
@@ -552,7 +558,7 @@ def linear_solve(
     vector: PyTree[ArrayLike],
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
-    options: Optional[Dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
     state: PyTree[Any] = sentinel,
     throw: bool = True,
 ) -> Solution:
@@ -604,8 +610,8 @@ def linear_solve(
         [`lineax.MatrixLinearOperator`][], e.g.
         ```python
         matrix = jax.random.normal(key, (5, 5))  # JAX array of shape (5, 5)
-        operator = optx.MatrixLinearOperator(matrix)  # Wrap into a linear operator
-        solution = optx.linear_solve(operator, ...)
+        operator = lx.MatrixLinearOperator(matrix)  # Wrap into a linear operator
+        solution = lx.linear_solve(operator, ...)
         ```
         rather than being passed directly.
 
@@ -666,7 +672,10 @@ def linear_solve(
         )
     if isinstance(operator, IdentityLinearOperator):
         return Solution(
-            value=vector, result=RESULTS.successful, state=state, stats={}, aux=None
+            value=vector,
+            result=RESULTS.successful,
+            state=state,
+            stats={},  # pyright: ignore
         )
     if state == sentinel:
         state = solver.init(operator, options)
@@ -693,7 +702,9 @@ def linear_solve(
         )
     )
     result = jnp.where(
-        (result == RESULTS.successful) & has_nonfinites, RESULTS.singular, result
+        (result == RESULTS.successful) & has_nonfinites,
+        RESULTS.singular,  # pyright:ignore
+        result,  # pyright:ignore
     )
     sol = Solution(value=solution, result=result, state=state, stats=stats)
 
@@ -703,6 +714,6 @@ def linear_solve(
             sol,
             result != RESULTS.successful,
             error_index,
-            RESULTS.reverse_lookup,
+            RESULTS.reverse_lookup,  # pyright: ignore
         )
     return sol

@@ -1,7 +1,17 @@
 import abc
 import functools as ft
 import math
-from typing import Any, Callable, FrozenSet, Iterable, List, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    FrozenSet,
+    Iterable,
+    List,
+    NoReturn,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 import equinox as eqx
 import jax
@@ -10,9 +20,8 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Float, PyTree, Shaped
+from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar, Shaped  # pyright: ignore
 
-from ._custom_types import Scalar
 from ._misc import (
     cached_eval_shape,
     default_floating_dtype,
@@ -35,7 +44,7 @@ from ._tags import (
 
 def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
     try:
-        iter_x = iter(x)
+        iter_x = iter(x)  # pyright: ignore
     except TypeError:
         return frozenset([x])
     else:
@@ -145,7 +154,7 @@ class AbstractLinearOperator(eqx.Module):
         **Returns:** An integer.
         """
         leaves = jtu.tree_leaves(self.in_structure())
-        return sum(math.prod(leaf.shape) for leaf in leaves)
+        return sum(math.prod(leaf.shape) for leaf in leaves)  # pyright: ignore
 
     def out_size(self) -> int:
         """Returns the total number of scalars in the output of this linear operator.
@@ -157,7 +166,7 @@ class AbstractLinearOperator(eqx.Module):
         **Returns:** An integer.
         """
         leaves = jtu.tree_leaves(self.out_structure())
-        return sum(math.prod(leaf.shape) for leaf in leaves)
+        return sum(math.prod(leaf.shape) for leaf in leaves)  # pyright: ignore
 
     @property
     def T(self):
@@ -399,7 +408,10 @@ class PyTreeLinearOperator(AbstractLinearOperator):
                 leaf.shape[: len(struct.shape)] == struct.shape for leaf in leaves
             )
             size = math.prod(struct.shape)
-            leaves = [leaf.astype(dtype).reshape(size, -1) for leaf in leaves]
+            leaves = [
+                leaf.astype(dtype).reshape(size, -1) if leaf.size > 0 else leaf
+                for leaf in leaves
+            ]
             return jnp.concatenate(leaves, axis=1)
 
         matrix = jtu.tree_map(concat_in, self.out_structure(), self.pytree)
@@ -755,15 +767,15 @@ class TaggedLinearOperator(AbstractLinearOperator):
 
         ```python
         # Some other operator.
-        operator = optx.MatrixLinearOperator(some_jax_array)
+        operator = lx.MatrixLinearOperator(some_jax_array)
 
         # Now symmetric! But the type system doesn't know this.
         sym_operator = operator + operator.T
-        assert optx.is_symmetric(sym_operator) == False
+        assert lx.is_symmetric(sym_operator) == False
 
         # We can declare that our operator has a particular property.
-        sym_operator = optx.TaggedLinearOperator(sym_operator, optx.symmetric_tag)
-        assert optx.is_symmetric(sym_operator) == True
+        sym_operator = lx.TaggedLinearOperator(sym_operator, lx.symmetric_tag)
+        assert lx.is_symmetric(sym_operator) == True
         ```
     """
 
@@ -1029,7 +1041,7 @@ class AuxLinearOperator(AbstractLinearOperator):
 #
 
 
-def _default_not_implemented(name: str, operator: AbstractLinearOperator):
+def _default_not_implemented(name: str, operator: AbstractLinearOperator) -> NoReturn:
     msg = f"`lineax.{name}` has not been implemented for {type(operator)}"
     if type(operator).__module__.startswith("lineax"):
         assert False, msg + ". Please file a bug against Lineax."
@@ -1105,7 +1117,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     For example:
     ```python
     large_function = ...
-    operator = optx.FunctionLinearOperator(large_function, ...)
+    operator = lx.FunctionLinearOperator(large_function, ...)
 
     # Option 1
     out1 = operator.mv(vector1)  # Traces and compiles `large_function`
@@ -1116,7 +1128,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     # run times.
 
     # Option 2
-    operator = optx.materialise(operator)  # Traces and compiles `large_function` and
+    operator = lx.materialise(operator)  # Traces and compiles `large_function` and
                                            # stores the result as a matrix.
     out1 = operator.mv(vector1)  # Each of these just computes a matrix-vector product
     out2 = operator.mv(vector2)  # against the stored matrix.
@@ -1126,7 +1138,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     # computation may-or-may-not take a long time to run.
     ```
     Generally speaking it is worth first setting up your problem without
-    `optx.materialise`, and using it as an optional optimisation if you find that it
+    `lx.materialise`, and using it as an optional optimisation if you find that it
     helps your particular problem.
 
     **Arguments:**
@@ -1638,7 +1650,7 @@ for transform in (linearise, materialise, diagonal):
         )
         return TangentLinearOperator(primal_out, tangent_out)
 
-    @transform.register(AddLinearOperator)
+    @transform.register(AddLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
         return transform(operator.operator1) + transform(operator.operator2)
 
@@ -1650,7 +1662,7 @@ for transform in (linearise, materialise, diagonal):
     def _(operator, transform=transform):
         return transform(operator.operator) / operator.scalar
 
-    @transform.register(AuxLinearOperator)
+    @transform.register(AuxLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
         return transform(operator.operator)
 

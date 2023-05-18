@@ -50,7 +50,7 @@ def _(tags: FrozenSet[object]):
 
 
 def transpose_tags(tags: FrozenSet[object]):
-    """Optimistix uses "tags" to declare that a particular linear operator exhibits some
+    """Lineax uses "tags" to declare that a particular linear operator exhibits some
     property, e.g. symmetry.
 
     This function takes in a collection of tags representing a linear operator, and

@@ -1,21 +1,28 @@
-from typing import Optional
+from typing import Any, Optional
+from typing_extensions import TypeAlias
 
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
+from jaxtyping import Array, PyTree
 
 from .._misc import resolve_rcond
+from .._operator import AbstractLinearOperator
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import (
     pack_structures,
+    PackedStructures,
     ravel_vector,
     transpose_packed_structures,
     unravel_solution,
 )
 
 
-class SVD(AbstractLinearSolver):
+_SVDState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
+
+
+class SVD(AbstractLinearSolver[_SVDState]):
     """SVD solver for linear systems.
 
     This solver can handle any operator, even nonsquare or singular ones. In these
@@ -26,29 +33,37 @@ class SVD(AbstractLinearSolver):
 
     rcond: Optional[float] = None
 
-    def init(self, operator, options):
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
         svd = jsp.linalg.svd(operator.as_matrix(), full_matrices=False)
         packed_structures = pack_structures(operator)
         return svd, packed_structures
 
-    def compute(self, state, vector, options):
+    def compute(
+        self,
+        state: _SVDState,
+        vector: PyTree[Array],
+        options: dict[str, Any],
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         del options
         (u, s, vt), packed_structures = state
         vector = ravel_vector(vector, packed_structures)
         m, _ = u.shape
         _, n = vt.shape
         rcond = resolve_rcond(self.rcond, n, m, s.dtype)
-        mask = s >= jnp.array(rcond, dtype=s.dtype) * s[0]
+        rcond = jnp.array(rcond, dtype=s.dtype)
+        if s.size > 0:
+            rcond = rcond * s[0]
+        mask = s >= rcond
         rank = mask.sum()
         safe_s = jnp.where(mask, s, 1)
-        s_inv = jnp.where(mask, 1 / safe_s, 0)
+        s_inv = jnp.where(mask, jnp.array(1.0) / safe_s, 0)
         uTb = jnp.matmul(u.conj().T, vector, precision=lax.Precision.HIGHEST)
         solution = jnp.matmul(vt.conj().T, s_inv * uTb, precision=lax.Precision.HIGHEST)
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {"rank": rank}
+        return solution, RESULTS.successful, {"rank": rank}  # pyright: ignore
 
-    def transpose(self, state, options):
+    def transpose(self, state: _SVDState, options: dict[str, Any]):
         del options
         (u, s, vt), packed_structures = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)

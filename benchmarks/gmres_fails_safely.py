@@ -10,7 +10,7 @@ import lineax as lx
 
 
 sys.path.append("../tests")
-from helpers import getkey, shaped_allclose
+from helpers import getkey, shaped_allclose  # pyright: ignore
 
 
 jax.config.update("jax_enable_x64", True)

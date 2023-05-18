@@ -1,12 +1,23 @@
+from typing import Any
+from typing_extensions import TypeAlias
+
 import jax.flatten_util as jfu
 import jax.scipy as jsp
+from jaxtyping import Array, PyTree
 
-from .._operator import is_negative_semidefinite, is_positive_semidefinite
+from .._operator import (
+    AbstractLinearOperator,
+    is_negative_semidefinite,
+    is_positive_semidefinite,
+)
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 
 
-class Cholesky(AbstractLinearSolver):
+_CholeskyState: TypeAlias = tuple[Array, bool]
+
+
+class Cholesky(AbstractLinearSolver[_CholeskyState]):
     """Cholesky solver for linear systems. This is generally the preferred solver for
     positive or negative definite systems.
 
@@ -15,7 +26,7 @@ class Cholesky(AbstractLinearSolver):
     The operator must be square, nonsingular, and either positive or negative definite.
     """
 
-    def init(self, operator, options):
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
         is_nsd = is_negative_semidefinite(operator)
         if not (is_positive_semidefinite(operator) | is_nsd):
@@ -37,7 +48,9 @@ class Cholesky(AbstractLinearSolver):
         assert lower is False
         return factor, is_nsd
 
-    def compute(self, state, vector, options):
+    def compute(
+        self, state: _CholeskyState, vector: PyTree[Array], options: dict[str, Any]
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         factor, is_nsd = state
         del options
         # Cholesky => PSD => symmetric => (in_structure == out_structure) =>
@@ -47,9 +60,9 @@ class Cholesky(AbstractLinearSolver):
         if is_nsd:
             solution = -solution
         solution = unflatten(solution)
-        return solution, RESULTS.successful, {}
+        return solution, RESULTS.successful, {}  # pyright:ignore
 
-    def transpose(self, state, options):
+    def transpose(self, state: _CholeskyState, options: dict[str, Any]):
         # Matrix is symmetric anyway
         return state, options
 
