@@ -1,10 +1,11 @@
 from typing import Any
 from typing_extensions import TypeAlias
 
+import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
-from .._operator import AbstractLinearOperator
+from .._operator import AbstractLinearOperator, is_diagonal
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import (
@@ -32,7 +33,11 @@ class LU(AbstractLinearSolver[_LUState]):
                 "`LU` may only be used for linear solves with square matrices"
             )
         packed_structures = pack_structures(operator)
-        return jsp.linalg.lu_factor(operator.as_matrix()), packed_structures, False
+        if is_diagonal(operator):
+            lu = operator.as_matrix(), jnp.arange(operator.in_size(), dtype=jnp.int32)
+        else:
+            lu = jsp.linalg.lu_factor(operator.as_matrix())
+        return lu, packed_structures, False
 
     def compute(
         self, state: _LUState, vector: PyTree[Array], options: dict[str, Any]
