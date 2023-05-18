@@ -15,6 +15,7 @@ from typing import (
 
 import equinox as eqx
 import jax
+import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -347,7 +348,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         """**Arguments:**
 
         - `pytree`: this should be a PyTree, with structure as specified in
-            [`lineax.PyTreeLinearOperator`].
+            [`lineax.PyTreeLinearOperator`][].
         - `out_structure`: the structure of the output space. This should be a PyTree of
             `jax.ShapeDtypeStruct`s. (The structure of the input space is then
             automatically derived from the structure of `pytree`.)
@@ -1174,9 +1175,18 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    # TODO(kidger): implement more efficiently, without the relinearisation
-    zeros = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), operator.in_structure())
-    jac = jacobian(operator.fn, operator.in_size(), operator.out_size())(zeros)
+    flat, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    eye = jnp.eye(flat.size, dtype=flat.dtype)
+    jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
+
+    def batch_unravel(x):
+        assert x.ndim > 0
+        unravel_ = unravel
+        for _ in range(x.ndim - 1):
+            unravel_ = jax.vmap(unravel_)
+        return unravel_(x)
+
+    jac = jtu.tree_map(batch_unravel, jac)
     return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
 
 

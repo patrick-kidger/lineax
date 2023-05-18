@@ -195,3 +195,22 @@ def test_tangent_as_matrix(getkey):
         else:
             assert jnp.allclose(operator.as_matrix(), matrix)
             assert jnp.allclose(t_operator.as_matrix(), t_matrix)
+
+
+def test_materialise_function_linear_operator(getkey):
+    x = (jr.normal(getkey(), (5, 9)), jr.normal(getkey(), (3,)))
+    input_structure = jax.eval_shape(lambda: x)
+    fn = lambda x: {"a": jnp.broadcast_to(jnp.sum(x[0]), (1, 2))}
+    output_structure = jax.eval_shape(fn, input_structure)
+    operator = lx.FunctionLinearOperator(fn, input_structure)
+    materialised_operator = lx.materialise(operator)
+    assert materialised_operator.in_structure() == input_structure
+    assert materialised_operator.out_structure() == output_structure
+    assert isinstance(materialised_operator, lx.PyTreeLinearOperator)
+    expected_struct = {
+        "a": (
+            jax.ShapeDtypeStruct((1, 2, 5, 9), jnp.float64),
+            jax.ShapeDtypeStruct((1, 2, 3), jnp.float64),
+        )
+    }
+    assert jax.eval_shape(lambda: materialised_operator.pytree) == expected_struct
