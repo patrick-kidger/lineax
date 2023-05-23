@@ -55,7 +55,9 @@ out = lx.linear_solve(hessian, gradient_fn(y, args=None))
 minimum = y - out.value
 ```
 
-## See also
+## Finally
+
+### See also: other libraries in the JAX ecosystem
 
 Neural Networks: [Equinox](https://github.com/patrick-kidger/equinox).
 
@@ -66,3 +68,7 @@ Type annotations and runtime checking for PyTrees and shape/dtype of JAX arrays:
 Computer vision models: [Eqxvision](https://github.com/paganpasta/eqxvision).
 
 SymPy<->JAX conversion; train symbolic expressions via gradient descent: [sympy2jax](https://github.com/google/sympy2jax).
+
+### Disclaimer
+
+This is not an official Google product.
