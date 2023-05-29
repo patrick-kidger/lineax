@@ -617,7 +617,7 @@ def linear_solve(
         This function is equivalent to either `numpy.linalg.solve`, or to its
         generalisation `numpy.linalg.lstsq`, depending on the choice of solver.
 
-    The default solver is [`lineax.AutoLinearSolver(well_posed=True)`][]. This
+    The default solver is `lineax.AutoLinearSolver(well_posed=True)`. This
     automatically selects a solver depending on the structure (e.g. triangular) of your
     problem, and will throw an error if your system is overdetermined or
     underdetermined.
