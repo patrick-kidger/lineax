@@ -64,8 +64,8 @@ class Solution(eqx.Module):
 
     - `value`: The solution to the solve.
     - `result`: An integer representing whether the solve was successful or not. This
-        can be converted into a human-readbale error message via
-        `lineax.RESULTS[result]`
+        can be converted into a human-readable error message via
+        `lineax.RESULTS[result]`.
     - `stats`: Statistics about the solver, e.g. the number of steps that were required.
     - `state`: The internal state of the solver. The meaning of this is specific to each
         solver.

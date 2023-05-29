@@ -37,6 +37,7 @@ from ._operator import (
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
+    is_tridiagonal,
     is_upper_triangular,
     linearise,
     TangentLinearOperator,
@@ -420,8 +421,9 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
 
 _qr_token = eqxi.str2jax("qr_token")
-_diagonal_token = eqxi.str2jax("diagonanl_token")
+_diagonal_token = eqxi.str2jax("diagonal_token")
 _well_posed_diagonal_token = eqxi.str2jax("well_posed_diagonal_token")
+_tridiagonal_token = eqxi.str2jax("tridiagonal_token")
 _triangular_token = eqxi.str2jax("triangular_token")
 _cholesky_token = eqxi.str2jax("cholesky_token")
 _lu_token = eqxi.str2jax("lu_token")
@@ -438,6 +440,7 @@ def _lookup(token) -> AbstractLinearSolver:
         _qr_token: _solver.QR(),
         _diagonal_token: _solver.Diagonal(),
         _well_posed_diagonal_token: _solver.Diagonal(well_posed=True),
+        _tridiagonal_token: _solver.Tridiagonal(),
         _triangular_token: _solver.Triangular(),
         _cholesky_token: _solver.Cholesky(),
         _lu_token: _solver.LU(),
@@ -455,8 +458,9 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
 
     - If `well_posed=True`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
-        - Else if the operator is triangular, then use [`lineax.Triangular`][].
-        - Else if the matrix is positive or negative definite, then use
+        - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
+        - If the operator is triangular, then use [`lineax.Triangular`][].
+        - If the matrix is positive or negative definite, then use
             [`lineax.Cholesky`][].
         - Else use [`lineax.LU`][].
 
@@ -473,6 +477,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     - If `well_posed=None`:
         - If the operator is non-square, then use [`lineax.QR`][].
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
+        - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative definite, then use
             [`lineax.Cholesky`][].
@@ -484,7 +489,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
 
     well_posed: Optional[bool]
 
-    def _auto_select_solver(self, operator: AbstractLinearOperator):
+    def _select_solver(self, operator: AbstractLinearOperator):
         if self.well_posed is True:
             if operator.in_size() != operator.out_size():
                 raise ValueError(
@@ -496,6 +501,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 )
             if is_diagonal(operator):
                 token = _well_posed_diagonal_token
+            if is_tridiagonal(operator):
+                token = _tridiagonal_token
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 token = _triangular_token
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(
@@ -515,6 +522,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 token = _qr_token
             elif is_diagonal(operator):
                 token = _diagonal_token
+            if is_tridiagonal(operator):
+                token = _tridiagonal_token
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 token = _triangular_token
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(
@@ -527,8 +536,21 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
             raise ValueError(f"Invalid value `well_posed={self.well_posed}`.")
         return token
 
+    def select_solver(self, operator: AbstractLinearOperator) -> AbstractLinearSolver:
+        """Check which solver that [`lineax.AutoLinearSolver`][] will dispatch to.
+
+        **Arguments:**
+
+        - `operator`: a linear operator.
+
+        **Returns:**
+
+        The linear solver that will be used.
+        """
+        return _lookup(self._select_solver(operator))
+
     def init(self, operator, options) -> _AutoLinearSolverState:
-        token = self._auto_select_solver(operator)
+        token = self._select_solver(operator)
         return token, _lookup(token).init(operator, options)
 
     def compute(
@@ -550,11 +572,11 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         return transpose_state, transpose_options
 
     def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
-        token = self._auto_select_solver(operator)
+        token = self._select_solver(operator)
         return _lookup(token).allow_dependent_columns(operator)
 
     def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
-        token = self._auto_select_solver(operator)
+        token = self._select_solver(operator)
         return _lookup(token).allow_dependent_rows(operator)
 
 
@@ -717,8 +739,8 @@ def linear_solve(
     )
     result = jnp.where(
         (result == RESULTS.successful) & has_nonfinites,
-        RESULTS.singular,  # pyright:ignore
-        result,  # pyright:ignore
+        RESULTS.singular,  # pyright: ignore
+        result,  # pyright: ignore
     )
     sol = Solution(value=solution, result=result, state=state, stats=stats)
 

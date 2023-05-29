@@ -22,7 +22,12 @@ import pytest
 
 import lineax as lx
 
-from .helpers import make_diagonal_operator, make_operators, shaped_allclose
+from .helpers import (
+    make_diagonal_operator,
+    make_operators,
+    make_tridiagonal_operator,
+    shaped_allclose,
+)
 
 
 def test_ops(getkey):
@@ -66,6 +71,10 @@ def test_structures_vector(make_operator, getkey):
         matrix = jnp.eye(4)
         tags = lx.diagonal_tag
         in_size = out_size = 4
+    elif make_operator is make_tridiagonal_operator:
+        matrix = jnp.eye(4)
+        tags = lx.tridiagonal_tag
+        in_size = out_size = 4
     else:
         matrix = jr.normal(getkey(), (3, 5))
         tags = ()
@@ -80,11 +89,15 @@ def test_structures_vector(make_operator, getkey):
 
 def _setup(matrix, tag: Union[object, frozenset[object]] = frozenset()):
     for make_operator in make_operators:
-        if make_operator is make_diagonal_operator:
-            tag2 = lx.diagonal_tag
-        else:
-            tag2 = tag
-        operator = make_operator(matrix, tag2)
+        if make_operator is make_diagonal_operator and tag != lx.diagonal_tag:
+            continue
+        if make_operator is make_tridiagonal_operator and tag not in (
+            lx.tridiagonal_tag,
+            lx.diagonal_tag,
+            lx.symmetric_tag,
+        ):
+            continue
+        operator = make_operator(matrix, tag)
         yield operator
 
 
@@ -192,6 +205,18 @@ def test_is_negative_semidefinite(getkey):
     _assert_except_diag(
         lx.is_negative_semidefinite, negative_semidefinite, flip_cond=False
     )
+
+
+def test_is_tridiagonal(getkey):
+    diag1 = jr.normal(getkey(), (5,))
+    diag2 = jr.normal(getkey(), (4,))
+    diag3 = jr.normal(getkey(), (4,))
+    op1 = lx.TridiagonalLinearOperator(diag1, diag2, diag3)
+    op2 = lx.IdentityLinearOperator(jax.eval_shape(lambda: diag1))
+    op3 = lx.MatrixLinearOperator(jnp.diag(diag1))
+    assert lx.is_tridiagonal(op1)
+    assert lx.is_tridiagonal(op2)
+    assert not lx.is_tridiagonal(op3)
 
 
 def test_tangent_as_matrix(getkey):

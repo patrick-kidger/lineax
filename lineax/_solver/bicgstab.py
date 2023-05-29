@@ -81,9 +81,9 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
         operator = state
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
-        size = sum(leaf.size for leaf in leaves)
         if self.max_steps is None:
-            max_steps = 2 * size + 2
+            size = sum(leaf.size for leaf in leaves)
+            max_steps = 10 * size
         else:
             max_steps = self.max_steps
         has_scale = not (

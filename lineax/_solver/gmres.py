@@ -120,7 +120,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         leaves, _ = jtu.tree_flatten(vector)
         size = sum(leaf.size for leaf in leaves)
         if self.max_steps is None:
-            max_steps = 2 * size
+            max_steps = 10 * size  # Copied from SciPy!
         else:
             max_steps = self.max_steps
         restart = min(self.restart, size)
