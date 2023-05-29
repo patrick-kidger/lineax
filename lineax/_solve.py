@@ -206,7 +206,11 @@ def _linear_solve_jvp(primals, tangents):
     t_solution = jtu.tree_map(_sum, *sols)
 
     out = solution, result, stats
-    t_out = t_solution, None, jtu.tree_map(lambda _: None, stats)
+    t_out = (
+        t_solution,
+        jtu.tree_map(lambda _: None, result),
+        jtu.tree_map(lambda _: None, stats),
+    )
     return out, t_out
 
 
@@ -737,19 +741,11 @@ def linear_solve(
             [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(solution)]
         )
     )
-    result = jnp.where(
-        (result == RESULTS.successful) & has_nonfinites,
-        RESULTS.singular,  # pyright: ignore
-        result,  # pyright: ignore
+    result = RESULTS.where(
+        (result == RESULTS.successful) & has_nonfinites, RESULTS.singular, result
     )
     sol = Solution(value=solution, result=result, state=state, stats=stats)
-
-    error_index = eqxi.unvmap_max(result)
     if throw:
-        sol = eqxi.branched_error_if(
-            sol,
-            result != RESULTS.successful,
-            error_index,
-            RESULTS.reverse_lookup,  # pyright: ignore
-        )
+        pred = result != RESULTS.successful
+        sol = result.error_if(sol, pred)
     return sol
