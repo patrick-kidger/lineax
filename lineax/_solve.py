@@ -501,7 +501,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 )
             if is_diagonal(operator):
                 token = _well_posed_diagonal_token
-            if is_tridiagonal(operator):
+            elif is_tridiagonal(operator):
                 token = _tridiagonal_token
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 token = _triangular_token
@@ -522,7 +522,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 token = _qr_token
             elif is_diagonal(operator):
                 token = _diagonal_token
-            if is_tridiagonal(operator):
+            elif is_tridiagonal(operator):
                 token = _tridiagonal_token
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 token = _triangular_token
