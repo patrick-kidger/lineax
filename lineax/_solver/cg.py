@@ -116,11 +116,11 @@ class _CG(AbstractLinearSolver[_CGState]):
             mv = operator.mv
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
-        size = sum(leaf.size for leaf in leaves)
         if self.max_steps is None:
-            max_steps = 2 * size
+            size = sum(leaf.size for leaf in leaves)
+            max_steps = 10 * size  # Copied from SciPy!
         else:
-            max_steps = min(self.max_steps, size + 1)
+            max_steps = self.max_steps
         r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = tree_dot(r0, p0)
@@ -231,25 +231,13 @@ class _CG(AbstractLinearSolver[_CGState]):
         transpose_options = {}
         return transpose_state, transpose_options
 
-    def allow_dependent_columns(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return (columns > rows) & self._normal
-
-    def allow_dependent_rows(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return (rows > columns) & self._normal
-
 
 class CG(_CG):
     """Conjugate gradient solver for linear systems.
 
     The operator should be positive or negative definite.
-    When normal=True, this can handle nonsquare operators provided they are full-rank.
 
     Equivalent to `scipy.sparse.linalg.cg`.
-
 
     This supports the following `options` (as passed to
     `lx.linear_solve(..., options=...)`).
@@ -267,6 +255,12 @@ class CG(_CG):
 
     _normal: ClassVar[bool] = False
 
+    def allow_dependent_columns(self, operator):
+        return False
+
+    def allow_dependent_rows(self, operator):
+        return False
+
 
 class NormalCG(_CG):
     """Conjugate gradient applied to the normal equations:
@@ -274,13 +268,10 @@ class NormalCG(_CG):
     `A^T A = A^T b`
 
     of a system of linear equations. Note that this squares the condition
-    number, so it is not reccomended. This is a fast but potentially inaccurate
+    number, so it is not recommended. This is a fast but potentially inaccurate
     method, especially in 32 bit floating point precision.
 
     This can handle nonsquare operators provided they are full-rank.
-
-    Equivalent to `scipy.sparse.linalg.cg`.
-
 
     This supports the following `options` (as passed to
     `lx.linear_solve(..., options=...)`).
@@ -297,6 +288,16 @@ class NormalCG(_CG):
     """
 
     _normal: ClassVar[bool] = True
+
+    def allow_dependent_columns(self, operator):
+        rows = operator.out_size()
+        columns = operator.in_size()
+        return columns > rows
+
+    def allow_dependent_rows(self, operator):
+        rows = operator.out_size()
+        columns = operator.in_size()
+        return rows > columns
 
 
 CG.__init__.__doc__ = r"""**Arguments:**

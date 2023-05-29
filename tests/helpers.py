@@ -71,15 +71,9 @@ def _shaped_allclose(x, y, **kwargs):
     if type(x) is not type(y):
         return False
     if isinstance(x, jax.Array):
-        if jnp.issubdtype(x.dtype, jnp.inexact):
-            return (
-                x.shape == y.shape
-                and x.dtype == y.dtype
-                and jnp.allclose(x, y, **kwargs)
-            )
-        else:
-            return x.shape == y.shape and x.dtype == y.dtype and jnp.all(x == y)
-    elif isinstance(x, np.ndarray):
+        x = np.asarray(x)
+        y = np.asarray(y)
+    if isinstance(x, np.ndarray):
         if np.issubdtype(x.dtype, np.inexact):
             return (
                 x.shape == y.shape
@@ -154,9 +148,30 @@ def make_jac_operator(matrix, tags):
 
 @_operators_append
 def make_diagonal_operator(matrix, tags):
-    assert has_tag(tags, lx.diagonal_tag)
+    assert tags == lx.diagonal_tag
     diag = jnp.diag(matrix)
     return lx.DiagonalLinearOperator(diag)
+
+
+@_operators_append
+def make_tridiagonal_operator(matrix, tags):
+    diag1 = jnp.diag(matrix)
+    if tags == lx.tridiagonal_tag:
+        diag2 = jnp.diag(matrix, k=-1)
+        diag3 = jnp.diag(matrix, k=1)
+        return lx.TridiagonalLinearOperator(diag1, diag2, diag3)
+    elif tags == lx.diagonal_tag:
+        diag2 = diag3 = jnp.zeros(matrix.shape[0] - 1)
+        return lx.TaggedLinearOperator(
+            lx.TridiagonalLinearOperator(diag1, diag2, diag3), lx.diagonal_tag
+        )
+    elif tags == lx.symmetric_tag:
+        diag2 = diag3 = jnp.diag(matrix, k=1)
+        return lx.TaggedLinearOperator(
+            lx.TridiagonalLinearOperator(diag1, diag2, diag3), lx.symmetric_tag
+        )
+    else:
+        assert False, tags
 
 
 @_operators_append

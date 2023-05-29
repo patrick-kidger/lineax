@@ -130,6 +130,8 @@ class AbstractLinearOperator(eqx.Module):
     def transpose(self) -> "AbstractLinearOperator":
         """Transposes this linear operator.
 
+        This can be called as either `operator.T` or `operator.transpose()`.
+
         **Arguments:** None.
 
         **Returns:**
@@ -192,6 +194,11 @@ class AbstractLinearOperator(eqx.Module):
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only add AbstractLinearOperators together.")
         return AddLinearOperator(self, other)
+
+    def __sub__(self, other):
+        if not isinstance(other, AbstractLinearOperator):
+            raise ValueError("Can only add AbstractLinearOperators together.")
+        return AddLinearOperator(self, -other)
 
     def __mul__(self, other):
         other = jnp.asarray(other)
@@ -753,12 +760,17 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
         self.diagonal = inexact_asarray(diagonal)
         self.lower_diagonal = inexact_asarray(lower_diagonal)
         self.upper_diagonal = inexact_asarray(upper_diagonal)
+        (size,) = self.diagonal.shape
+        if self.lower_diagonal.shape != (size - 1,):
+            raise ValueError("lower_diagonal and diagonal do not have consistent size")
+        if self.upper_diagonal.shape != (size - 1,):
+            raise ValueError("upper_diagonal and diagonal do not have consistent size")
 
     def mv(self, vector):
         a = self.upper_diagonal * vector[1:]
         b = self.diagonal * vector
         c = self.lower_diagonal * vector[:-1]
-        return a + b + c
+        return b.at[:-1].add(a).at[1:].add(c)
 
     def as_matrix(self):
         (size,) = jnp.shape(self.diagonal)

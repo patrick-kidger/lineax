@@ -40,6 +40,7 @@ from .helpers import (
     make_jac_operator,
     make_matrix_operator,
     make_operators,
+    make_tridiagonal_operator,
     shaped_allclose,
 )
 
@@ -95,8 +96,11 @@ def _params(only_pseudo):
         for solver, tags, pseudoinverse in _solvers_tags_pseudoinverse:
             if only_pseudo and not pseudoinverse:
                 continue
-            if make_operator is make_diagonal_operator and not has_tag(
-                tags, lx.diagonal_tag
+            if make_operator is make_diagonal_operator and tags != lx.diagonal_tag:
+                continue
+            if (
+                make_operator is make_tridiagonal_operator
+                and tags != lx.tridiagonal_tag
             ):
                 continue
             yield make_operator, solver, tags
