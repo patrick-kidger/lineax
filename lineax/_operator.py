@@ -1342,7 +1342,7 @@ def _(operator):
 def is_symmetric(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as symmetric.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**
@@ -1390,7 +1390,7 @@ def _(operator):
 def is_diagonal(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as diagonal.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**
@@ -1430,7 +1430,7 @@ def _(operator):
 def is_tridiagonal(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as tridiagonal.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**
@@ -1466,7 +1466,7 @@ def _(operator):
 def has_unit_diagonal(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as having unit diagonal.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**
@@ -1507,7 +1507,7 @@ def _(operator):
 def is_lower_triangular(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as lower triangular.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**
@@ -1547,7 +1547,7 @@ def _(operator):
 def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as upper triangular.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**
@@ -1587,7 +1587,7 @@ def _(operator):
 def is_positive_semidefinite(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as positive semidefinite.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**
@@ -1628,7 +1628,7 @@ def _(operator):
 def is_negative_semidefinite(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as negative semidefinite.
 
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    See [the documentation on linear operator tags](../api/tags.md) for more
     information.
 
     **Arguments:**

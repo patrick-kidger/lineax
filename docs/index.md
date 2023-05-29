@@ -1,4 +1,4 @@
-<h1 align='center'>Lineax</h1>
+# Getting started
 
 Lineax is a [JAX](https://github.com/google/jax) library for linear solves and linear least squares. That is, Lineax provides routines that solve for $x$ in $Ax = b$. (Even when $A$ may be ill-posed or rectangular.)
 
@@ -20,11 +20,7 @@ pip install lineax
 
 Requires Python 3.9+ and JAX 0.4.8+.
 
-## Documentation
-
-Available at [https://docs.kidger.site/lineax](https://docs.kidger.site/lineax).
-
-## Quick examples
+## Quick example
 
 Lineax can solve a least squares problem with an explicit matrix operator:
 
@@ -59,9 +55,11 @@ out = lx.linear_solve(hessian, gradient_fn(y, args=None), solver)
 minimum = y - out.value
 ```
 
-## Finally
+## Next steps
 
-### See also: other libraries in the JAX ecosystem
+Check out the examples or the API reference on the left-hand bar.
+
+## See also: other libraries in the JAX ecosystem
 
 [Equinox](https://github.com/patrick-kidger/equinox): neural networks.
 
@@ -74,7 +72,3 @@ minimum = y - out.value
 [Eqxvision](https://github.com/paganpasta/eqxvision): computer vision models.
 
 [sympy2jax](https://github.com/google/sympy2jax): SymPy<->JAX conversion; train symbolic expressions via gradient descent.
-
-### Disclaimer
-
-This is not an official Google product.
