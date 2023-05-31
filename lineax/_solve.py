@@ -111,6 +111,12 @@ def _linear_solve_jvp(primals, tangents):
     jtu.tree_map(_assert_none, (t_state, t_options, t_solver))
     del t_state, t_options, t_solver
 
+    # Use `filter_primitive_bind`, not `linear_solve`, as we can pass out this `result`
+    # as it's the primal pass and is affected by `throw=False`.
+    #
+    # All other linear solves are done using `linear_solve(..., throw=True)`. If an
+    # error occurs on the tangent/cotangent pass there's really nowhere we can pipe
+    # an error to, after all.
     solution, result, stats = eqxi.filter_primitive_bind(
         linear_solve_p, operator, state, vector, options, solver
     )
@@ -169,27 +175,25 @@ def _linear_solve_jvp(primals, tangents):
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
             tmp = t_operator_transpose.mv(lst_sqr_diff)
             state_transpose, options_transpose = solver.transpose(state, options)
-            tmp, _, _ = eqxi.filter_primitive_bind(
-                linear_solve_p,
+            tmp = linear_solve(
                 operator_transpose,
-                state_transpose,
                 tmp,
-                options_transpose,
                 solver,
-            )
+                options=options_transpose,
+                state=state_transpose,
+            ).value
             vecs.append(tmp)
 
         if solver.allow_dependent_columns(operator):
             operator_transpose = operator.transpose()
             state_transpose, options_transpose = solver.transpose(state, options)
-            tmp1, _, _ = eqxi.filter_primitive_bind(
-                linear_solve_p,
+            tmp1 = linear_solve(
                 operator_transpose,
-                state_transpose,
                 solution,
-                options_transpose,
                 solver,
-            )
+                options=options_transpose,
+                state=state_transpose,
+            ).value
             tmp2 = t_operator.transpose().mv(tmp1)
             # tmp2 is the y term
             tmp3 = operator.mv(tmp2)
@@ -199,9 +203,7 @@ def _linear_solve_jvp(primals, tangents):
             sols.append(tmp2)
     vecs = jtu.tree_map(_sum, *vecs)
     # the A^ term at the very beginning
-    sol, _, _ = eqxi.filter_primitive_bind(
-        linear_solve_p, operator, state, vecs, options, solver
-    )
+    sol = linear_solve(operator, vecs, solver, options=options, state=state).value
     sols.append(sol)
     t_solution = jtu.tree_map(_sum, *sols)
 
@@ -234,14 +236,13 @@ def _linear_solve_transpose(inputs, cts_out):
     )
     operator_transpose = operator.transpose()
     state_transpose, options_transpose = solver.transpose(state, options)
-    cts_vector, _, _ = eqxi.filter_primitive_bind(
-        linear_solve_p,
+    cts_vector = linear_solve(
         operator_transpose,
-        state_transpose,
         cts_solution,
-        options_transpose,
         solver,
-    )
+        options=options_transpose,
+        state=state_transpose,
+    ).value
     cts_vector = jtu.tree_map(
         _keep_undefined, vector, cts_vector, is_leaf=_is_undefined
     )
