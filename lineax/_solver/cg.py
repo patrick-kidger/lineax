@@ -204,25 +204,22 @@ class _CG(AbstractLinearSolver[_CGState]):
         )
 
         if (self.max_steps is None) or (max_steps < self.max_steps):
-            result = jnp.where(
+            result = RESULTS.where(
                 num_steps == max_steps,
-                RESULTS.singular,  # pyright: ignore
-                RESULTS.successful,  # pyright: ignore
+                RESULTS.singular,
+                RESULTS.successful,
             )
         else:
-            result = jnp.where(
+            result = RESULTS.where(
                 num_steps == max_steps,
-                RESULTS.max_steps_reached,  # pyright: ignore
-                RESULTS.successful,  # pyright: ignore
+                RESULTS.max_steps_reached,
+                RESULTS.successful,
             )
 
         if is_nsd and not self._normal:
             solution = -(solution**ω).ω
-        return (
-            solution,
-            result,  # pyright: ignore
-            {"num_steps": num_steps, "max_steps": self.max_steps},
-        )
+        stats = {"num_steps": num_steps, "max_steps": self.max_steps}
+        return solution, result, stats
 
     def transpose(self, state: _CGState, options: dict[str, Any]):
         del options

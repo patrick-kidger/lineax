@@ -93,17 +93,15 @@ def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closur
             [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(solution)]
         )
     )
-    result = jnp.where(
+    result = RESULTS.where(
         (result == RESULTS.successful) & has_nonfinites,
         RESULTS.singular,  # pyright: ignore
         result,  # pyright: ignore
     )
     if throw:
-        solution, result, stats = eqxi.branched_error_if(
+        solution, result, stats = result.error_if(
             (solution, result, stats),
             result != RESULTS.successful,
-            result,
-            RESULTS.reverse_lookup,  # pyright: ignore
         )
     return solution, result, stats
 
@@ -234,7 +232,11 @@ def _linear_solve_jvp(primals, tangents):
     t_solution = jtu.tree_map(_sum, *sols)
 
     out = solution, result, stats
-    t_out = t_solution, None, jtu.tree_map(lambda _: None, stats)
+    t_out = (
+        t_solution,
+        jtu.tree_map(lambda _: None, result),
+        jtu.tree_map(lambda _: None, stats),
+    )
     return out, t_out
 
 

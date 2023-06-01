@@ -212,35 +212,28 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         ) = lax.while_loop(cond_fun, body_fun, init_carry)
 
         if self.max_steps is None:
-            result = jnp.where(
-                (num_steps == max_steps),
-                RESULTS.singular,  # pyright: ignore
-                RESULTS.successful,  # pyright: ignore
+            result = RESULTS.where(
+                (num_steps == max_steps), RESULTS.singular, RESULTS.successful
             )
         else:
-            result = jnp.where(
+            result = RESULTS.where(
                 (num_steps == self.max_steps),
-                RESULTS.max_steps_reached,  # pyright: ignore
-                RESULTS.successful,  # pyright: ignore
+                RESULTS.max_steps_reached,
+                RESULTS.successful,
             )
-        result = jnp.where(
-            stagnation_counter >= self.stagnation_iters,
-            RESULTS.stagnation,  # pyright: ignore
-            result,  # pyright: ignore
+        result = RESULTS.where(
+            stagnation_counter >= self.stagnation_iters, RESULTS.stagnation, result
         )
 
         # breakdown is only an issue if we broke down outside the tolerance
         # of the solution. If we get breakdown and are within the tolerance,
         # this is called convergence :)
         breakdown = breakdown & not_converged(residual, diff, solution)
-
         # breakdown is the most serious potential issue
-        result = jnp.where(breakdown, RESULTS.breakdown, result)  # pyright: ignore
-        return (
-            solution,
-            result,
-            {"num_steps": num_steps, "max_steps": self.max_steps},
-        )
+        result = RESULTS.where(breakdown, RESULTS.breakdown, result)
+
+        stats = {"num_steps": num_steps, "max_steps": self.max_steps}
+        return solution, result, stats
 
     def _gmres_compute(
         self, operator, vector, y, r, restart, preconditioner, b_scale, first_pass
