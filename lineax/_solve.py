@@ -69,8 +69,8 @@ def _to_struct(x):
         return x
 
 
-def _assert_none(x):
-    assert x is None
+def _assert_false(x):
+    assert False
 
 
 def _is_none(x):
@@ -81,38 +81,64 @@ def _sum(*args):
     return sum(args)
 
 
-def _call(state, vector, options, solver):
-    return solver.compute(state, vector, options)
-
-
-def _linear_solve_impl(_, state, vector, options, solver, *, check_closure):
-    out = _call(state, vector, options, solver)
+def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closure):
+    out = solver.compute(state, vector, options)
     if check_closure:
         out = eqxi.nontraceable(
             out, name="lineax.linear_solve with respect to a closed-over value"
         )
-    return out
+    solution, result, stats = out
+    has_nonfinites = jnp.any(
+        jnp.stack(
+            [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(solution)]
+        )
+    )
+    result = jnp.where(
+        (result == RESULTS.successful) & has_nonfinites,
+        RESULTS.singular,  # pyright: ignore
+        result,  # pyright: ignore
+    )
+    if throw:
+        solution, result, stats = eqxi.branched_error_if(
+            (solution, result, stats),
+            result != RESULTS.successful,
+            result,
+            RESULTS.reverse_lookup,  # pyright: ignore
+        )
+    return solution, result, stats
 
 
 @eqxi.filter_primitive_def
-def _linear_solve_abstract_eval(_, state, vector, options, solver):
+def _linear_solve_abstract_eval(operator, state, vector, options, solver, throw):
     state, vector, options, solver = jtu.tree_map(
         _to_struct, (state, vector, options, solver)
     )
-    out = eqx.filter_eval_shape(_call, state, vector, options, solver)
+    out = eqx.filter_eval_shape(
+        _linear_solve_impl,
+        operator,
+        state,
+        vector,
+        options,
+        solver,
+        throw,
+        check_closure=False,
+    )
     out = jtu.tree_map(_to_shapedarray, out)
     return out
 
 
 @eqxi.filter_primitive_jvp
 def _linear_solve_jvp(primals, tangents):
-    operator, state, vector, options, solver = primals
-    t_operator, t_state, t_vector, t_options, t_solver = tangents
-    jtu.tree_map(_assert_none, (t_state, t_options, t_solver))
-    del t_state, t_options, t_solver
+    operator, state, vector, options, solver, throw = primals
+    t_operator, t_state, t_vector, t_options, t_solver, t_throw = tangents
+    jtu.tree_map(_assert_false, (t_state, t_options, t_solver, t_throw))
+    del t_state, t_options, t_solver, t_throw
 
+    # Note that we pass throw=True unconditionally to all the tangent solves, as there
+    # is nowhere we can pipe their error to.
+    # This is the primal solve so we can respect the original `throw`.
     solution, result, stats = eqxi.filter_primitive_bind(
-        linear_solve_p, operator, state, vector, options, solver
+        linear_solve_p, operator, state, vector, options, solver, throw
     )
 
     #
@@ -176,6 +202,7 @@ def _linear_solve_jvp(primals, tangents):
                 tmp,
                 options_transpose,
                 solver,
+                True,
             )
             vecs.append(tmp)
 
@@ -189,6 +216,7 @@ def _linear_solve_jvp(primals, tangents):
                 solution,
                 options_transpose,
                 solver,
+                True,
             )
             tmp2 = t_operator.transpose().mv(tmp1)
             # tmp2 is the y term
@@ -200,7 +228,7 @@ def _linear_solve_jvp(primals, tangents):
     vecs = jtu.tree_map(_sum, *vecs)
     # the A^ term at the very beginning
     sol, _, _ = eqxi.filter_primitive_bind(
-        linear_solve_p, operator, state, vecs, options, solver
+        linear_solve_p, operator, state, vecs, options, solver, True
     )
     sols.append(sol)
     t_solution = jtu.tree_map(_sum, *sols)
@@ -228,7 +256,7 @@ def _keep_undefined(v, ct):
 @eqxi.filter_primitive_transpose
 def _linear_solve_transpose(inputs, cts_out):
     cts_solution, _, _ = cts_out
-    operator, state, vector, options, solver = inputs
+    operator, state, vector, options, solver, _ = inputs
     jtu.tree_map(
         _assert_defined, (operator, state, options, solver), is_leaf=_is_undefined
     )
@@ -241,6 +269,7 @@ def _linear_solve_transpose(inputs, cts_out):
         cts_solution,
         options_transpose,
         solver,
+        True,  # throw=True unconditionally: nowhere to pipe result to.
     )
     cts_vector = jtu.tree_map(
         _keep_undefined, vector, cts_vector, is_leaf=_is_undefined
@@ -249,9 +278,11 @@ def _linear_solve_transpose(inputs, cts_out):
     state_none = jtu.tree_map(lambda _: None, state)
     options_none = jtu.tree_map(lambda _: None, options)
     solver_none = jtu.tree_map(lambda _: None, solver)
-    return operator_none, state_none, cts_vector, options_none, solver_none
+    throw_none = None
+    return operator_none, state_none, cts_vector, options_none, solver_none, throw_none
 
 
+# Call with `check_closure=False` so that the autocreated vmap rule works.
 linear_solve_p = eqxi.create_vprim(
     "linear_solve",
     eqxi.filter_primitive_def(ft.partial(_linear_solve_impl, check_closure=False)),
@@ -259,6 +290,7 @@ linear_solve_p = eqxi.create_vprim(
     _linear_solve_jvp,
     _linear_solve_transpose,
 )
+# Then rebind so that the impl rule catches leaked-in tracers.
 linear_solve_p.def_impl(
     eqxi.filter_primitive_def(ft.partial(_linear_solve_impl, check_closure=True))
 )
@@ -727,29 +759,8 @@ def linear_solve(
         solver, name="`lineax.linear_solve(..., solver=...)`"
     )
     solution, result, stats = eqxi.filter_primitive_bind(
-        linear_solve_p, operator, state, vector, options, solver
+        linear_solve_p, operator, state, vector, options, solver, throw
     )
     # TODO: prevent forward-mode autodiff through stats
     stats = eqxi.nondifferentiable_backward(stats)
-
-    has_nonfinites = jnp.any(
-        jnp.stack(
-            [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(solution)]
-        )
-    )
-    result = jnp.where(
-        (result == RESULTS.successful) & has_nonfinites,
-        RESULTS.singular,  # pyright: ignore
-        result,  # pyright: ignore
-    )
-    sol = Solution(value=solution, result=result, state=state, stats=stats)
-
-    error_index = eqxi.unvmap_max(result)
-    if throw:
-        sol = eqxi.branched_error_if(
-            sol,
-            result != RESULTS.successful,
-            error_index,
-            RESULTS.reverse_lookup,  # pyright: ignore
-        )
-    return sol
+    return Solution(value=solution, result=result, state=state, stats=stats)
