@@ -99,11 +99,9 @@ def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closur
         result,  # pyright: ignore
     )
     if throw:
-        solution, result, stats = eqxi.branched_error_if(
+        solution, result, stats = result.error_if(
             (solution, result, stats),
             result != RESULTS.successful,
-            result,
-            RESULTS.reverse_lookup,  # pyright: ignore
         )
     return solution, result, stats
 
