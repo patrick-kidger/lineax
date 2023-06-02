@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import FrozenSet
-
 
 class _HasRepr:
     def __init__(self, string: str):
@@ -46,24 +44,24 @@ for tag in (
 ):
 
     @transpose_tags_rules.append
-    def _(tags: FrozenSet[object], tag=tag):
+    def _(tags: frozenset[object], tag=tag):
         if tag in tags:
             return tag
 
 
 @transpose_tags_rules.append
-def _(tags: FrozenSet[object]):
+def _(tags: frozenset[object]):
     if lower_triangular_tag in tags:
         return upper_triangular_tag
 
 
 @transpose_tags_rules.append
-def _(tags: FrozenSet[object]):
+def _(tags: frozenset[object]):
     if upper_triangular_tag in tags:
         return lower_triangular_tag
 
 
-def transpose_tags(tags: FrozenSet[object]):
+def transpose_tags(tags: frozenset[object]):
     """Lineax uses "tags" to declare that a particular linear operator exhibits some
     property, e.g. symmetry.
 

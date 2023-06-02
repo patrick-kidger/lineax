@@ -32,13 +32,10 @@ def getkey():
     return jr.PRNGKey(random.randint(0, 2**31 - 1))
 
 
-def _construct_matrix_impl(getkey, solver, tags, size):
+@ft.lru_cache(maxsize=None)
+def _construct_matrix_impl(getkey, cond_cutoff, tags, size):
     while True:
         matrix = jr.normal(getkey(), (size, size))
-        if isinstance(solver, lx.NormalCG):
-            cond_cutoff = math.sqrt(1000)
-        else:
-            cond_cutoff = 1000
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
         if has_tag(tags, lx.symmetric_tag):
@@ -64,7 +61,88 @@ def _construct_matrix_impl(getkey, solver, tags, size):
 
 
 def construct_matrix(getkey, solver, tags, num=1, *, size=3):
-    return tuple(_construct_matrix_impl(getkey, solver, tags, size) for _ in range(num))
+    if isinstance(solver, lx.NormalCG):
+        cond_cutoff = math.sqrt(1000)
+    else:
+        cond_cutoff = 1000
+    return tuple(
+        _construct_matrix_impl(getkey, cond_cutoff, tags, size) for _ in range(num)
+    )
+
+
+def construct_singular_matrix(getkey, solver, tags, num=1):
+    matrices = construct_matrix(getkey, solver, tags, num)
+    if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
+        return tuple(matrix.at[0, :].set(0) for matrix in matrices)
+    else:
+        version = random.choice([0, 1, 2])
+        if version == 0:
+            return tuple(matrix.at[0, :].set(0) for matrix in matrices)
+        elif version == 1:
+            return tuple(matrix[1:, :] for matrix in matrices)
+        else:
+            return tuple(matrix[:, 1:] for matrix in matrices)
+
+
+if jax.config.jax_enable_x64:  # pyright: ignore
+    tol = 1e-12
+else:
+    tol = 1e-6
+solvers_tags_pseudoinverse = [
+    (lx.AutoLinearSolver(well_posed=True), (), False),
+    (lx.AutoLinearSolver(well_posed=False), (), True),
+    (lx.Triangular(), lx.lower_triangular_tag, False),
+    (lx.Triangular(), lx.upper_triangular_tag, False),
+    (lx.Triangular(), (lx.lower_triangular_tag, lx.unit_diagonal_tag), False),
+    (lx.Triangular(), (lx.upper_triangular_tag, lx.unit_diagonal_tag), False),
+    (lx.Diagonal(), lx.diagonal_tag, False),
+    (lx.Diagonal(), (lx.diagonal_tag, lx.unit_diagonal_tag), False),
+    (lx.Tridiagonal(), lx.tridiagonal_tag, False),
+    (lx.LU(), (), False),
+    (lx.QR(), (), False),
+    (lx.SVD(), (), True),
+    (lx.BiCGStab(rtol=tol, atol=tol), (), False),
+    (lx.GMRES(rtol=tol, atol=tol), (), False),
+    (lx.NormalCG(rtol=tol, atol=tol), (), False),
+    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
+    (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
+    (lx.NormalCG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
+    (lx.Cholesky(), lx.positive_semidefinite_tag, False),
+    (lx.Cholesky(), lx.negative_semidefinite_tag, False),
+]
+solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
+solvers = [a for a, _, _ in solvers_tags_pseudoinverse]
+pseudosolvers_tags = [(a, b) for a, b, c in solvers_tags_pseudoinverse if c]
+
+
+def _transpose(operator, matrix):
+    return operator.T, matrix.T
+
+
+def _linearise(operator, matrix):
+    return lx.linearise(operator), matrix
+
+
+def _materialise(operator, matrix):
+    return lx.materialise(operator), matrix
+
+
+ops = (lambda x, y: (x, y), _transpose, _linearise, _materialise)
+
+
+def params(only_pseudo):
+    for make_operator in make_operators:
+        for solver, tags, pseudoinverse in solvers_tags_pseudoinverse:
+            if only_pseudo and not pseudoinverse:
+                continue
+            if make_operator is make_diagonal_operator and tags != lx.diagonal_tag:
+                continue
+            if (
+                make_operator is make_tridiagonal_operator
+                and tags != lx.tridiagonal_tag
+            ):
+                continue
+            yield make_operator, solver, tags
 
 
 def _shaped_allclose(x, y, **kwargs):

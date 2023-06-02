@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict
+from typing import Any
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -73,5 +73,5 @@ class Solution(eqx.Module):
 
     value: PyTree[Array]
     result: RESULTS
-    stats: Dict[str, PyTree[ArrayLike]]
+    stats: dict[str, PyTree[ArrayLike]]
     state: PyTree[Any]

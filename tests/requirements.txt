@@ -1,4 +1,5 @@
 beartype
+equinox
 pytest
+pytest-xdist
 jaxlib
-psutil

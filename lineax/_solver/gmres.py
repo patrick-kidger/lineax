@@ -13,7 +13,8 @@
 # limitations under the License.
 
 import functools as ft
-from typing import Any, Callable, cast, Optional
+from collections.abc import Callable
+from typing import Any, cast, Optional
 from typing_extensions import TypeAlias
 
 import equinox.internal as eqxi
