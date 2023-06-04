@@ -95,7 +95,7 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState]):
         _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=32)
 
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {}  # pyright: ignore
+        return solution, RESULTS.successful, {}
 
     def transpose(self, state: _TridiagonalState, options: dict[str, Any]):
         (diagonal, lower_diagonal, upper_diagonal), packed_structures = state

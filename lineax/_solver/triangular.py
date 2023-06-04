@@ -77,7 +77,7 @@ class Triangular(AbstractLinearSolver[_TriangularState]):
             matrix, vector, trans=trans, lower=lower, unit_diagonal=unit_diagonal
         )
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {}  # pyright: ignore
+        return solution, RESULTS.successful, {}
 
     def transpose(self, state: _TriangularState, options: dict[str, Any]):
         matrix, lower, unit_diagonal, packed_structures, transpose = state

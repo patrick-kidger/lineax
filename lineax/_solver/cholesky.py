@@ -74,7 +74,7 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         if is_nsd:
             solution = -solution
         solution = unflatten(solution)
-        return solution, RESULTS.successful, {}  # pyright:ignore
+        return solution, RESULTS.successful, {}
 
     def transpose(self, state: _CholeskyState, options: dict[str, Any]):
         # Matrix is symmetric anyway

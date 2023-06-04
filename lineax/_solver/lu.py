@@ -62,7 +62,7 @@ class LU(AbstractLinearSolver[_LUState]):
         vector = ravel_vector(vector, packed_structures)
         solution = jsp.linalg.lu_solve(lu_and_piv, vector, trans=trans)
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {}  # pyright: ignore
+        return solution, RESULTS.successful, {}
 
     def transpose(
         self,
