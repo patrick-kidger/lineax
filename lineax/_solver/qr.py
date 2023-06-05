@@ -82,7 +82,7 @@ class QR(AbstractLinearSolver):
                 r, q.T @ vector, trans="N", unit_diagonal=False
             )
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {}  # pyright: ignore
+        return solution, RESULTS.successful, {}
 
     def transpose(self, state: _QRState, options: dict[str, Any]):
         (q, r), transpose, structures = state

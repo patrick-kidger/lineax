@@ -14,14 +14,20 @@
 
 from collections.abc import Callable
 from typing import Any, ClassVar, Optional
-from typing_extensions import TypeAlias
+from typing_extensions import TYPE_CHECKING, TypeAlias
 
 import equinox.internal as eqxi
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar  # pyright: ignore
+from jaxtyping import Array, PyTree, Scalar
+
+
+if TYPE_CHECKING:
+    from typing import ClassVar as AbstractClassVar
+else:
+    from equinox.internal import AbstractClassVar
 
 from .._misc import max_norm, resolve_rcond, tree_dot, tree_where
 from .._operator import (
@@ -48,7 +54,8 @@ class _CG(AbstractLinearSolver[_CGState]):
     norm: Callable[[PyTree], Scalar] = max_norm
     stabilise_every: Optional[int] = 10
     max_steps: Optional[int] = None
-    _normal: eqxi.AbstractClassVar[bool]  # pyright: ignore
+
+    _normal: AbstractClassVar[bool]
 
     def __post_init__(self):
         if isinstance(self.rtol, (int, float)) and self.rtol < 0:

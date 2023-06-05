@@ -95,8 +95,8 @@ def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closur
     )
     result = RESULTS.where(
         (result == RESULTS.successful) & has_nonfinites,
-        RESULTS.singular,  # pyright: ignore
-        result,  # pyright: ignore
+        RESULTS.singular,
+        result,
     )
     if throw:
         solution, result, stats = result.error_if(
@@ -745,7 +745,7 @@ def linear_solve(
             value=vector,
             result=RESULTS.successful,
             state=state,
-            stats={},  # pyright: ignore
+            stats={},
         )
     if state == sentinel:
         state = solver.init(operator, options)

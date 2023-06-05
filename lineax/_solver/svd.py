@@ -75,7 +75,7 @@ class SVD(AbstractLinearSolver[_SVDState]):
         uTb = jnp.matmul(u.conj().T, vector, precision=lax.Precision.HIGHEST)
         solution = jnp.matmul(vt.conj().T, s_inv * uTb, precision=lax.Precision.HIGHEST)
         solution = unravel_solution(solution, packed_structures)
-        return solution, RESULTS.successful, {"rank": rank}  # pyright: ignore
+        return solution, RESULTS.successful, {"rank": rank}
 
     def transpose(self, state: _SVDState, options: dict[str, Any]):
         del options
