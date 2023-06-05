@@ -34,8 +34,8 @@ Now make your changes. Make sure to include additional tests if necessary.
 Next verify the tests all pass:
 
 ```bash
-pip install pytest
-pytest
+pip install -r tests/requirements.txt
+python -m tests
 ```
 
 Then push your changes back to your fork of the repository:

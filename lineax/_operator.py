@@ -15,14 +15,11 @@
 import abc
 import functools as ft
 import math
+from collections.abc import Callable
 from typing import (
     Any,
-    Callable,
-    FrozenSet,
     Iterable,
-    List,
     NoReturn,
-    Tuple,
     TypeVar,
     Union,
 )
@@ -57,7 +54,7 @@ from ._tags import (
 )
 
 
-def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
+def _frozenset(x: Union[object, Iterable[object]]) -> frozenset[object]:
     try:
         iter_x = iter(x)  # pyright: ignore
     except TypeError:
@@ -233,10 +230,10 @@ class MatrixLinearOperator(AbstractLinearOperator):
     """
 
     matrix: Float[Array, "a b"]
-    tags: FrozenSet[object]
+    tags: frozenset[object]
 
     def __init__(
-        self, matrix: Shaped[Array, "a b"], tags: Union[object, FrozenSet[object]] = ()
+        self, matrix: Shaped[Array, "a b"], tags: Union[object, frozenset[object]] = ()
     ):
         """**Arguments:**
 
@@ -299,7 +296,7 @@ def _tree_matmul(matrix: PyTree[ArrayLike], vector: PyTree[ArrayLike]) -> PyTree
 # Needed as static fields must be hashable and eq-able, and custom pytrees might have
 # e.g. define custom __eq__ methods.
 _T = TypeVar("_T")
-_FlatPyTree = Tuple[List[_T], jtu.PyTreeDef]
+_FlatPyTree = tuple[list[_T], jtu.PyTreeDef]
 
 
 def _inexact_structure_impl2(x):
@@ -357,14 +354,14 @@ class PyTreeLinearOperator(AbstractLinearOperator):
 
     pytree: PyTree[Float[Array, "..."]]
     output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    tags: FrozenSet[object]
+    tags: frozenset[object]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
     def __init__(
         self,
         pytree: PyTree[ArrayLike],
         output_structure: PyTree[jax.ShapeDtypeStruct],
-        tags: Union[object, FrozenSet[object]] = (),
+        tags: Union[object, frozenset[object]] = (),
     ):
         """**Arguments:**
 
@@ -519,7 +516,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     ]
     x: PyTree[Float[Array, "..."]]
     args: PyTree[Any]
-    tags: FrozenSet[object]
+    tags: frozenset[object]
 
     def __init__(
         self,
@@ -596,7 +593,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
 
     fn: Callable[[PyTree[Float[Array, "..."]]], PyTree[Float[Array, "..."]]]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    tags: FrozenSet[object]
+    tags: frozenset[object]
 
     def __init__(
         self,
@@ -816,7 +813,7 @@ class TaggedLinearOperator(AbstractLinearOperator):
     """
 
     operator: AbstractLinearOperator
-    tags: FrozenSet[object]
+    tags: frozenset[object]
 
     def __init__(
         self, operator: AbstractLinearOperator, tags: Union[object, Iterable[object]]
@@ -1273,7 +1270,7 @@ def _(operator):
 @ft.singledispatch
 def tridiagonal(
     operator: AbstractLinearOperator,
-) -> Tuple[Shaped[Array, " size"], Shaped[Array, " size-1"], Shaped[Array, " size-1"]]:
+) -> tuple[Shaped[Array, " size"], Shaped[Array, " size-1"], Shaped[Array, " size-1"]]:
     """Extracts the diagonal, lower diagonal, and upper diagonal, from a linear
     operator. Returns three vectors.
 

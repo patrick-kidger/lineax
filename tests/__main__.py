@@ -12,20 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import random
-
-import jax
-import jax.random as jr
-import pytest
+import pathlib
+import subprocess
+import sys
 
 
-jax.config.update("jax_enable_x64", True)
+here = pathlib.Path(__file__).resolve().parent
 
 
-@pytest.fixture
-def getkey():
-    def _getkey():
-        # Not sure what the maximum actually is but this will do
-        return jr.PRNGKey(random.randint(0, 2**31 - 1))
-
-    return _getkey
+# Each file is ran separately to avoid out-of-memorying.
+running_out = 0
+for file in here.iterdir():
+    if file.is_file() and file.name.startswith("test"):
+        out = subprocess.run(f"pytest {file}", shell=True).returncode
+        running_out = max(running_out, out)
+sys.exit(running_out)
