@@ -3,6 +3,7 @@
 Lineax is a [JAX](https://github.com/google/jax) library for linear solves and linear least squares. That is, Lineax provides routines that solve for $x$ in $Ax = b$. (Even when $A$ may be ill-posed or rectangular.)
 
 Features include:
+
 - PyTree-valued matrices and vectors;
 - General linear operators for Jacobians, transposes, etc.;
 - Efficient linear least squares (e.g. QR solvers);
