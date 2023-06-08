@@ -187,15 +187,18 @@ def _linear_solve_jvp(primals, tangents):
         # -A'x term
         vec = (-t_operator.mv(solution) ** ω).ω
         vecs.append(vec)
-        if solver.allow_dependent_rows(operator):
+        allow_dependent_rows = solver.allow_dependent_rows(operator)
+        allow_dependent_columns = solver.allow_dependent_columns(operator)
+        if allow_dependent_rows or allow_dependent_columns:
             operator_transpose = operator.transpose()
             t_operator_transpose = t_operator.transpose()
+        if allow_dependent_rows:
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
-            tmp = t_operator_transpose.mv(lst_sqr_diff)
+            tmp = t_operator_transpose.mv(lst_sqr_diff)  # pyright: ignore
             state_transpose, options_transpose = solver.transpose(state, options)
             tmp, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
-                operator_transpose,
+                operator_transpose,  # pyright: ignore
                 state_transpose,
                 tmp,
                 options_transpose,
@@ -204,19 +207,18 @@ def _linear_solve_jvp(primals, tangents):
             )
             vecs.append(tmp)
 
-        if solver.allow_dependent_columns(operator):
-            operator_transpose = operator.transpose()
+        if allow_dependent_columns:
             state_transpose, options_transpose = solver.transpose(state, options)
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
-                operator_transpose,
+                operator_transpose,  # pyright: ignore
                 state_transpose,
                 solution,
                 options_transpose,
                 solver,
                 True,
             )
-            tmp2 = t_operator.transpose().mv(tmp1)
+            tmp2 = t_operator_transpose.mv(tmp1)  # pyright: ignore
             # tmp2 is the y term
             tmp3 = operator.mv(tmp2)
             tmp4 = (-(tmp3**ω)).ω

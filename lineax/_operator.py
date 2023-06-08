@@ -25,6 +25,7 @@ from typing import (
 )
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.flatten_util as jfu
 import jax.lax as lax
@@ -852,6 +853,10 @@ class TaggedLinearOperator(AbstractLinearOperator):
 #
 
 
+def _is_none(x):
+    return x is None
+
+
 class TangentLinearOperator(AbstractLinearOperator):
     """Internal to lineax. Used to represent the tangent (jvp) computation with
     respect to the linear operator in a linear solve.
@@ -866,13 +871,13 @@ class TangentLinearOperator(AbstractLinearOperator):
 
     def mv(self, vector):
         mv = lambda operator: operator.mv(vector)
-        _, out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
-        return out
+        out, t_out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
+        return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
 
     def as_matrix(self):
         as_matrix = lambda operator: operator.as_matrix()
-        _, out = eqx.filter_jvp(as_matrix, (self.primal,), (self.tangent,))
-        return out
+        out, t_out = eqx.filter_jvp(as_matrix, (self.primal,), (self.tangent,))
+        return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
 
     def transpose(self):
         transpose = lambda operator: operator.transpose()
