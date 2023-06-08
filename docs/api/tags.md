@@ -17,14 +17,14 @@ In this way they are analogous to flags like `scipy.linalg.solve(..., assume_a="
     vector = ...
 
     # Declare that this matrix is positive semidefinite.
-    operator = optx.MatrixLinearOperator(matrix, optx.positive_semidefinite_tag)
+    operator = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
 
     # This tag is used to dispatch to a maximally-efficient linear solver.
     # In this case, a Cholesky solver is used:
-    solution = optx.linear_solve(operator, vector)
+    solution = lx.linear_solve(operator, vector)
 
     # Whether operators are tagged can be checked:
-    assert optx.is_positive_semidefinite(operator)
+    assert lx.is_positive_semidefinite(operator)
     ```
 
 !!! Warning
@@ -34,34 +34,34 @@ In this way they are analogous to flags like `scipy.linalg.solve(..., assume_a="
     # Not a positive semidefinite matrix
     matrix = jax.numpy.array([[1, 2], [3, 4]])
 
-    operator = optx.MatrixLinearOperator(matrix, optx.positive_semidefinite_tag)
-    optx.is_positive_semidefinite(operator)  # True
-    optx.linear_solve(operator, vector)  # Returns the wrong solution!
+    operator = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
+    lx.is_positive_semidefinite(operator)  # True
+    lx.linear_solve(operator, vector)  # Returns the wrong solution!
     ```
 
 Of the built-in operators: [`lineax.MatrixLinearOperator`][], [`lineax.PyTreeLinearOperator`][], [`lineax.JacobianLinearOperator`][], [`lineax.FunctionLinearOperator`][], [`lineax.TaggedLinearOperator`][] directly support a `tags` argument that mark them as having certain characteristics:
 ```python
-operator = optx.MatrixLinearOperator(matrix, optx.symmetric_tag)
+operator = lx.MatrixLinearOperator(matrix, lx.symmetric_tag)
 ```
 
 You can pass multiple tags at once:
 ```python
-operator = optx.MatrixLinearOperator(matrix, (optx.symmetric_tag, optx.unit_diagonal_tag))
+operator = lx.MatrixLinearOperator(matrix, (lx.symmetric_tag, lx.unit_diagonal_tag))
 ```
 
 Other linear operators can be wrapped into a [`lineax.TaggedLinearOperator`][] if necessary:
 ```python
-operator = optx.MatrixLinearOperator(...)
+operator = lx.MatrixLinearOperator(...)
 symmetric_operator = operator + operator.T
-optx.is_symmetric(symmetric_operator)  # False
-symmetric_operator = optx.TaggedLinearOperator(symmetric_operator, optx.symmetric_tag)
-optx.is_symmetric(symmetric_operator)  # True
+lx.is_symmetric(symmetric_operator)  # False
+symmetric_operator = lx.TaggedLinearOperator(symmetric_operator, lx.symmetric_tag)
+lx.is_symmetric(symmetric_operator)  # True
 ```
 
 Some linear operators are known to exhibit certain properties by construction, and need no additional tags:
 ```python
-optx.is_symmetric(optx.DiagonalLinearOperator(...))  # True
-optx.is_positive_semidefinite(optx.IdentityLinearOperator(...))  # True
+lx.is_symmetric(lx.DiagonalLinearOperator(...))  # True
+lx.is_positive_semidefinite(lx.IdentityLinearOperator(...))  # True
 ```
 
 ## List of available tags
