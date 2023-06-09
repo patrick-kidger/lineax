@@ -1,4 +1,4 @@
-# `linear_solve`
+# linear_solve
 
 This is the main entry point.
 

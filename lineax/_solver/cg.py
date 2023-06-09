@@ -322,7 +322,7 @@ CG.__init__.__doc__ = r"""**Arguments:**
     than this are required, then the solve is halted with a failure.
 """
 
-NormalCG.__init__.__dot__ = r"""**Arguments:**
+NormalCG.__init__.__doc__ = r"""**Arguments:**
 - `rtol`: Relative tolerance for terminating solve.
 - `atol`: Absolute tolerance for terminating solve.
 - `norm`: The norm to use when computing whether the error falls within the tolerance.
