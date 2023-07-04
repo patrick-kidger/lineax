@@ -10,7 +10,7 @@ Features include:
 - Support for structured (e.g. symmetric) matrices;
 - Improved compilation times;
 - Improved runtime of some algorithms;
-- All the benefits of working with JAX: autodiff, autoparallism, GPU/TPU support etc.
+- All the benefits of working with JAX: autodiff, autoparallelism, GPU/TPU support etc.
 
 ## Installation
 
