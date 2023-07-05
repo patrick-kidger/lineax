@@ -1,6 +1,6 @@
 [project]
 name = "lineax"
-version = "0.0.1"
+version = "0.0.2"
 description = "Linear solvers in JAX and Equinox."
 readme = "README.md"
 requires-python ="~=3.9"
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 urls = {repository = "https://github.com/google/lineax" }
-dependencies = ["jax>=0.4.11", "jaxtyping>=0.2.20", "equinox>=0.10.5", "typing_extensions>=4.5.0"]
+dependencies = ["jax>=0.4.13", "jaxtyping>=0.2.20", "equinox>=0.10.10", "typing_extensions>=4.5.0"]
 
 [build-system]
 requires = ["hatchling"]
