@@ -15,3 +15,7 @@ Lineax offers several improvements. Most notably:
 - Some faster compile times and run times in a few places.
 
 Most of these are because JAX aims to mimc the existing NumPy/SciPy APIs. (I.e. it's not JAX's fault that it doesn't take the approach that Lineax does!)
+
+## What about other operations from linear algebra? (Determinants, eigenvalues etc.)
+
+See [`jax.numpy.linalg`](https://jax.readthedocs.io/en/latest/jax.numpy.html#module-jax.numpy.linalg) and [`jax.scipy.linalg`](https://jax.readthedocs.io/en/latest/jax.scipy.html#module-jax.scipy.linalg).
