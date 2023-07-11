@@ -19,3 +19,11 @@ Most of these are because JAX aims to mimc the existing NumPy/SciPy APIs. (I.e. 
 ## What about other operations from linear algebra? (Determinants, eigenvalues etc.)
 
 See [`jax.numpy.linalg`](https://jax.readthedocs.io/en/latest/jax.numpy.html#module-jax.numpy.linalg) and [`jax.scipy.linalg`](https://jax.readthedocs.io/en/latest/jax.scipy.html#module-jax.scipy.linalg).
+
+## How do I solve multiple systems of equations (i.e. `AX = B`)?
+
+Solvers implemented in Lineax target single systems of linear equations (i.e. `Ax = b`), however using `jax.vmap` or `equinox.filter_vmap`, it can solve multiple systems with minimal effort.
+
+    multi_linear_solve = eqx.filter_vmap(lx.linear_solve, in_axes=(None, 1))
+    #  or    
+    multi_linear_solve = jax.vmap(lx.linear_solve, in_axes=(None, 1))
