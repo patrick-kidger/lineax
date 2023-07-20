@@ -15,6 +15,7 @@
 import jax
 import jax.numpy as jnp
 
+import lineax as lx
 import lineax._misc as lx_misc
 
 
@@ -30,3 +31,9 @@ def test_inexact_asarray_jvp():
     p, t = jax.jvp(lx_misc.inexact_asarray, (1.0,), (2.0,))
     assert type(p) is not float
     assert type(t) is not float
+
+
+def test_zero_matrix():
+    A = lx.MatrixLinearOperator(jnp.zeros((2, 2)))
+    b = jnp.array([1.0, 2.0])
+    lx.linear_solve(A, b, lx.SVD())
