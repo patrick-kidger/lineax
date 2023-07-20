@@ -68,7 +68,8 @@ class SVD(AbstractLinearSolver[_SVDState]):
         rcond = jnp.array(rcond, dtype=s.dtype)
         if s.size > 0:
             rcond = rcond * s[0]
-        mask = s >= rcond
+        # Not >=, or this fails with a matrix of all-zeros.
+        mask = s > rcond
         rank = mask.sum()
         safe_s = jnp.where(mask, s, 1)
         s_inv = jnp.where(mask, jnp.array(1.0) / safe_s, 0)
