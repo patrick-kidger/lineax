@@ -35,6 +35,7 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar, Shaped  # pyright: ignore
 
+from ._custom_types import sentinel
 from ._misc import (
     cached_eval_shape,
     default_floating_dtype,
@@ -656,18 +657,35 @@ class IdentityLinearOperator(AbstractLinearOperator):
     PyTree of floating-point JAX arrays.
     """
 
-    structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
-    def __init__(self, structure: PyTree[jax.ShapeDtypeStruct]):
+    def __init__(
+        self,
+        input_structure: PyTree[jax.ShapeDtypeStruct],
+        output_structure: PyTree[jax.ShapeDtypeStruct] = sentinel,
+    ):
         """**Arguments:**
 
-        - `structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
-            structure of the the input/output spaces. (When later calling `self.mv(x)`
+        - `input_structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
+            structure of the the input space. (When later calling `self.mv(x)`
             then this should match the structure of `x`, i.e.
             `jax.eval_shape(lambda: x)`.)
+        - `output_structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
+            structure of the the output space. If not passed then this defaults to the
+            same as `input_structure`. If passed then it must have the same number of
+            elements as `input_structure`, so that the operator is square.
         """
-        structure = _inexact_structure(structure)
-        self.structure = jtu.tree_flatten(structure)
+        if output_structure is sentinel:
+            output_structure = input_structure
+        input_structure = _inexact_structure(input_structure)
+        output_structure = _inexact_structure(output_structure)
+        self.input_structure = jtu.tree_flatten(input_structure)
+        self.output_structure = jtu.tree_flatten(output_structure)
+        if self.in_size() != self.out_size():
+            raise ValueError(
+                "input and output structures must have the same number of elements."
+            )
 
     def mv(self, vector):
         if jax.eval_shape(lambda: vector) != self.in_structure():
@@ -681,11 +699,11 @@ class IdentityLinearOperator(AbstractLinearOperator):
         return self
 
     def in_structure(self):
-        leaves, treedef = self.structure
+        leaves, treedef = self.input_structure
         return jtu.tree_unflatten(treedef, leaves)
 
     def out_structure(self):
-        leaves, treedef = self.structure
+        leaves, treedef = self.output_structure
         return jtu.tree_unflatten(treedef, leaves)
 
     @property
@@ -1375,6 +1393,10 @@ def _(operator):
 
 
 @is_symmetric.register(IdentityLinearOperator)
+def _(operator):
+    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
+
+
 @is_symmetric.register(DiagonalLinearOperator)
 def _(operator):
     return True
