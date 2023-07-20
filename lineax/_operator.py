@@ -231,7 +231,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
     """
 
     matrix: Float[Array, "a b"]
-    tags: frozenset[object]
+    tags: frozenset[object] = eqx.static_field()
 
     def __init__(
         self, matrix: Shaped[Array, "a b"], tags: Union[object, frozenset[object]] = ()
@@ -355,7 +355,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
 
     pytree: PyTree[Float[Array, "..."]]
     output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    tags: frozenset[object]
+    tags: frozenset[object] = eqx.static_field()
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
     def __init__(
@@ -517,7 +517,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     ]
     x: PyTree[Float[Array, "..."]]
     args: PyTree[Any]
-    tags: frozenset[object]
+    tags: frozenset[object] = eqx.static_field()
 
     def __init__(
         self,
@@ -594,7 +594,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
 
     fn: Callable[[PyTree[Float[Array, "..."]]], PyTree[Float[Array, "..."]]]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    tags: frozenset[object]
+    tags: frozenset[object] = eqx.static_field()
 
     def __init__(
         self,
@@ -814,7 +814,7 @@ class TaggedLinearOperator(AbstractLinearOperator):
     """
 
     operator: AbstractLinearOperator
-    tags: frozenset[object]
+    tags: frozenset[object] = eqx.static_field()
 
     def __init__(
         self, operator: AbstractLinearOperator, tags: Union[object, Iterable[object]]
