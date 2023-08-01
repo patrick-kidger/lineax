@@ -16,6 +16,12 @@ Lineax offers several improvements. Most notably:
 
 Most of these are because JAX aims to mimc the existing NumPy/SciPy APIs. (I.e. it's not JAX's fault that it doesn't take the approach that Lineax does!)
 
+## How do I represent a {lower, upper} triangular matrix?
+
+Typically: create a full matrix, with the {lower, upper} part containing your values, and the converse {upper, lower} part containing all zeros. Then use e.g. `operator = lx.MatrixLinearOperator(matrix, lx.loewr_triangular_tag)`.
+
+This is the most efficient way to store a triangular matrix in JAX's ndarray-based programming model.
+
 ## What about other operations from linear algebra? (Determinants, eigenvalues etc.)
 
 See [`jax.numpy.linalg`](https://jax.readthedocs.io/en/latest/jax.numpy.html#module-jax.numpy.linalg) and [`jax.scipy.linalg`](https://jax.readthedocs.io/en/latest/jax.scipy.html#module-jax.scipy.linalg).
