@@ -13,3 +13,10 @@
 # limitations under the License.
 
 from .._solve import linear_solve_p as linear_solve_p
+from .._solver.misc import (
+    pack_structures as pack_structures,
+    PackedStructures as PackedStructures,
+    ravel_vector as ravel_vector,
+    transpose_packed_structures as transpose_packed_structures,
+    unravel_solution as unravel_solution,
+)
