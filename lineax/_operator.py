@@ -232,7 +232,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
     """
 
     matrix: Float[Array, "a b"]
-    tags: frozenset[object] = eqx.static_field()
+    tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
         self, matrix: Shaped[Array, "a b"], tags: Union[object, frozenset[object]] = ()
@@ -355,9 +355,9 @@ class PyTreeLinearOperator(AbstractLinearOperator):
     """
 
     pytree: PyTree[Float[Array, "..."]]
-    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    tags: frozenset[object] = eqx.static_field()
-    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
+    tags: frozenset[object] = eqx.field(static=True)
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -518,7 +518,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     ]
     x: PyTree[Float[Array, "..."]]
     args: PyTree[Any]
-    tags: frozenset[object] = eqx.static_field()
+    tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -594,8 +594,8 @@ class FunctionLinearOperator(AbstractLinearOperator):
     """
 
     fn: Callable[[PyTree[Float[Array, "..."]]], PyTree[Float[Array, "..."]]]
-    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    tags: frozenset[object] = eqx.static_field()
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
+    tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -657,8 +657,8 @@ class IdentityLinearOperator(AbstractLinearOperator):
     PyTree of floating-point JAX arrays.
     """
 
-    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
+    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -832,7 +832,7 @@ class TaggedLinearOperator(AbstractLinearOperator):
     """
 
     operator: AbstractLinearOperator
-    tags: frozenset[object] = eqx.static_field()
+    tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
         self, operator: AbstractLinearOperator, tags: Union[object, Iterable[object]]
