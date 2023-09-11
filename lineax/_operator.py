@@ -37,7 +37,6 @@ from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar, Shaped  # pyright
 
 from ._custom_types import sentinel
 from ._misc import (
-    cached_eval_shape,
     default_floating_dtype,
     inexact_asarray,
     jacobian,
@@ -581,7 +580,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
     def out_structure(self):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
-        return cached_eval_shape(fn, self.x)
+        return eqxi.cached_filter_eval_shape(fn, self.x)
 
 
 # `input_structure` must be static as with `JacobianLinearOperator`
@@ -648,7 +647,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return jtu.tree_unflatten(treedef, leaves)
 
     def out_structure(self):
-        return cached_eval_shape(self.fn, self.in_structure())
+        return eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
 
 
 # `structure` must be static as with `JacobianLinearOperator`

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools as ft
 from collections.abc import Callable
 
 import equinox as eqx
@@ -98,26 +97,6 @@ def jacobian(fn, in_size, out_size, has_aux=False):
         return jax.jacfwd(fn, has_aux=has_aux)
     else:
         return jax.jacrev(fn, has_aux=has_aux)
-
-
-def _to_struct(x):
-    if eqx.is_array(x):
-        return jax.ShapeDtypeStruct(x.shape, x.dtype)
-    else:
-        return x
-
-
-@ft.lru_cache(maxsize=128)
-def _cached_eval_shape(leaves, treedef):
-    fn, args, kwargs = jtu.tree_unflatten(treedef, leaves)
-    return eqx.filter_eval_shape(fn, *args, **kwargs)
-
-
-def cached_eval_shape(fn, *args, **kwargs):
-    tree = jtu.tree_map(_to_struct, (fn, args, kwargs))
-    leaves, treedef = jtu.tree_flatten(tree)
-    leaves = tuple(leaves)
-    return _cached_eval_shape(leaves, treedef)
 
 
 def default_floating_dtype():
