@@ -57,7 +57,7 @@ class _CG(AbstractLinearSolver[_CGState]):
 
     _normal: AbstractClassVar[bool]
 
-    def __post_init__(self):
+    def __check_init__(self):
         if isinstance(self.rtol, (int, float)) and self.rtol < 0:
             raise ValueError("Tolerances must be non-negative.")
         if isinstance(self.atol, (int, float)) and self.atol < 0:

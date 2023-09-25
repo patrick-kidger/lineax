@@ -81,7 +81,7 @@ class AbstractLinearOperator(eqx.Module):
     ```
     """
 
-    def __post_init__(self):
+    def __check_init__(self):
         if is_symmetric(self):
             # In particular, we check that dtypes match.
             in_structure = self.in_structure()
@@ -882,9 +882,8 @@ class TangentLinearOperator(AbstractLinearOperator):
     primal: AbstractLinearOperator
     tangent: AbstractLinearOperator
 
-    def __post_init__(self):
+    def __check_init__(self):
         assert type(self.primal) is type(self.tangent)  # noqa: E721
-        super().__post_init__()
 
     def mv(self, vector):
         mv = lambda operator: operator.mv(vector)
@@ -925,12 +924,11 @@ class AddLinearOperator(AbstractLinearOperator):
     operator1: AbstractLinearOperator
     operator2: AbstractLinearOperator
 
-    def __post_init__(self):
+    def __check_init__(self):
         if self.operator1.in_structure() != self.operator2.in_structure():
             raise ValueError("Incompatible linear operator structures")
         if self.operator1.out_structure() != self.operator2.out_structure():
             raise ValueError("Incompatible linear operator structures")
-        super().__post_init__()
 
     def mv(self, vector):
         mv1 = self.operator1.mv(vector)
@@ -1030,10 +1028,9 @@ class ComposedLinearOperator(AbstractLinearOperator):
     operator1: AbstractLinearOperator
     operator2: AbstractLinearOperator
 
-    def __post_init__(self):
+    def __check_init__(self):
         if self.operator1.in_structure() != self.operator2.out_structure():
             raise ValueError("Incompatible linear operator structures")
-        super().__post_init__()
 
     def mv(self, vector):
         return self.operator1.mv(self.operator2.mv(vector))
