@@ -192,29 +192,28 @@ def _linear_solve_jvp(primals, tangents):
         if allow_dependent_rows or allow_dependent_columns:
             operator_transpose = operator.transpose()
             t_operator_transpose = t_operator.transpose()
+            state_transpose, options_transpose = solver.transpose(state, options)
         if allow_dependent_rows:
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
             tmp = t_operator_transpose.mv(lst_sqr_diff)  # pyright: ignore
-            state_transpose, options_transpose = solver.transpose(state, options)
             tmp, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
                 operator_transpose,  # pyright: ignore
-                state_transpose,
+                state_transpose,  # pyright: ignore
                 tmp,
-                options_transpose,
+                options_transpose,  # pyright: ignore
                 solver,
                 True,
             )
             vecs.append(tmp)
 
         if allow_dependent_columns:
-            state_transpose, options_transpose = solver.transpose(state, options)
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
                 operator_transpose,  # pyright: ignore
-                state_transpose,
+                state_transpose,  # pyright:ignore
                 solution,
-                options_transpose,
+                options_transpose,  # pyright: ignore
                 solver,
                 True,
             )
