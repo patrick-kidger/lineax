@@ -184,42 +184,42 @@ class AbstractLinearOperator(eqx.Module):
         return sum(math.prod(leaf.shape) for leaf in leaves)  # pyright: ignore
 
     @property
-    def T(self):
+    def T(self) -> "AbstractLinearOperator":
         """Equivalent to [`lineax.AbstractLinearOperator.transpose`][]"""
         return self.transpose()
 
-    def __add__(self, other):
+    def __add__(self, other) -> "AbstractLinearOperator":
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only add AbstractLinearOperators together.")
         return AddLinearOperator(self, other)
 
-    def __sub__(self, other):
+    def __sub__(self, other) -> "AbstractLinearOperator":
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only add AbstractLinearOperators together.")
         return AddLinearOperator(self, -other)
 
-    def __mul__(self, other):
+    def __mul__(self, other) -> "AbstractLinearOperator":
         other = jnp.asarray(other)
         if other.shape != ():
             raise ValueError("Can only multiply AbstractLinearOperators by scalars.")
         return MulLinearOperator(self, other)
 
-    def __rmul__(self, other):
+    def __rmul__(self, other) -> "AbstractLinearOperator":
         return self * other
 
-    def __matmul__(self, other):
+    def __matmul__(self, other) -> "AbstractLinearOperator":
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only compose AbstractLinearOperators together.")
         return ComposedLinearOperator(self, other)
 
-    def __truediv__(self, other):
+    def __truediv__(self, other) -> "AbstractLinearOperator":
         other = jnp.asarray(other)
         if other.shape != ():
             raise ValueError("Can only divide AbstractLinearOperators by scalars.")
         return DivLinearOperator(self, other)
 
-    def __neg__(self):
-        return -1 * self
+    def __neg__(self) -> "AbstractLinearOperator":
+        return self * (-1)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
@@ -1708,13 +1708,6 @@ def _(operator):
 
 for transform in (linearise, materialise, diagonal):
 
-    @transform.register(TangentLinearOperator)
-    def _(operator, transform=transform):
-        primal_out, tangent_out = eqx.filter_jvp(
-            transform, (operator.primal,), (operator.tangent,)
-        )
-        return TangentLinearOperator(primal_out, tangent_out)
-
     @transform.register(AddLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
         return transform(operator.operator1) + transform(operator.operator2)
@@ -1732,13 +1725,38 @@ for transform in (linearise, materialise, diagonal):
         return transform(operator.operator)
 
 
-@tridiagonal.register(TangentLinearOperator)
+@linearise.register(TangentLinearOperator)
 def _(operator):
-    # this one I'm a bit uncertain about
     primal_out, tangent_out = eqx.filter_jvp(
-        transform, (operator.primal,), (operator.tangent,)
+        linearise, (operator.primal,), (operator.tangent,)
     )
     return TangentLinearOperator(primal_out, tangent_out)
+
+
+@materialise.register(TangentLinearOperator)
+def _(operator):
+    primal_out, tangent_out = eqx.filter_jvp(
+        materialise, (operator.primal,), (operator.tangent,)
+    )
+    return TangentLinearOperator(primal_out, tangent_out)
+
+
+@diagonal.register(TangentLinearOperator)
+def _(operator):
+    # Should be unreachable: TangentLinearOperator is used for a narrow set of
+    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
+    raise NotImplementedError(
+        "Please open a GitHub issue: https://github.com/google/lineax"
+    )
+
+
+@tridiagonal.register(TangentLinearOperator)
+def _(operator):
+    # Should be unreachable: TangentLinearOperator is used for a narrow set of
+    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
+    raise NotImplementedError(
+        "Please open a GitHub issue: https://github.com/google/lineax"
+    )
 
 
 @tridiagonal.register(AddLinearOperator)

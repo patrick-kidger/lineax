@@ -132,7 +132,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             # the `y` and the `b` spaces.
             if has_scale:
                 y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-                norm1 = self.norm((r**ω / b_scale**ω).ω)
+                norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
                 norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
             else:
@@ -159,7 +159,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             # `breakdown` -> `deferred_breakdown` and `deferred_breakdown` -> `_`
             y, r, deferred_breakdown, _, diff, r_min, step, stagnation_counter = carry
             y_new, r_new, breakdown, diff_new = self._gmres_compute(
-                operator, vector, y, r, restart, preconditioner, b_scale, step == 0
+                operator, vector, y, r, restart, preconditioner, step == 0
             )
 
             #
@@ -237,7 +237,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         return solution, result, stats
 
     def _gmres_compute(
-        self, operator, vector, y, r, restart, preconditioner, b_scale, first_pass
+        self, operator, vector, y, r, restart, preconditioner, first_pass
     ):
         #
         # internal function for computing the bulk of the gmres. We seperate this out
@@ -272,7 +272,6 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
                     coeff_mat,
                     step,
                     restart,
-                    b_scale,
                     vector,
                     breakdown,
                 )
@@ -327,7 +326,6 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         coeff_mat,
         step,
         restart,
-        b_scale,
         vector,
         initial_breakdown,
     ):

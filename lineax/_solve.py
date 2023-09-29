@@ -471,15 +471,18 @@ _svd_token = eqxi.str2jax("svd_token")
 def _lookup(token) -> AbstractLinearSolver:
     from . import _solver
 
+    # pyright doesn't know that these keys are hashable
     _lookup_dict = {
-        _qr_token: _solver.QR(),
-        _diagonal_token: _solver.Diagonal(),
-        _well_posed_diagonal_token: _solver.Diagonal(well_posed=True),
-        _tridiagonal_token: _solver.Tridiagonal(),
-        _triangular_token: _solver.Triangular(),
-        _cholesky_token: _solver.Cholesky(),
-        _lu_token: _solver.LU(),
-        _svd_token: _solver.SVD(),
+        _qr_token: _solver.QR(),  # pyright: ignore
+        _diagonal_token: _solver.Diagonal(),  # pyright: ignore
+        _well_posed_diagonal_token: _solver.Diagonal(  # pyright: ignore
+            well_posed=True
+        ),
+        _tridiagonal_token: _solver.Tridiagonal(),  # pyright: ignore
+        _triangular_token: _solver.Triangular(),  # pyright: ignore
+        _cholesky_token: _solver.Cholesky(),  # pyright: ignore
+        _lu_token: _solver.LU(),  # pyright: ignore
+        _svd_token: _solver.SVD(),  # pyright: ignore
     }
     return _lookup_dict[token]
 

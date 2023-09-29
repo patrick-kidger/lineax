@@ -83,23 +83,27 @@ def test_jvp(
             (t_operator, t_vec),
         )
         (expected_op_out, *_), (t_expected_op_out, *_) = eqx.filter_jvp(
-            lambda op: jnp.linalg.lstsq(op, vec), (matrix,), (t_matrix,)
+            lambda op: jnp.linalg.lstsq(op, vec),  # pyright: ignore
+            (matrix,),
+            (t_matrix,),
         )
         (expected_op_vec_out, *_), (t_expected_op_vec_out, *_) = eqx.filter_jvp(
-            jnp.linalg.lstsq, (matrix, vec), (t_matrix, t_vec)
+            jnp.linalg.lstsq, (matrix, vec), (t_matrix, t_vec)  # pyright: ignore
         )
 
         # Work around JAX issue #14868.
         if jnp.any(jnp.isnan(t_expected_op_out)):
             _, (t_expected_op_out, *_) = finite_difference_jvp(
-                lambda op: jnp.linalg.lstsq(op, vec), (matrix,), (t_matrix,)
+                lambda op: jnp.linalg.lstsq(op, vec),  # pyright: ignore
+                (matrix,),
+                (t_matrix,),
             )
         if jnp.any(jnp.isnan(t_expected_op_vec_out)):
             _, (t_expected_op_vec_out, *_) = finite_difference_jvp(
-                jnp.linalg.lstsq, (matrix, vec), (t_matrix, t_vec)
+                jnp.linalg.lstsq, (matrix, vec), (t_matrix, t_vec)  # pyright: ignore
             )
 
-        pinv_matrix = jnp.linalg.pinv(matrix)
+        pinv_matrix = jnp.linalg.pinv(matrix)  # pyright: ignore
         expected_vec_out = pinv_matrix @ vec
         assert shaped_allclose(vec_out, expected_vec_out)
         assert shaped_allclose(op_out, expected_op_out)

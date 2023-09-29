@@ -270,4 +270,16 @@ def test_pytree_transpose(getkey):
     operator_T = operator.T
     assert operator_T.in_structure() == out_struct
     assert operator_T.out_structure() == in_struct
-    assert eqx.tree_equal(operator_T.pytree, pytree_T)
+    assert eqx.tree_equal(operator_T.pytree, pytree_T)  # pyright: ignore
+
+
+def test_diagonal_tangent():
+    diag = jnp.array([1.0, 2.0, 3.0])
+    t_diag = jnp.array([4.0, 5.0, 6.0])
+
+    def run(diag):
+        op = lx.DiagonalLinearOperator(diag)
+        out = lx.linear_solve(op, jnp.array([1.0, 1.0, 1.0]), solver=lx.Diagonal())
+        return out.value
+
+    jax.jvp(run, (diag,), (t_diag,))

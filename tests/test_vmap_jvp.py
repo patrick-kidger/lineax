@@ -48,9 +48,11 @@ def test_vmap_jvp(
     if (make_matrix is construct_matrix) or pseudoinverse:
         t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
         if pseudoinverse:
-            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]
+            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[  # pyright: ignore
+                0
+            ]
         else:
-            jnp_solve1 = jnp.linalg.solve
+            jnp_solve1 = jnp.linalg.solve  # pyright: ignore
         if use_state:
 
             def linear_solve1(operator, vector):
