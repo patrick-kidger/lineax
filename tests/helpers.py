@@ -55,7 +55,7 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size):
             matrix = matrix @ matrix.T
         if has_tag(tags, lx.negative_semidefinite_tag):
             matrix = -matrix @ matrix.T
-        if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_cutoff):
+        if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_cutoff):  # pyright: ignore
             break
     return matrix
 

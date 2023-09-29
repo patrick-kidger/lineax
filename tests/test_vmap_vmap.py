@@ -132,7 +132,7 @@ def test_vmap_vmap(
             )(as_matrix_vmapped, vec)
 
             if make_matrix is construct_singular_matrix:
-                true_result, _, _, _ = solve_with(jnp.linalg.lstsq)
+                true_result, _, _, _ = solve_with(jnp.linalg.lstsq)  # pyright: ignore
             else:
-                true_result = solve_with(jnp.linalg.solve)
+                true_result = solve_with(jnp.linalg.solve)  # pyright: ignore
             assert shaped_allclose(result, true_result, rtol=1e-3)

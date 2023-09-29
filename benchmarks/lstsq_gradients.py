@@ -33,7 +33,7 @@ a_tangent = (jnp.zeros((3, 3)),)
 
 
 def jax_solve(a):
-    sol, _, _, _ = jnp.linalg.lstsq(a, jnp.arange(3))
+    sol, _, _, _ = jnp.linalg.lstsq(a, jnp.arange(3))  # pyright: ignore
     return sol
 
 

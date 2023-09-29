@@ -57,7 +57,7 @@ def base_wrapper(a, b, solver):
 
 
 def jax_svd(a, b):
-    out, _, _, _ = jnp.linalg.lstsq(a, b)
+    out, _, _, _ = jnp.linalg.lstsq(a, b)  # pyright: ignore
     return out
 
 

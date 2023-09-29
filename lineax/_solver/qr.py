@@ -58,7 +58,7 @@ class QR(AbstractLinearSolver):
         transpose = n > m
         if transpose:
             matrix = matrix.T
-        qr = jnp.linalg.qr(matrix, mode="reduced")
+        qr = jnp.linalg.qr(matrix, mode="reduced")  # pyright: ignore
         packed_structures = pack_structures(operator)
         return qr, transpose, packed_structures
 

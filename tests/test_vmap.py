@@ -75,7 +75,7 @@ def test_vmap(
                 vec = jr.normal(getkey(), (10, out_dim))
 
             jax_result, _, _, _ = eqx.filter_vmap(
-                jnp.linalg.lstsq, in_axes=(op_axis, vec_axis)
+                jnp.linalg.lstsq, in_axes=(op_axis, vec_axis)  # pyright: ignore
             )(matrix, vec)
             lx_result = eqx.filter_vmap(wrap_solve, in_axes=(op_axis, vec_axis))(
                 matrix, vec

@@ -118,7 +118,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             # the `y` and the `b` spaces.
             if has_scale:
                 y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-                norm1 = self.norm((r**ω / b_scale**ω).ω)
+                norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
                 norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
             else:

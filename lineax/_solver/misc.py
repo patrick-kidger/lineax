@@ -107,4 +107,4 @@ def transpose_packed_structures(
     leaves, treedef = packed_structures.value
     out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
     leaves, treedef = jtu.tree_flatten((in_structure, out_structure))
-    return eqxi.Static((leaves, treedef))
+    return PackedStructures(eqxi.Static((leaves, treedef)))

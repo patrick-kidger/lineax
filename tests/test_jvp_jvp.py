@@ -85,9 +85,11 @@ def test_jvp_jvp(
                 return sol.value
 
         if pseudoinverse:
-            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]
+            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[  # pyright: ignore
+                0
+            ]
         else:
-            jnp_solve1 = jnp.linalg.solve
+            jnp_solve1 = jnp.linalg.solve  # pyright: ignore
 
         linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
         jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
@@ -95,7 +97,7 @@ def test_jvp_jvp(
         def _make_primal_tangents(mode):
             lx_args = ([], [], operator, t_operator, tt_operator, tt_t_operator)
             jnp_args = ([], [], matrix, t_matrix, tt_matrix, tt_t_matrix)
-            for (primals, ttangents, op, t_op, tt_op, tt_t_op) in (lx_args, jnp_args):
+            for primals, ttangents, op, t_op, tt_op, tt_t_op in (lx_args, jnp_args):
                 if "op" in mode:
                     primals.append(op)
                     ttangents.append(tt_op)

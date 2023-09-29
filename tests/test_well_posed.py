@@ -43,7 +43,7 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey):
     true_x = jr.normal(getkey(), (out_size,))
     b = matrix @ true_x
     x = lx.linear_solve(operator, b, solver=solver).value
-    jax_x = jnp.linalg.solve(matrix, b)
+    jax_x = jnp.linalg.solve(matrix, b)  # pyright: ignore
     assert shaped_allclose(x, true_x, atol=tol, rtol=tol)
     assert shaped_allclose(x, jax_x, atol=tol, rtol=tol)
 

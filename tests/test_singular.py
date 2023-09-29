@@ -50,7 +50,7 @@ def test_small_singular(make_operator, solver, tags, ops, getkey):
     true_x = jr.normal(getkey(), (in_size,))
     b = matrix @ true_x
     x = lx.linear_solve(operator, b, solver=solver, throw=False).value
-    jax_x, *_ = jnp.linalg.lstsq(matrix, b)
+    jax_x, *_ = jnp.linalg.lstsq(matrix, b)  # pyright: ignore
     assert shaped_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
@@ -107,7 +107,7 @@ def test_nonsquare_pytree_operator1(solver):
     operator = lx.PyTreeLinearOperator(x, struct)
     out = lx.linear_solve(operator, y, solver=solver).value
     matrix = jnp.array([[1.0, 5.0, -1.0], [-2.0, -2.0, 3.0]])
-    true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))
+    true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))  # pyright: ignore
     true_out = [true_out[0], true_out[1], true_out[2]]
     assert shaped_allclose(out, true_out)
 
@@ -122,7 +122,7 @@ def test_nonsquare_pytree_operator2(solver):
     operator = lx.PyTreeLinearOperator(x, struct)
     out = lx.linear_solve(operator, y, solver=solver).value
     matrix = jnp.array([[1.0, -2.0], [5.0, -2.0], [-1.0, 3.0]])
-    true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))
+    true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))  # pyright: ignore
     true_out = [true_out[0], true_out[1]]
     assert shaped_allclose(out, true_out)
 
@@ -150,7 +150,7 @@ def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, getkey):
     lx_solve = lambda mat, vec: lx.linear_solve(
         lx.MatrixLinearOperator(mat), vec, lx.QR()
     ).value
-    jnp_solve = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]
+    jnp_solve = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
     if jvp:
         lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
         jnp_solve = eqx.filter_jit(ft.partial(finite_difference_jvp, jnp_solve))
@@ -189,7 +189,7 @@ def test_qr_nonsquare_vec(full_rank, jvp, wide, getkey):
     lx_solve = lambda vec: lx.linear_solve(
         lx.MatrixLinearOperator(matrix), vec, lx.QR()
     ).value
-    jnp_solve = lambda vec: jnp.linalg.lstsq(matrix, vec)[0]
+    jnp_solve = lambda vec: jnp.linalg.lstsq(matrix, vec)[0]  # pyright: ignore
     if jvp:
         lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
         jnp_solve = eqx.filter_jit(ft.partial(finite_difference_jvp, jnp_solve))
