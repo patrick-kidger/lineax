@@ -124,15 +124,15 @@ class _CG(AbstractLinearSolver[_CGState]):
             mv = operator.mv
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
+        size = sum(leaf.size for leaf in leaves)
         if self.max_steps is None:
-            size = sum(leaf.size for leaf in leaves)
             max_steps = 10 * size  # Copied from SciPy!
         else:
             max_steps = self.max_steps
         r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = tree_dot(r0, p0)
-        rcond = resolve_rcond(None, vector.size, vector.size, vector.dtype)
+        rcond = resolve_rcond(None, size, size, jnp.result_type(*leaves))
         initial_value = (
             ω(y0).call(lambda x: jnp.full_like(x, jnp.inf)).ω,
             y0,

@@ -256,7 +256,7 @@ def _keep_undefined(v, ct):
         return None
 
 
-@eqxi.filter_primitive_transpose
+@eqxi.filter_primitive_transpose(materialise_zeros=True)  # pyright: ignore
 def _linear_solve_transpose(inputs, cts_out):
     cts_solution, _, _ = cts_out
     operator, state, vector, options, solver, _ = inputs
