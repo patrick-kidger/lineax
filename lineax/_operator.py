@@ -681,21 +681,37 @@ class IdentityLinearOperator(AbstractLinearOperator):
         output_structure = _inexact_structure(output_structure)
         self.input_structure = jtu.tree_flatten(input_structure)
         self.output_structure = jtu.tree_flatten(output_structure)
-        if self.in_size() != self.out_size():
-            raise ValueError(
-                "input and output structures must have the same number of elements."
-            )
 
     def mv(self, vector):
         if jax.eval_shape(lambda: vector) != self.in_structure():
             raise ValueError("Vector and operator structures do not match")
-        return vector
+        elif self.input_structure == self.output_structure:
+            return vector  # fast-path for common special case
+        else:
+            # TODO(kidger): this could be done slightly more efficiently, by iterating
+            #     leaf-by-leaf.
+            leaves = jtu.tree_leaves(vector)
+            dtype = jnp.result_type(*leaves)
+            vector = jnp.concatenate([x.astype(dtype).reshape(-1) for x in leaves])
+            out_size = self.out_size()
+            if vector.size < out_size:
+                vector = jnp.concatenate(
+                    [vector, jnp.zeros(out_size - vector.size, vector.dtype)]
+                )
+            else:
+                vector = vector[:out_size]
+            leaves, treedef = jtu.tree_flatten(self.out_structure())
+            sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
+            split = jnp.split(vector, sizes)
+            assert len(split) == len(leaves)
+            shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
+            return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
-        return jnp.eye(self.in_size())
+        return jnp.eye(self.out_size(), self.in_size())
 
     def transpose(self):
-        return self
+        return IdentityLinearOperator(self.out_structure(), self.in_structure())
 
     def in_structure(self):
         leaves, treedef = self.input_structure
@@ -1697,7 +1713,6 @@ def _(operator):
 
 @diagonal.register(TaggedLinearOperator)
 def _(operator):
-    # Untagged; we might not have any of the properties our tags represent any more.
     return diagonal(operator.operator)
 
 

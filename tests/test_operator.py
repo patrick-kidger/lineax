@@ -283,3 +283,32 @@ def test_diagonal_tangent():
         return out.value
 
     jax.jvp(run, (diag,), (t_diag,))
+
+
+def test_identity_with_different_structures():
+    structure1 = (
+        jax.ShapeDtypeStruct((), jnp.float32),
+        jax.ShapeDtypeStruct((2, 3), jnp.float16),
+    )
+    structure2 = {"a": jax.ShapeDtypeStruct((5,), jnp.float32)}
+    # structure3 = (None, jax.ShapeDtypeStruct((2, 3), jnp.float16))
+    op1 = lx.IdentityLinearOperator(structure1, structure2)
+    op2 = lx.IdentityLinearOperator(structure2, structure1)
+    # op3 = lx.IdentityLinearOperator(structure3, structure2)
+
+    assert op1.T == op2
+    # assert op2.transpose((True, False)) == op3
+    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7))
+    assert op1.in_size() == 7
+    assert op1.out_size() == 5
+    vec1 = (
+        jnp.array(1.0, dtype=jnp.float32),
+        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float16),
+    )
+    vec2 = {"a": jnp.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.float32)}
+    vec1b = (
+        jnp.array(1.0, dtype=jnp.float32),
+        jnp.array([[2, 3, 4], [5, 0, 0]], dtype=jnp.float16),
+    )
+    assert shaped_allclose(op1.mv(vec1), vec2)
+    assert shaped_allclose(op2.mv(vec2), vec1b)
