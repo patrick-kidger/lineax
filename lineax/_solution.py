@@ -41,7 +41,7 @@ If you *were* expecting this solver to work with this operator, then it may be b
 
 
 class RESULTS(eqxi.Enumeration):
-    successful = ""
+    successful = "Success."
     max_steps_reached = (
         "The maximum number of solver steps was reached. Try increasing `max_steps`."
     )
