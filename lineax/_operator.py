@@ -551,7 +551,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
     The Jacobian is not materialised; matrix-vector products, which are in fact
     Jacobian-vector products, are computed using autodifferentiation, specifically
-    `jax.jvp`. Thus `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
+    `jax.jvp`. Thus, `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
     `jax.jvp(fn, (x,), (v,))`.
 
     See also [`lineax.linearise`][], which caches the primal computation, i.e.

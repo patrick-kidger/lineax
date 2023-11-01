@@ -257,7 +257,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
                 lambda x: jnp.pad(x[..., None], ((0, 0),) * x.ndim + ((0, restart),)),
                 r_normalised,
             )
-            coeff_mat_init = jnp.eye(restart, restart + 1, dtype=r_normalised.dtype)
+            coeff_mat_init = jnp.eye(restart, restart + 1, dtype=r_normalised[0].dtype)
 
             def cond_fun(carry):
                 _, _, breakdown, step = carry
