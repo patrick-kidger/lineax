@@ -54,6 +54,7 @@ from ._tags import (
     lower_triangular_tag,
     negative_semidefinite_tag,
     positive_semidefinite_tag,
+    self_adjoint_tag,
     symmetric_tag,
     transpose_tags,
     tridiagonal_tag,
@@ -138,6 +139,18 @@ class AbstractLinearOperator(eqx.Module):
         """Transposes this linear operator.
 
         This can be called as either `operator.T` or `operator.transpose()`.
+
+        **Arguments:** None.
+
+        **Returns:**
+
+        Another [`lineax.AbstractLinearOperator`][].
+        """
+
+    @abc.abstractmethod
+    def adjoint(self) -> "AbstractLinearOperator":
+        """Adjoint of this linear operator.
+
 
         **Arguments:** None.
 
@@ -274,6 +287,11 @@ class MatrixLinearOperator(AbstractLinearOperator):
         if symmetric_tag in self.tags:
             return self
         return MatrixLinearOperator(self.matrix.T, transpose_tags(self.tags))
+
+    def adjoint(self):
+        if self_adjoint_tag in self.tags:
+            return self
+        return MatrixLinearOperator(self.matrix.T.conj(), transpose_tags(self.tags))
 
     def in_structure(self):
         _, in_size = jnp.shape(self.matrix)
@@ -722,6 +740,9 @@ class IdentityLinearOperator(AbstractLinearOperator):
     def transpose(self):
         return IdentityLinearOperator(self.out_structure(), self.in_structure())
 
+    def adjoint(self):
+        return IdentityLinearOperator(self.out_structure(), self.in_structure())
+
     def in_structure(self):
         leaves, treedef = self.input_structure
         return jtu.tree_unflatten(treedef, leaves)
@@ -927,6 +948,13 @@ class TangentLinearOperator(AbstractLinearOperator):
         )
         return TangentLinearOperator(primal_out, tangent_out)
 
+    def adjoint(self):
+        adjoint = lambda operator: operator.adjoint()
+        primal_out, tangent_out = eqx.filter_jvp(
+            adjoint, (self.primal,), (self.tangent,)
+        )
+        return TangentLinearOperator(primal_out, tangent_out)
+
     def in_structure(self):
         return self.primal.in_structure()
 
@@ -996,6 +1024,9 @@ class MulLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return self.operator.transpose() * self.scalar
+
+    def adjoint(self):
+        return self.operator.adjoint() * self.scalar
 
     def in_structure(self):
         return self.operator.in_structure()
@@ -1093,6 +1124,9 @@ class AuxLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return self.operator.transpose()
+
+    def adjoint(self):
+        return self.operator.adjoint()
 
     def in_structure(self):
         return self.operator.in_structure()

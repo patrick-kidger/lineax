@@ -114,7 +114,7 @@ class _CG(AbstractLinearSolver[_CGState]):
             operator = linearise(operator)
 
             _mv = operator.mv
-            _transpose_mv = operator.transpose().mv
+            _transpose_mv = operator.adjoint().mv
 
             def mv(vector: PyTree) -> PyTree:
                 return _transpose_mv(_mv(vector))
