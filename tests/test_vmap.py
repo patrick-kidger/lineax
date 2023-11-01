@@ -39,8 +39,9 @@ from .helpers import (
         construct_singular_matrix,
     ),
 )
+@pytest.mark.parametrize("dtype", (jnp.float64,))
 def test_vmap(
-    getkey, make_operator, solver, tags, pseudoinverse, use_state, make_matrix
+    getkey, make_operator, solver, tags, pseudoinverse, use_state, make_matrix, dtype
 ):
     if (make_matrix is construct_matrix) or pseudoinverse:
 
@@ -65,14 +66,18 @@ def test_vmap(
                 out_axes = eqx.if_array(0)
 
             (matrix,) = eqx.filter_vmap(
-                make_matrix, axis_size=axis_size, out_axes=out_axes
+                lambda getkey, solver, tags: make_matrix(
+                    getkey, solver, tags, dtype=dtype
+                ),
+                axis_size=axis_size,
+                out_axes=out_axes,
             )(getkey, solver, tags)
             out_dim = matrix.shape[-2]
 
             if vec_axis is None:
-                vec = jr.normal(getkey(), (out_dim,))
+                vec = jr.normal(getkey(), (out_dim,), dtype=dtype)
             else:
-                vec = jr.normal(getkey(), (10, out_dim))
+                vec = jr.normal(getkey(), (10, out_dim), dtype=dtype)
 
             jax_result, _, _, _ = eqx.filter_vmap(
                 jnp.linalg.lstsq, in_axes=(op_axis, vec_axis)  # pyright: ignore

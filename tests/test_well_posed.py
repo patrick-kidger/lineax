@@ -30,17 +30,18 @@ from .helpers import (
 
 @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
 @pytest.mark.parametrize("ops", ops)
-def test_small_wellposed(make_operator, solver, tags, ops, getkey):
+@pytest.mark.parametrize("dtype", (jnp.float64,))
+def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
     else:
         tol = 1e-4
-    (matrix,) = construct_matrix(getkey, solver, tags)
+    (matrix,) = construct_matrix(getkey, solver, tags, dtype=dtype)
     operator = make_operator(matrix, tags)
     operator, matrix = ops(operator, matrix)
     assert shaped_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
     out_size, _ = matrix.shape
-    true_x = jr.normal(getkey(), (out_size,))
+    true_x = jr.normal(getkey(), (out_size,), dtype=dtype)
     b = matrix @ true_x
     x = lx.linear_solve(operator, b, solver=solver).value
     jax_x = jnp.linalg.solve(matrix, b)  # pyright: ignore

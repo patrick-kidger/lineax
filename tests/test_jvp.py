@@ -43,17 +43,18 @@ from .helpers import (
         construct_singular_matrix,
     ),
 )
+@pytest.mark.parametrize("dtype", (jnp.float64,))
 def test_jvp(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix
+    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
 ):
     t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
 
     if (make_matrix is construct_matrix) or pseudoinverse:
-        matrix, t_matrix = make_matrix(getkey, solver, tags, num=2)
+        matrix, t_matrix = make_matrix(getkey, solver, tags, num=2, dtype=dtype)
 
         out_size, _ = matrix.shape
-        vec = jr.normal(getkey(), (out_size,))
-        t_vec = jr.normal(getkey(), (out_size,))
+        vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+        t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
         if has_tag(tags, lx.unit_diagonal_tag):
             # For all the other tags, A + εB with A, B \in {matrices satisfying the tag}

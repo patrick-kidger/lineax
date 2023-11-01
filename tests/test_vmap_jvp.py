@@ -42,8 +42,9 @@ from .helpers import (
         construct_singular_matrix,
     ),
 )
+@pytest.mark.parametrize("dtype", (jnp.float64,))
 def test_vmap_jvp(
-    getkey, solver, tags, make_operator, pseudoinverse, use_state, make_matrix
+    getkey, solver, tags, make_operator, pseudoinverse, use_state, make_matrix, dtype
 ):
     if (make_matrix is construct_matrix) or pseudoinverse:
         t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
@@ -75,7 +76,7 @@ def test_vmap_jvp(
                 out_axes = None
 
             def _make():
-                matrix, t_matrix = make_matrix(getkey, solver, tags, num=2)
+                matrix, t_matrix = make_matrix(getkey, solver, tags, num=2, dtype=dtype)
                 operator, t_operator = eqx.filter_jvp(
                     make_operator, (matrix, tags), (t_matrix, t_tags)
                 )
@@ -91,11 +92,11 @@ def test_vmap_jvp(
                 out_size, _ = matrix.shape
 
             if "vec" in mode:
-                vec = jr.normal(getkey(), (10, out_size))
-                t_vec = jr.normal(getkey(), (10, out_size))
+                vec = jr.normal(getkey(), (10, out_size), dtype=dtype)
+                t_vec = jr.normal(getkey(), (10, out_size), dtype=dtype)
             else:
-                vec = jr.normal(getkey(), (out_size,))
-                t_vec = jr.normal(getkey(), (out_size,))
+                vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+                t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
             if mode == "op":
                 linear_solve2 = lambda op: linear_solve1(op, vector=vec)
