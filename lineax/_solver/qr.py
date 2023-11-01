@@ -79,7 +79,7 @@ class QR(AbstractLinearSolver):
         else:
             # Least squares solution if overdetermined.
             solution = jsp.linalg.solve_triangular(
-                r, q.T @ vector, trans="N", unit_diagonal=False
+                r, q.T.conj() @ vector, trans="N", unit_diagonal=False
             )
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
