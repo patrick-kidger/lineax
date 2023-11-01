@@ -40,14 +40,15 @@ class TestTranspose:
         return assert_transpose
 
     @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
+    @pytest.mark.parametrize("dtype", (jnp.float64,))
     def test_transpose(
-        _, make_operator, solver, tags, assert_transpose_fixture, getkey
+        _, make_operator, solver, tags, assert_transpose_fixture, dtype, getkey
     ):
-        (matrix,) = construct_matrix(getkey, solver, tags)
+        (matrix,) = construct_matrix(getkey, solver, tags, dtype=dtype)
         operator = make_operator(matrix, tags)
         out_size, in_size = matrix.shape
-        out_vec = jr.normal(getkey(), (out_size,))
-        in_vec = jr.normal(getkey(), (in_size,))
+        out_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+        in_vec = jr.normal(getkey(), (in_size,), dtype=dtype)
         solver = lx.AutoLinearSolver(well_posed=True)
         assert_transpose_fixture(operator, out_vec, in_vec, solver)
 

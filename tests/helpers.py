@@ -33,9 +33,9 @@ def getkey():
 
 
 @ft.lru_cache(maxsize=None)
-def _construct_matrix_impl(getkey, cond_cutoff, tags, size):
+def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype=jnp.float64):
     while True:
-        matrix = jr.normal(getkey(), (size, size))
+        matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
         if has_tag(tags, lx.symmetric_tag):
@@ -60,18 +60,19 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size):
     return matrix
 
 
-def construct_matrix(getkey, solver, tags, num=1, *, size=3):
+def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
     if isinstance(solver, lx.NormalCG):
         cond_cutoff = math.sqrt(1000)
     else:
         cond_cutoff = 1000
     return tuple(
-        _construct_matrix_impl(getkey, cond_cutoff, tags, size) for _ in range(num)
+        _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype)
+        for _ in range(num)
     )
 
 
-def construct_singular_matrix(getkey, solver, tags, num=1):
-    matrices = construct_matrix(getkey, solver, tags, num)
+def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
+    matrices = construct_matrix(getkey, solver, tags, num, dtype=dtype)
     if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
         return tuple(matrix.at[0, :].set(0) for matrix in matrices)
     else:
@@ -213,10 +214,10 @@ def make_function_operator(matrix, tags):
 @_operators_append
 def make_jac_operator(matrix, tags):
     out_size, in_size = matrix.shape
-    x = jr.normal(getkey(), (in_size,))
-    a = jr.normal(getkey(), (out_size,))
-    b = jr.normal(getkey(), (out_size, in_size))
-    c = jr.normal(getkey(), (out_size, in_size))
+    x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
+    a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
+    b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
     fn_tmp = lambda x, _: a + b @ x + c @ x**2
     jac = jax.jacfwd(fn_tmp)(x, None)
     diff = matrix - jac
@@ -269,7 +270,7 @@ def make_mul_operator(matrix, tags):
 @_operators_append
 def make_composed_operator(matrix, tags):
     _, size = matrix.shape
-    diag = jr.normal(getkey(), (size,))
+    diag = jr.normal(getkey(), (size,), dtype=matrix.dtype)
     diag = jnp.where(jnp.abs(diag) < 0.05, 0.8, diag)
     operator1 = make_trivial_pytree_operator(matrix / diag, ())
     operator2 = lx.DiagonalLinearOperator(diag)

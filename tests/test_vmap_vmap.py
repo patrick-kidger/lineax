@@ -40,8 +40,9 @@ from .helpers import (
         construct_singular_matrix,
     ),
 )
+@pytest.mark.parametrize("dtype", (jnp.float64,))
 def test_vmap_vmap(
-    getkey, make_operator, solver, tags, pseudoinverse, use_state, make_matrix
+    getkey, make_operator, solver, tags, pseudoinverse, use_state, make_matrix, dtype
 ):
     if (make_matrix is construct_matrix) or pseudoinverse:
         # combinations with nontrivial application across both vmaps
@@ -69,7 +70,13 @@ def test_vmap_vmap(
                 out_axis2 = None
 
             (matrix,) = eqx.filter_vmap(
-                eqx.filter_vmap(make_matrix, axis_size=axis_size1, out_axes=out_axis1),
+                eqx.filter_vmap(
+                    lambda getkey, solver, tags: make_matrix(
+                        getkey, solver, tags, dtype=dtype
+                    ),
+                    axis_size=axis_size1,
+                    out_axes=out_axis1,
+                ),
                 axis_size=axis_size2,
                 out_axes=out_axis2,
             )(getkey, solver, tags)
@@ -83,11 +90,11 @@ def test_vmap_vmap(
                 out_size, _ = matrix.shape
 
             if vmap1_vec is None:
-                vec = jr.normal(getkey(), (out_size,))
+                vec = jr.normal(getkey(), (out_size,), dtype=dtype)
             elif (vmap1_vec is not None) and (vmap2_vec is None):
-                vec = jr.normal(getkey(), (10, out_size))
+                vec = jr.normal(getkey(), (10, out_size), dtype=dtype)
             else:
-                vec = jr.normal(getkey(), (10, 10, out_size))
+                vec = jr.normal(getkey(), (10, 10, out_size), dtype=dtype)
 
             operator = eqx.filter_vmap(
                 eqx.filter_vmap(

@@ -42,13 +42,14 @@ from .helpers import (
         construct_singular_matrix,
     ),
 )
+@pytest.mark.parametrize("dtype", (jnp.float64,))
 def test_jvp_jvp(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix
+    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
 ):
     t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
     if (make_matrix is construct_matrix) or pseudoinverse:
         matrix, t_matrix, tt_matrix, tt_t_matrix = construct_matrix(
-            getkey, solver, tags, num=4
+            getkey, solver, tags, num=4, dtype=dtype
         )
 
         t_make_operator = lambda p, t_p: eqx.filter_jvp(
@@ -62,10 +63,10 @@ def test_jvp_jvp(
         )
 
         out_size, _ = matrix.shape
-        vec = jr.normal(getkey(), (out_size,))
-        t_vec = jr.normal(getkey(), (out_size,))
-        tt_vec = jr.normal(getkey(), (out_size,))
-        tt_t_vec = jr.normal(getkey(), (out_size,))
+        vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+        t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+        tt_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+        tt_t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
         if use_state:
 
