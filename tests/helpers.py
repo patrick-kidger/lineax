@@ -270,7 +270,7 @@ def make_mul_operator(matrix, tags):
 @_operators_append
 def make_composed_operator(matrix, tags):
     _, size = matrix.shape
-    diag = jr.normal(getkey(), (size,))
+    diag = jr.normal(getkey(), (size,), dtype=matrix.dtype)
     diag = jnp.where(jnp.abs(diag) < 0.05, 0.8, diag)
     operator1 = make_trivial_pytree_operator(matrix / diag, ())
     operator2 = lx.DiagonalLinearOperator(diag)

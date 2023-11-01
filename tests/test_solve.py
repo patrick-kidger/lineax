@@ -62,6 +62,19 @@ def test_mixed_dtypes(solver):
     assert shaped_allclose(out, true_out)
 
 
+@pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
+def test_mixed_dtypes_complex(solver):
+    c64 = lambda x: jnp.array(x, dtype=jnp.complex64)
+    c128 = lambda x: jnp.array(x, dtype=jnp.complex128)
+    x = [[c64(1), c128(5.0j)], [c64(2.0j), c128(-2)]]
+    y = [c128(3), c128(4)]
+    struct = jax.eval_shape(lambda: y)
+    operator = lx.PyTreeLinearOperator(x, struct)
+    out = lx.linear_solve(operator, y, solver=solver).value
+    true_out = [c64(-0.75 - 2.5j), c128(0.5 - 0.75j)]
+    assert shaped_allclose(out, true_out)
+
+
 def test_mixed_dtypes_triangular():
     f32 = lambda x: jnp.array(x, dtype=jnp.float32)
     f64 = lambda x: jnp.array(x, dtype=jnp.float64)

@@ -487,6 +487,28 @@ class PyTreeLinearOperator(AbstractLinearOperator):
             pytree_transpose, self.in_structure(), transpose_tags(self.tags)
         )
 
+    def adjoint(self):
+        if self_adjoint_tag in self.tags:
+            return self
+
+        def _adjoint(struct, subtree):
+            def _adjoint_impl(leaf):
+                return jnp.moveaxis(leaf.conj(), source, dest)
+
+            source = list(range(struct.ndim))
+            dest = list(range(-struct.ndim, 0))
+            return jtu.tree_map(_adjoint_impl, subtree)
+
+        pytree_adjoint = jtu.tree_map(_adjoint, self.out_structure(), self.pytree)
+        pytree_adjoint = jtu.tree_transpose(
+            jtu.tree_structure(self.out_structure()),
+            jtu.tree_structure(self.in_structure()),
+            pytree_adjoint,
+        )
+        return PyTreeLinearOperator(
+            pytree_adjoint, self.in_structure(), transpose_tags(self.tags)
+        )
+
     def in_structure(self):
         leaves, treedef = self.input_structure
         return jtu.tree_unflatten(treedef, leaves)
@@ -602,6 +624,17 @@ class JacobianLinearOperator(AbstractLinearOperator):
             vjpfn, self.out_structure(), transpose_tags(self.tags)
         )
 
+    def adjoint(self):
+        if self_adjoint_tag in self.tags:
+            return self
+        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
+        # Works because vjpfn is a PyTree
+        _, vjpfn = jax.vjp(fn, self.x)
+        vjpfne = lambda x: _Unwrap(vjpfn)(x.conj()).conj()
+        return FunctionLinearOperator(
+            vjpfne, self.out_structure(), transpose_tags(self.tags)
+        )
+
     def in_structure(self):
         return jax.eval_shape(lambda: self.x)
 
@@ -667,6 +700,20 @@ class FunctionLinearOperator(AbstractLinearOperator):
         # Works because transpose_fn is a PyTree
         return FunctionLinearOperator(
             _transpose_fn, self.out_structure(), transpose_tags(self.tags)
+        )
+
+    def adjoint(self):
+        if self_adjoint_tag in self.tags:
+            return self
+        transpose_fn = jax.linear_transpose(self.fn, self.in_structure())
+
+        def _adjoint_fn(vector):
+            (out,) = transpose_fn(vector.conj())
+            return out.conj()
+
+        # Works because transpose_fn is a PyTree
+        return FunctionLinearOperator(
+            _adjoint_fn, self.out_structure(), transpose_tags(self.tags)
         )
 
     def in_structure(self):
