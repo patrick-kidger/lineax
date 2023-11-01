@@ -219,7 +219,7 @@ def make_jac_operator(matrix, tags):
     b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
     c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
     fn_tmp = lambda x, _: a + b @ x + c @ x**2
-    jac = jax.jacfwd(fn_tmp)(x, None)
+    jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
     diff = matrix - jac
     fn = lambda x, _: a + (b + diff) @ x + c @ x**2
     return lx.JacobianLinearOperator(fn, x, None, tags)
