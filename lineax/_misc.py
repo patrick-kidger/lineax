@@ -96,7 +96,7 @@ def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False):
     if (in_size < 100) or (in_size <= 1.5 * out_size):
         return jax.jacfwd(fn, holomorphic=holomorphic, has_aux=has_aux)
     else:
-        return jax.jacrev(fn, has_aux=has_aux)
+        return jax.jacrev(fn, holomorphic=holomorphic, has_aux=has_aux)
 
 
 def default_floating_dtype():
