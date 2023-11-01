@@ -38,6 +38,8 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype=jnp.float32):
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
+        if has_tag(tags, lx.self_adjoint_tag):
+            matrix = matrix + matrix.T.conj()
         if has_tag(tags, lx.symmetric_tag):
             matrix = matrix + matrix.T
         if has_tag(tags, lx.lower_triangular_tag):
@@ -52,9 +54,9 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype=jnp.float32):
             lower_diagonal = jnp.diag(jnp.diag(matrix, k=-1), k=-1)
             matrix = lower_diagonal + diagonal + upper_diagonal
         if has_tag(tags, lx.positive_semidefinite_tag):
-            matrix = matrix @ matrix.T
+            matrix = matrix @ matrix.T.conj()
         if has_tag(tags, lx.negative_semidefinite_tag):
-            matrix = -matrix @ matrix.T
+            matrix = -matrix @ matrix.T.conj()
         if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_cutoff):  # pyright: ignore
             break
     return matrix
