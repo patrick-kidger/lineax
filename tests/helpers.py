@@ -33,7 +33,7 @@ def getkey():
 
 
 @ft.lru_cache(maxsize=None)
-def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype=jnp.float64):
+def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype):
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if has_tag(tags, lx.diagonal_tag):
