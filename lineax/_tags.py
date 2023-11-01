@@ -37,6 +37,7 @@ transpose_tags_rules = []
 
 for tag in (
     symmetric_tag,
+    self_adjoint_tag,
     unit_diagonal_tag,
     diagonal_tag,
     positive_semidefinite_tag,

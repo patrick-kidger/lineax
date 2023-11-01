@@ -850,6 +850,11 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
             self.diagonal, self.upper_diagonal, self.lower_diagonal
         )
 
+    def adjoint(self):
+        return TridiagonalLinearOperator(
+            self.diagonal.conj(), self.upper_diagonal.conj(), self.lower_diagonal.conj()
+        )
+
     def in_structure(self):
         (size,) = jnp.shape(self.diagonal)
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
@@ -906,6 +911,9 @@ class TaggedLinearOperator(AbstractLinearOperator):
         return TaggedLinearOperator(
             self.operator.transpose(), transpose_tags(self.tags)
         )
+
+    def adjoint(self):
+        return TaggedLinearOperator(self.operator.adjoint(), transpose_tags(self.tags))
 
     def in_structure(self):
         return self.operator.in_structure()
@@ -1032,7 +1040,7 @@ class MulLinearOperator(AbstractLinearOperator):
         return self.operator.transpose() * self.scalar
 
     def adjoint(self):
-        return self.operator.adjoint() * self.scalar
+        return self.operator.adjoint() * self.scalar.conj()
 
     def in_structure(self):
         return self.operator.in_structure()
@@ -1064,6 +1072,9 @@ class DivLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return self.operator.transpose() / self.scalar
+
+    def adjoint(self):
+        return self.operator.adjoint() / self.scalar.conj()
 
     def in_structure(self):
         return self.operator.in_structure()
@@ -1106,6 +1117,9 @@ class ComposedLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return self.operator2.transpose() @ self.operator1.transpose()
+
+    def adjoint(self):
+        return self.operator2.adjoint() @ self.operator1.adjoint()
 
     def in_structure(self):
         return self.operator2.in_structure()
