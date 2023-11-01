@@ -90,11 +90,11 @@ class NoneAux(eqx.Module):
         return self.fn(*args, **kwargs), None
 
 
-def jacobian(fn, in_size, out_size, has_aux=False):
+def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False):
     # Heuristic for which is better in each case
     # These could probably be tuned a lot more.
     if (in_size < 100) or (in_size <= 1.5 * out_size):
-        return jax.jacfwd(fn, has_aux=has_aux)
+        return jax.jacfwd(fn, holomorphic=holomorphic, has_aux=has_aux)
     else:
         return jax.jacrev(fn, has_aux=has_aux)
 

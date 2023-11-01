@@ -1233,9 +1233,13 @@ def _(operator):
 @materialise.register(JacobianLinearOperator)
 def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
-    jac, aux = jacobian(fn, operator.in_size(), operator.out_size(), has_aux=True)(
-        operator.x
-    )
+    jac, aux = jacobian(
+        fn,
+        operator.in_size(),
+        operator.out_size(),
+        holomorphic=jnp.iscomplexobj(operator.x),
+        has_aux=True,
+    )(operator.x)
     out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
     return AuxLinearOperator(out, aux)
 
