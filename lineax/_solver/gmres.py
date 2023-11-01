@@ -257,7 +257,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
                 lambda x: jnp.pad(x[..., None], ((0, 0),) * x.ndim + ((0, restart),)),
                 r_normalised,
             )
-            coeff_mat_init = jnp.eye(restart, restart + 1, dtype=r_norm.dtype)
+            coeff_mat_init = jnp.eye(restart, restart + 1, dtype=r_normalised.dtype)
 
             def cond_fun(carry):
                 _, _, breakdown, step = carry
@@ -337,7 +337,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         # indexed into. Through this section, there are terms like `lambda _, x: ...`
         # because`jtu.tree_map` only uses the first argument to determine the shape
         # of the pytree. Since _Buffer is considered part of the pytree
-        # structure, we get leaves which are not buffers if we direclty pass `basis`.
+        # structure, we get leaves which are not buffers if we directly pass `basis`.
         # Instead, we make sure that the first argument of the tree map is something
         # with the correct pytree structure, such as `vector` in the dummy case and
         # basis_step when not, so that we correctly index into `basis`.
@@ -348,7 +348,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         step_norm = two_norm(basis_step)
         contract_matrix = lambda x, y: ft.partial(
             jnp.tensordot, axes=x.ndim, precision=lax.Precision.HIGHEST
-        )(x, y[...])
+        )(x, y[...].conj())
         _proj = jtu.tree_map(contract_matrix, basis_step, basis)
         proj = jtu.tree_reduce(lambda x, y: x + y, _proj)
         proj_on_cols = jtu.tree_map(lambda _, x: x[...] @ proj, vector, basis)
@@ -373,7 +373,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         #
         # `initial_breakdown` occurs when the previous loop returns a
         # residual which is small enough to be interpreted as 0 by self._normalise,
-        # but which was passed through the solve anyway. This occurs when
+        # but which was passed through the solver anyway. This occurs when
         # the residual is small but the diff is not, or if the
         # correct solution was given to GMRES from the start. Both of these tend to
         # happen at the start of `gmres_compute`.
