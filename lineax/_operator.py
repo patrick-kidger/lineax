@@ -783,6 +783,9 @@ class DiagonalLinearOperator(AbstractLinearOperator):
     def transpose(self):
         return self
 
+    def adjoint(self):
+        return DiagonalLinearOperator(self.diagonal.conj())
+
     def in_structure(self):
         (size,) = jnp.shape(self.diagonal)
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
@@ -993,6 +996,9 @@ class AddLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return self.operator1.transpose() + self.operator2.transpose()
+
+    def adjoint(self):
+        return self.operator1.adjoint() + self.operator2.adjoint()
 
     def in_structure(self):
         return self.operator1.in_structure()
