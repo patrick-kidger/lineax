@@ -511,7 +511,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
     The Jacobian is not materialised; matrix-vector products, which are in fact
     Jacobian-vector products, are computed using autodifferentiation, specifically
-    `jax.jvp`. Thus `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
+    `jax.jvp`. Thus, `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
     `jax.jvp(fn, (x,), (v,))`.
 
     See also [`lineax.linearise`][], which caches the primal computation, i.e.
@@ -1917,3 +1917,105 @@ def _(operator):
     d = has_unit_diagonal(operator.operator1)
     e = has_unit_diagonal(operator.operator2)
     return (a or b or c) and d and e
+
+
+# conj
+
+
+@ft.singledispatch
+def conj(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    """Elementwise conjugate of a linear operator. This returns another linear operator.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Another linear operator.
+    """
+    _default_not_implemented("conj", operator)
+
+
+@conj.register(MatrixLinearOperator)
+def _(operator):
+    return MatrixLinearOperator(operator.matrix.conj(), operator.tags)
+
+
+@conj.register(PyTreeLinearOperator)
+def _(operator):
+    pytree_conj = jtu.tree_map(lambda x: x.conj(), operator.pytree)
+    return PyTreeLinearOperator(pytree_conj, operator.out_structure(), operator.tags)
+
+
+@conj.register(JacobianLinearOperator)
+def _(operator):
+    fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
+    jvpfn = lambda vec: jax.jvp(fn, (operator.x,), (vec,))[1]
+    jvpfnc = lambda x: jvpfn(x.conj()).conj()
+    return FunctionLinearOperator(jvpfnc, operator.in_structure(), operator.tags)
+
+
+@conj.register(FunctionLinearOperator)
+def _(operator):
+    return FunctionLinearOperator(
+        lambda vec: operator.mv(vec.conj()).conj(),
+        operator.in_structure(),
+        operator.tags,
+    )
+
+
+@conj.register(IdentityLinearOperator)
+def _(operator):
+    return operator
+
+
+@conj.register(DiagonalLinearOperator)
+def _(operator):
+    return DiagonalLinearOperator(operator.diagonal.conj())
+
+
+@conj.register(TridiagonalLinearOperator)
+def _(operator):
+    return TridiagonalLinearOperator(
+        operator.diagonal.conj(),
+        operator.lower_diagonal.conj(),
+        operator.upper_diagonal.conj(),
+    )
+
+
+@conj.register(TaggedLinearOperator)
+def _(operator):
+    return TaggedLinearOperator(conj(operator.operator), operator.tags)
+
+
+@conj.register(TangentLinearOperator)
+def _(operator):
+    c = lambda operator: conj(operator)
+    primal_out, tangent_out = eqx.filter_jvp(c, (operator.primal,), (operator.tangent,))
+    return TangentLinearOperator(primal_out, tangent_out)
+
+
+@conj.register(AddLinearOperator)
+def _(operator):
+    return conj(operator.operator1) + conj(operator.operator2)
+
+
+@conj.register(MulLinearOperator)
+def _(operator):
+    return conj(operator.operator) * operator.scalar.conj()
+
+
+@conj.register(DivLinearOperator)
+def _(operator):
+    return conj(operator.operator) / operator.scalar.conj()
+
+
+@conj.register(ComposedLinearOperator)
+def _(operator):
+    return conj(operator.operator1) @ conj(operator.operator2)
+
+
+@conj.register(AuxLinearOperator)
+def _(operator):
+    return conj(operator.operator)

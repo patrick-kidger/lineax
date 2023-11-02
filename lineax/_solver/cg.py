@@ -32,6 +32,7 @@ else:
 from .._misc import max_norm, resolve_rcond, tree_dot, tree_where
 from .._operator import (
     AbstractLinearOperator,
+    conj,
     is_negative_semidefinite,
     is_positive_semidefinite,
     linearise,
@@ -107,14 +108,14 @@ class _CG(AbstractLinearSolver[_CGState]):
             # If a downstream user wants to avoid this then they can call
             # ```
             # linear_solve(
-            #     operator.T @ operator, operator.mv(b), solver=CG()
+            #     conj(operator.T) @ operator, operator.mv(b), solver=CG()
             # )
             # ```
             # directly.
             operator = linearise(operator)
 
             _mv = operator.mv
-            _transpose_mv = operator.transpose().mv
+            _transpose_mv = conj(operator.transpose()).mv
 
             def mv(vector: PyTree) -> PyTree:
                 return _transpose_mv(_mv(vector))
