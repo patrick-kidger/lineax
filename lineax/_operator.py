@@ -1950,16 +1950,13 @@ def _(operator):
 
 @conj.register(JacobianLinearOperator)
 def _(operator):
-    fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
-    jvpfn = lambda vec: jax.jvp(fn, (operator.x,), (vec,))[1]
-    jvpfnc = lambda x: jvpfn(x.conj()).conj()
-    return FunctionLinearOperator(jvpfnc, operator.in_structure(), operator.tags)
+    return conj(linearise(operator))
 
 
 @conj.register(FunctionLinearOperator)
 def _(operator):
     return FunctionLinearOperator(
-        lambda vec: operator.mv(vec.conj()).conj(),
+        lambda vec: jtu.tree_map(jnp.conj, operator.mv(jtu.tree_map(jnp.conj, vec))),
         operator.in_structure(),
         operator.tags,
     )
@@ -1991,9 +1988,11 @@ def _(operator):
 
 @conj.register(TangentLinearOperator)
 def _(operator):
-    c = lambda operator: conj(operator)
-    primal_out, tangent_out = eqx.filter_jvp(c, (operator.primal,), (operator.tangent,))
-    return TangentLinearOperator(primal_out, tangent_out)
+    # Should be unreachable: TangentLinearOperator is used for a narrow set of
+    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
+    raise NotImplementedError(
+        "Please open a GitHub issue: https://github.com/google/lineax"
+    )
 
 
 @conj.register(AddLinearOperator)
