@@ -75,8 +75,10 @@ plugins:
         handlers:
             python:
                 setup_commands:
-                    - import pytkdocs_tweaks, typing
+                    - import pytkdocs_tweaks
                     - pytkdocs_tweaks.main()
+                    - import jax
+                    - jax.ShapeDtypeStruct.__module__ = "jax"
 
                 selection:
                     inherited_members: true  # Allow looking up inherited methods
