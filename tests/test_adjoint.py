@@ -1,8 +1,10 @@
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
 import lineax as lx
+from lineax import FunctionLinearOperator
 
 from .helpers import (
     make_diagonal_operator,
@@ -43,3 +45,13 @@ def test_adjoint(make_operator, dtype, getkey):
     ov2 = adjoint_op2.mv(v2)
     inner2 = v1 @ ov2.conj()
     assert shaped_allclose(inner1, inner2)
+
+
+def test_functional_pytree_adjoint():
+    def fn(y):
+        return {"b": y["a"]}
+
+    y_struct = jax.eval_shape(lambda: {"a": 0.0})
+    operator = FunctionLinearOperator(fn, y_struct)
+    conj_operator = lx.conj(operator)
+    assert shaped_allclose(lx.materialise(conj_operator), lx.materialise(operator))
