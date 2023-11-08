@@ -38,8 +38,6 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype):
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
-        if has_tag(tags, lx.self_adjoint_tag):
-            matrix = matrix + matrix.T.conj()
         if has_tag(tags, lx.symmetric_tag):
             matrix = matrix + matrix.T
         if has_tag(tags, lx.lower_triangular_tag):

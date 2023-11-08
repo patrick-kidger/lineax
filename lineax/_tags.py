@@ -22,7 +22,6 @@ class _HasRepr:
 
 
 symmetric_tag = _HasRepr("symmetric_tag")
-self_adjoint_tag = _HasRepr("self_adjoint_tag")
 diagonal_tag = _HasRepr("diagonal_tag")
 tridiagonal_tag = _HasRepr("tridiagonal_tag")
 unit_diagonal_tag = _HasRepr("unit_diagonal_tag")
@@ -37,7 +36,6 @@ transpose_tags_rules = []
 
 for tag in (
     symmetric_tag,
-    self_adjoint_tag,
     unit_diagonal_tag,
     diagonal_tag,
     positive_semidefinite_tag,
