@@ -18,6 +18,7 @@ from ._operator import (
     AddLinearOperator as AddLinearOperator,
     AuxLinearOperator as AuxLinearOperator,
     ComposedLinearOperator as ComposedLinearOperator,
+    conj as conj,
     diagonal as diagonal,
     DiagonalLinearOperator as DiagonalLinearOperator,
     DivLinearOperator as DivLinearOperator,

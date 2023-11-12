@@ -511,7 +511,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
     The Jacobian is not materialised; matrix-vector products, which are in fact
     Jacobian-vector products, are computed using autodifferentiation, specifically
-    `jax.jvp`. Thus `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
+    `jax.jvp`. Thus, `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
     `jax.jvp(fn, (x,), (v,))`.
 
     See also [`lineax.linearise`][], which caches the primal computation, i.e.
@@ -1917,3 +1917,104 @@ def _(operator):
     d = has_unit_diagonal(operator.operator1)
     e = has_unit_diagonal(operator.operator2)
     return (a or b or c) and d and e
+
+
+# conj
+
+
+@ft.singledispatch
+def conj(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    """Elementwise conjugate of a linear operator. This returns another linear operator.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Another linear operator.
+    """
+    _default_not_implemented("conj", operator)
+
+
+@conj.register(MatrixLinearOperator)
+def _(operator):
+    return MatrixLinearOperator(operator.matrix.conj(), operator.tags)
+
+
+@conj.register(PyTreeLinearOperator)
+def _(operator):
+    pytree_conj = jtu.tree_map(lambda x: x.conj(), operator.pytree)
+    return PyTreeLinearOperator(pytree_conj, operator.out_structure(), operator.tags)
+
+
+@conj.register(JacobianLinearOperator)
+def _(operator):
+    return conj(linearise(operator))
+
+
+@conj.register(FunctionLinearOperator)
+def _(operator):
+    return FunctionLinearOperator(
+        lambda vec: jtu.tree_map(jnp.conj, operator.mv(jtu.tree_map(jnp.conj, vec))),
+        operator.in_structure(),
+        operator.tags,
+    )
+
+
+@conj.register(IdentityLinearOperator)
+def _(operator):
+    return operator
+
+
+@conj.register(DiagonalLinearOperator)
+def _(operator):
+    return DiagonalLinearOperator(operator.diagonal.conj())
+
+
+@conj.register(TridiagonalLinearOperator)
+def _(operator):
+    return TridiagonalLinearOperator(
+        operator.diagonal.conj(),
+        operator.lower_diagonal.conj(),
+        operator.upper_diagonal.conj(),
+    )
+
+
+@conj.register(TaggedLinearOperator)
+def _(operator):
+    return TaggedLinearOperator(conj(operator.operator), operator.tags)
+
+
+@conj.register(TangentLinearOperator)
+def _(operator):
+    # Should be unreachable: TangentLinearOperator is used for a narrow set of
+    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
+    raise NotImplementedError(
+        "Please open a GitHub issue: https://github.com/google/lineax"
+    )
+
+
+@conj.register(AddLinearOperator)
+def _(operator):
+    return conj(operator.operator1) + conj(operator.operator2)
+
+
+@conj.register(MulLinearOperator)
+def _(operator):
+    return conj(operator.operator) * operator.scalar.conj()
+
+
+@conj.register(DivLinearOperator)
+def _(operator):
+    return conj(operator.operator) / operator.scalar.conj()
+
+
+@conj.register(ComposedLinearOperator)
+def _(operator):
+    return conj(operator.operator1) @ conj(operator.operator2)
+
+
+@conj.register(AuxLinearOperator)
+def _(operator):
+    return conj(operator.operator)
