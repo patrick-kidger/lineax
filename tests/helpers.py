@@ -52,9 +52,9 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype):
             lower_diagonal = jnp.diag(jnp.diag(matrix, k=-1), k=-1)
             matrix = lower_diagonal + diagonal + upper_diagonal
         if has_tag(tags, lx.positive_semidefinite_tag):
-            matrix = matrix @ matrix.T
+            matrix = matrix @ matrix.T.conj()
         if has_tag(tags, lx.negative_semidefinite_tag):
-            matrix = -matrix @ matrix.T
+            matrix = -matrix @ matrix.T.conj()
         if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_cutoff):  # pyright: ignore
             break
     return matrix

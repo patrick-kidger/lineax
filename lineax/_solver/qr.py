@@ -73,13 +73,13 @@ class QR(AbstractLinearSolver):
         vector = ravel_vector(vector, packed_structures)
         if transpose:
             # Minimal norm solution if underdetermined.
-            solution = q @ jsp.linalg.solve_triangular(
+            solution = q.conj() @ jsp.linalg.solve_triangular(
                 r, vector, trans="T", unit_diagonal=False
             )
         else:
             # Least squares solution if overdetermined.
             solution = jsp.linalg.solve_triangular(
-                r, q.T @ vector, trans="N", unit_diagonal=False
+                r, q.T.conj() @ vector, trans="N", unit_diagonal=False
             )
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
