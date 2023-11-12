@@ -29,7 +29,7 @@ from .helpers import (
 
 @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
 @pytest.mark.parametrize("ops", ops)
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10

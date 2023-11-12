@@ -39,7 +39,7 @@ class TestTranspose:
         return assert_transpose
 
     @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
-    @pytest.mark.parametrize("dtype", (jnp.float64,))
+    @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
     def test_transpose(
         _, make_operator, solver, tags, assert_transpose_fixture, dtype, getkey
     ):
