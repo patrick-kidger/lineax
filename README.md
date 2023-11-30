@@ -59,6 +59,24 @@ out = lx.linear_solve(hessian, gradient_fn(y, args=None), solver)
 minimum = y - out.value
 ```
 
+## Citation
+
+If you found this library to be useful in academic work, then please cite: ([arXiv link](https://arxiv.org/abs/2311.17283))
+
+```bibtex
+@article{lineax2023,
+    title={Lineax: unified linear solves and linear least-squares in JAX and Equinox},
+    author={Jason Rader and Terry Lyons and Patrick Kidger},
+    journal={
+        AI for science workshop at Neural Information Processing Systems 2023,
+        arXiv:2311.17283
+    },
+    year={2023},
+}
+```
+
+(Also consider starring the project on GitHub.)
+
 ## Finally
 
 ### See also: other libraries in the JAX ecosystem
