@@ -32,6 +32,7 @@ from ._custom_types import sentinel
 from ._misc import inexact_asarray
 from ._operator import (
     AbstractLinearOperator,
+    conj,
     IdentityLinearOperator,
     is_diagonal,
     is_lower_triangular,
@@ -190,18 +191,21 @@ def _linear_solve_jvp(primals, tangents):
         allow_dependent_rows = solver.allow_dependent_rows(operator)
         allow_dependent_columns = solver.allow_dependent_columns(operator)
         if allow_dependent_rows or allow_dependent_columns:
-            operator_transpose = operator.transpose()
-            t_operator_transpose = t_operator.transpose()
-            state_transpose, options_transpose = solver.transpose(state, options)
+            operator_conj_transpose = conj(operator.transpose())
+            t_operator_conj_transpose = conj(t_operator.transpose())
+            state_conj, options_conj = solver.conj(state, options)
+            state_conj_transpose, options_conj_transpose = solver.transpose(
+                state_conj, options_conj
+            )
         if allow_dependent_rows:
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
-            tmp = t_operator_transpose.mv(lst_sqr_diff)  # pyright: ignore
+            tmp = t_operator_conj_transpose.mv(lst_sqr_diff)  # pyright: ignore
             tmp, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
-                operator_transpose,  # pyright: ignore
-                state_transpose,  # pyright: ignore
+                operator_conj_transpose,  # pyright: ignore
+                state_conj_transpose,  # pyright: ignore
                 tmp,
-                options_transpose,  # pyright: ignore
+                options_conj_transpose,  # pyright: ignore
                 solver,
                 True,
             )
@@ -210,14 +214,14 @@ def _linear_solve_jvp(primals, tangents):
         if allow_dependent_columns:
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
-                operator_transpose,  # pyright: ignore
-                state_transpose,  # pyright:ignore
+                operator_conj_transpose,  # pyright: ignore
+                state_conj_transpose,  # pyright:ignore
                 solution,
-                options_transpose,  # pyright: ignore
+                options_conj_transpose,  # pyright: ignore
                 solver,
                 True,
             )
-            tmp2 = t_operator_transpose.mv(tmp1)  # pyright: ignore
+            tmp2 = t_operator_conj_transpose.mv(tmp1)  # pyright: ignore
             # tmp2 is the y term
             tmp3 = operator.mv(tmp2)
             tmp4 = (-(tmp3**ω)).ω
