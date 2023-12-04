@@ -237,6 +237,13 @@ class _CG(AbstractLinearSolver[_CGState]):
         transpose_options = {}
         return transpose_state, transpose_options
 
+    def conj(self, state: _CGState, options: dict[str, Any]):
+        del options
+        psd_op, is_nsd = state
+        conj_state = conj(psd_op), is_nsd
+        conj_options = {}
+        return conj_state, conj_options
+
 
 class CG(_CG):
     """Conjugate gradient solver for linear systems.

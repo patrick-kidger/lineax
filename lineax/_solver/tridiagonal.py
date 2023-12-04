@@ -104,6 +104,12 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState]):
         transpose_state = (transpose_diagonals, transposed_packed_structures)
         return transpose_state, options
 
+    def conj(self, state: _TridiagonalState, options: dict[str, Any]):
+        (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
+        conj_diagonals = (diagonal.conj(), lower_diagonal.conj(), upper_diagonal.conj())
+        conj_state = (conj_diagonals, packed_structures)
+        return conj_state, options
+
     def allow_dependent_columns(self, operator):
         return False
 

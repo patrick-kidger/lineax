@@ -81,6 +81,9 @@ class Diagonal(AbstractLinearSolver[_DiagonalState]):
         # Matrix is symmetric
         return state, options
 
+    def conj(self, state: _DiagonalState, options: dict[str, Any]):
+        return state.conj() if state is not None else state, options
+
     def allow_dependent_columns(self, operator):
         return not self.well_posed
 

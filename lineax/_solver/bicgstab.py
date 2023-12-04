@@ -24,7 +24,7 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
 from .._misc import max_norm, tree_dot
-from .._operator import AbstractLinearOperator
+from .._operator import AbstractLinearOperator, conj
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import preconditioner_and_y0
@@ -208,6 +208,12 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
         operator = state
         transpose_options = {}
         return operator.transpose(), transpose_options
+
+    def conj(self, state: _BiCGStabState, options: dict[str, Any]):
+        del options
+        operator = state
+        conj_options = {}
+        return conj(operator), conj_options
 
     def allow_dependent_columns(self, operator):
         return False

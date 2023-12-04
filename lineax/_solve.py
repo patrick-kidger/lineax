@@ -454,6 +454,32 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         - The options for the transposed operator.
         """
 
+    @abc.abstractmethod
+    def conj(
+        self, state: _SolverState, options: dict[str, Any]
+    ) -> tuple[_SolverState, dict[str, Any]]:
+        """Conjugate the result of [`lineax.AbstractLinearSolver.init`][].
+
+        That is, it should be the case that
+        ```python
+        state_conj, _ = solver.conj(solver.init(operator, options), options)
+        state_conj2 = solver.init(conj(operator), options)
+        ```
+        must be identical to each other.
+
+        **Arguments:**
+
+        - `state`: as returned from `solver.init`.
+        - `options`: any extra options that were passed to `solve.init`.
+
+        **Returns:**
+
+        A 2-tuple of:
+
+        - The state of the conjugated operator.
+        - The options for the conjugated operator.
+        """
+
 
 _qr_token = eqxi.str2jax("qr_token")
 _diagonal_token = eqxi.str2jax("diagonal_token")
@@ -608,6 +634,13 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         transpose_state, transpose_options = solver.transpose(state, options)
         transpose_state = (token, transpose_state)
         return transpose_state, transpose_options
+
+    def conj(self, state: _AutoLinearSolverState, options: dict[str, Any]):
+        token, state = state
+        solver = _lookup(token)
+        conj_state, conj_options = solver.conj(state, options)
+        conj_state = (token, conj_state)
+        return conj_state, conj_options
 
     def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
         token = self._select_solver(operator)

@@ -86,6 +86,13 @@ class SVD(AbstractLinearSolver[_SVDState]):
         transpose_options = {}
         return transpose_state, transpose_options
 
+    def conj(self, state: _SVDState, options: dict[str, Any]):
+        del options
+        (u, s, vt), packed_structures = state
+        conj_state = (u.conj(), s, vt.conj()), packed_structures
+        conj_options = {}
+        return conj_state, conj_options
+
     def allow_dependent_columns(self, operator):
         return True
 

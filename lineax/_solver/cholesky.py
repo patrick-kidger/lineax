@@ -77,8 +77,14 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         return solution, RESULTS.successful, {}
 
     def transpose(self, state: _CholeskyState, options: dict[str, Any]):
-        # Matrix is symmetric anyway
-        return state, options
+        # Matrix is self-adjoint
+        factor, is_nsd = state
+        return (factor.conj(), is_nsd), options
+
+    def conj(self, state: _CholeskyState, options: dict[str, Any]):
+        # Matrix is self-adjoint
+        factor, is_nsd = state
+        return (factor.conj(), is_nsd), options
 
     def allow_dependent_columns(self, operator):
         return False

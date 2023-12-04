@@ -75,6 +75,16 @@ class LU(AbstractLinearSolver[_LUState]):
         transpose_options = {}
         return transpose_state, transpose_options
 
+    def conj(
+        self,
+        state: _LUState,
+        options: dict[str, Any],
+    ):
+        (lu, piv), packed_structures, transpose = state
+        conj_state = (lu.conj(), piv.conj()), packed_structures, not transpose
+        conj_options = {}
+        return conj_state, conj_options
+
     def allow_dependent_columns(self, operator):
         return False
 
