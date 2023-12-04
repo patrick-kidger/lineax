@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools as ft
+
 import equinox as eqx
 import equinox.internal as eqxi
 import jax.numpy as jnp
@@ -96,9 +98,10 @@ def test_vmap_vmap(
             else:
                 vec = jr.normal(getkey(), (10, 10, out_size), dtype=dtype)
 
+            make_op = ft.partial(make_operator, getkey)
             operator = eqx.filter_vmap(
                 eqx.filter_vmap(
-                    make_operator,
+                    make_op,
                     in_axes=vmap1_op,
                     out_axes=out_axis1,
                 ),

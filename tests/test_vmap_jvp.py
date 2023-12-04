@@ -77,8 +77,9 @@ def test_vmap_jvp(
 
             def _make():
                 matrix, t_matrix = make_matrix(getkey, solver, tags, num=2, dtype=dtype)
+                make_op = ft.partial(make_operator, getkey)
                 operator, t_operator = eqx.filter_jvp(
-                    make_operator, (matrix, tags), (t_matrix, t_tags)
+                    make_op, (matrix, tags), (t_matrix, t_tags)
                 )
                 return matrix, t_matrix, operator, t_operator
 

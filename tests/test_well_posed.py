@@ -37,7 +37,7 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     else:
         tol = 1e-4
     (matrix,) = construct_matrix(getkey, solver, tags, dtype=dtype)
-    operator = make_operator(matrix, tags)
+    operator = make_operator(getkey, matrix, tags)
     operator, matrix = ops(operator, matrix)
     assert shaped_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
     out_size, _ = matrix.shape

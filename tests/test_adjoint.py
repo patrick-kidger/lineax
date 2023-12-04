@@ -30,7 +30,7 @@ def test_adjoint(make_operator, dtype, getkey):
         tags = ()
         in_size = 5
         out_size = 3
-    operator = make_operator(matrix, tags)
+    operator = make_operator(getkey, matrix, tags)
     v1, v2 = jr.normal(getkey(), (in_size,), dtype=dtype), jr.normal(
         getkey(), (out_size,), dtype=dtype
     )

@@ -46,7 +46,7 @@ def test_vmap(
     if (make_matrix is construct_matrix) or pseudoinverse:
 
         def wrap_solve(matrix, vector):
-            operator = make_operator(matrix, tags)
+            operator = make_operator(getkey, matrix, tags)
             if use_state:
                 state = solver.init(operator, options={})
                 return lx.linear_solve(operator, vector, solver, state=state).value
