@@ -191,8 +191,8 @@ def _linear_solve_jvp(primals, tangents):
         allow_dependent_rows = solver.allow_dependent_rows(operator)
         allow_dependent_columns = solver.allow_dependent_columns(operator)
         if allow_dependent_rows or allow_dependent_columns:
-            operator_conj_transpose = conj(operator.transpose())
-            t_operator_conj_transpose = conj(t_operator.transpose())
+            operator_conj_transpose = conj(operator).transpose()
+            t_operator_conj_transpose = conj(t_operator).transpose()
             state_conj, options_conj = solver.conj(state, options)
             state_conj_transpose, options_conj_transpose = solver.transpose(
                 state_conj, options_conj

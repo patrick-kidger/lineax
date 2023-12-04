@@ -81,7 +81,7 @@ class LU(AbstractLinearSolver[_LUState]):
         options: dict[str, Any],
     ):
         (lu, piv), packed_structures, transpose = state
-        conj_state = (lu.conj(), piv.conj()), packed_structures, not transpose
+        conj_state = (lu.conj(), piv), packed_structures, not transpose
         conj_options = {}
         return conj_state, conj_options
 
