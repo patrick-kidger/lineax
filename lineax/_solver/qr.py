@@ -91,6 +91,16 @@ class QR(AbstractLinearSolver):
         transpose_options = {}
         return transpose_state, transpose_options
 
+    def conj(self, state: _QRState, options: dict[str, Any]):
+        (q, r), transpose, structures = state
+        conj_state = (
+            (q.conj(), r.conj()),
+            transpose,
+            structures,
+        )
+        conj_options = {}
+        return conj_state, conj_options
+
     def allow_dependent_columns(self, operator):
         rows = operator.out_size()
         columns = operator.in_size()

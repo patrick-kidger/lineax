@@ -27,6 +27,7 @@ from jaxtyping import Array, ArrayLike, Bool, Float, PyTree
 from .._misc import max_norm, two_norm
 from .._operator import (
     AbstractLinearOperator,
+    conj,
     MatrixLinearOperator,
 )
 from .._solution import RESULTS
@@ -408,6 +409,12 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         operator = state
         transpose_options = {}
         return operator.transpose(), transpose_options
+
+    def conj(self, state: _GMRESState, options: dict[str, Any]):
+        del options
+        operator = state
+        conj_options = {}
+        return conj(operator), conj_options
 
     def allow_dependent_columns(self, operator):
         return False

@@ -15,7 +15,6 @@
 import functools as ft
 import math
 import operator
-import random
 
 import equinox.internal as eqxi
 import jax
@@ -26,10 +25,6 @@ import numpy as np
 from equinox.internal import ω
 
 import lineax as lx
-
-
-def getkey():
-    return jr.PRNGKey(random.randint(0, 2**31 - 1))
 
 
 @ft.lru_cache(maxsize=None)
@@ -76,7 +71,7 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
     if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
         return tuple(matrix.at[0, :].set(0) for matrix in matrices)
     else:
-        version = random.choice([0, 1, 2])
+        version = jr.choice(getkey(), np.array([0, 1, 2]))
         if version == 0:
             return tuple(matrix.at[0, :].set(0) for matrix in matrices)
         elif version == 1:
@@ -192,19 +187,19 @@ def _operators_append(x):
 
 
 @_operators_append
-def make_matrix_operator(matrix, tags):
+def make_matrix_operator(getkey, matrix, tags):
     return lx.MatrixLinearOperator(matrix, tags)
 
 
 @_operators_append
-def make_trivial_pytree_operator(matrix, tags):
+def make_trivial_pytree_operator(getkey, matrix, tags):
     out_size, _ = matrix.shape
     struct = jax.ShapeDtypeStruct((out_size,), matrix.dtype)
     return lx.PyTreeLinearOperator(matrix, struct, tags)
 
 
 @_operators_append
-def make_function_operator(matrix, tags):
+def make_function_operator(getkey, matrix, tags):
     fn = lambda x: matrix @ x
     _, in_size = matrix.shape
     in_struct = jax.ShapeDtypeStruct((in_size,), matrix.dtype)
@@ -212,7 +207,7 @@ def make_function_operator(matrix, tags):
 
 
 @_operators_append
-def make_jac_operator(matrix, tags):
+def make_jac_operator(getkey, matrix, tags):
     out_size, in_size = matrix.shape
     x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
     a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
@@ -222,18 +217,19 @@ def make_jac_operator(matrix, tags):
     jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
     diff = matrix - jac
     fn = lambda x, _: a + (b + diff) @ x + c @ x**2
+    jax.debug.print("{a} {b} {c} {diff}", a=a, b=b, c=c, diff=diff)
     return lx.JacobianLinearOperator(fn, x, None, tags)
 
 
 @_operators_append
-def make_diagonal_operator(matrix, tags):
+def make_diagonal_operator(getkey, matrix, tags):
     assert tags == lx.diagonal_tag
     diag = jnp.diag(matrix)
     return lx.DiagonalLinearOperator(diag)
 
 
 @_operators_append
-def make_tridiagonal_operator(matrix, tags):
+def make_tridiagonal_operator(getkey, matrix, tags):
     diag1 = jnp.diag(matrix)
     if tags == lx.tridiagonal_tag:
         diag2 = jnp.diag(matrix, k=-1)
@@ -254,25 +250,27 @@ def make_tridiagonal_operator(matrix, tags):
 
 
 @_operators_append
-def make_add_operator(matrix, tags):
+def make_add_operator(getkey, matrix, tags):
     matrix1 = 0.7 * matrix
     matrix2 = 0.3 * matrix
-    operator = make_matrix_operator(matrix1, ()) + make_function_operator(matrix2, ())
+    operator = make_matrix_operator(getkey, matrix1, ()) + make_function_operator(
+        getkey, matrix2, ()
+    )
     return lx.TaggedLinearOperator(operator, tags)
 
 
 @_operators_append
-def make_mul_operator(matrix, tags):
-    operator = make_jac_operator(0.7 * matrix, ()) / 0.7
+def make_mul_operator(getkey, matrix, tags):
+    operator = make_jac_operator(getkey, 0.7 * matrix, ()) / 0.7
     return lx.TaggedLinearOperator(operator, tags)
 
 
 @_operators_append
-def make_composed_operator(matrix, tags):
+def make_composed_operator(getkey, matrix, tags):
     _, size = matrix.shape
     diag = jr.normal(getkey(), (size,), dtype=matrix.dtype)
     diag = jnp.where(jnp.abs(diag) < 0.05, 0.8, diag)
-    operator1 = make_trivial_pytree_operator(matrix / diag, ())
+    operator1 = make_trivial_pytree_operator(getkey, matrix / diag, ())
     operator2 = lx.DiagonalLinearOperator(diag)
     return lx.TaggedLinearOperator(operator1 @ operator2, tags)
 

@@ -92,6 +92,18 @@ class Triangular(AbstractLinearSolver[_TriangularState]):
         transpose_options = {}
         return transpose_state, transpose_options
 
+    def conj(self, state: _TriangularState, options: dict[str, Any]):
+        matrix, lower, unit_diagonal, packed_structures, transpose = state
+        conj_state = (
+            matrix.conj(),
+            lower,
+            unit_diagonal,
+            packed_structures,
+            transpose,
+        )
+        conj_options = {}
+        return conj_state, conj_options
+
     def allow_dependent_columns(self, operator):
         return False
 

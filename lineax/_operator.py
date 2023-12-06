@@ -1988,11 +1988,9 @@ def _(operator):
 
 @conj.register(TangentLinearOperator)
 def _(operator):
-    # Should be unreachable: TangentLinearOperator is used for a narrow set of
-    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
-    raise NotImplementedError(
-        "Please open a GitHub issue: https://github.com/google/lineax"
-    )
+    c = lambda operator: conj(operator)
+    primal_out, tangent_out = eqx.filter_jvp(c, (operator.primal,), (operator.tangent,))
+    return TangentLinearOperator(primal_out, tangent_out)
 
 
 @conj.register(AddLinearOperator)

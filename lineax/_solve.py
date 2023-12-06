@@ -32,6 +32,7 @@ from ._custom_types import sentinel
 from ._misc import inexact_asarray
 from ._operator import (
     AbstractLinearOperator,
+    conj,
     IdentityLinearOperator,
     is_diagonal,
     is_lower_triangular,
@@ -190,18 +191,21 @@ def _linear_solve_jvp(primals, tangents):
         allow_dependent_rows = solver.allow_dependent_rows(operator)
         allow_dependent_columns = solver.allow_dependent_columns(operator)
         if allow_dependent_rows or allow_dependent_columns:
-            operator_transpose = operator.transpose()
-            t_operator_transpose = t_operator.transpose()
-            state_transpose, options_transpose = solver.transpose(state, options)
+            operator_conj_transpose = conj(operator).transpose()
+            t_operator_conj_transpose = conj(t_operator).transpose()
+            state_conj, options_conj = solver.conj(state, options)
+            state_conj_transpose, options_conj_transpose = solver.transpose(
+                state_conj, options_conj
+            )
         if allow_dependent_rows:
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
-            tmp = t_operator_transpose.mv(lst_sqr_diff)  # pyright: ignore
+            tmp = t_operator_conj_transpose.mv(lst_sqr_diff)  # pyright: ignore
             tmp, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
-                operator_transpose,  # pyright: ignore
-                state_transpose,  # pyright: ignore
+                operator_conj_transpose,  # pyright: ignore
+                state_conj_transpose,  # pyright: ignore
                 tmp,
-                options_transpose,  # pyright: ignore
+                options_conj_transpose,  # pyright: ignore
                 solver,
                 True,
             )
@@ -210,14 +214,14 @@ def _linear_solve_jvp(primals, tangents):
         if allow_dependent_columns:
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
-                operator_transpose,  # pyright: ignore
-                state_transpose,  # pyright:ignore
+                operator_conj_transpose,  # pyright: ignore
+                state_conj_transpose,  # pyright:ignore
                 solution,
-                options_transpose,  # pyright: ignore
+                options_conj_transpose,  # pyright: ignore
                 solver,
                 True,
             )
-            tmp2 = t_operator_transpose.mv(tmp1)  # pyright: ignore
+            tmp2 = t_operator_conj_transpose.mv(tmp1)  # pyright: ignore
             # tmp2 is the y term
             tmp3 = operator.mv(tmp2)
             tmp4 = (-(tmp3**ω)).ω
@@ -454,6 +458,32 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         - The options for the transposed operator.
         """
 
+    @abc.abstractmethod
+    def conj(
+        self, state: _SolverState, options: dict[str, Any]
+    ) -> tuple[_SolverState, dict[str, Any]]:
+        """Conjugate the result of [`lineax.AbstractLinearSolver.init`][].
+
+        That is, it should be the case that
+        ```python
+        state_conj, _ = solver.conj(solver.init(operator, options), options)
+        state_conj2 = solver.init(conj(operator), options)
+        ```
+        must be identical to each other.
+
+        **Arguments:**
+
+        - `state`: as returned from `solver.init`.
+        - `options`: any extra options that were passed to `solve.init`.
+
+        **Returns:**
+
+        A 2-tuple of:
+
+        - The state of the conjugated operator.
+        - The options for the conjugated operator.
+        """
+
 
 _qr_token = eqxi.str2jax("qr_token")
 _diagonal_token = eqxi.str2jax("diagonal_token")
@@ -608,6 +638,13 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         transpose_state, transpose_options = solver.transpose(state, options)
         transpose_state = (token, transpose_state)
         return transpose_state, transpose_options
+
+    def conj(self, state: _AutoLinearSolverState, options: dict[str, Any]):
+        token, state = state
+        solver = _lookup(token)
+        conj_state, conj_options = solver.conj(state, options)
+        conj_state = (token, conj_state)
+        return conj_state, conj_options
 
     def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
         token = self._select_solver(operator)

@@ -52,8 +52,9 @@ def test_jvp_jvp(
             getkey, solver, tags, num=4, dtype=dtype
         )
 
+        make_op = ft.partial(make_operator, getkey)
         t_make_operator = lambda p, t_p: eqx.filter_jvp(
-            make_operator, (p, tags), (t_p, t_tags)
+            make_op, (p, tags), (t_p, t_tags)
         )
         tt_make_operator = lambda p, t_p, tt_p, tt_t_p: eqx.filter_jvp(
             t_make_operator, (p, t_p), (tt_p, tt_t_p)

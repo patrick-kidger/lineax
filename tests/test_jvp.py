@@ -62,8 +62,9 @@ def test_jvp(
             # This is the exception.
             t_matrix.at[jnp.arange(3), jnp.arange(3)].set(0)
 
+        make_op = ft.partial(make_operator, getkey)
         operator, t_operator = eqx.filter_jvp(
-            make_operator, (matrix, tags), (t_matrix, t_tags)
+            make_op, (matrix, tags), (t_matrix, t_tags)
         )
 
         if use_state:

@@ -45,7 +45,7 @@ class TestTranspose:
         _, make_operator, solver, tags, assert_transpose_fixture, dtype, getkey
     ):
         (matrix,) = construct_matrix(getkey, solver, tags, dtype=dtype)
-        operator = make_operator(matrix, tags)
+        operator = make_operator(getkey, matrix, tags)
         out_size, in_size = matrix.shape
         out_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
         in_vec = jr.normal(getkey(), (in_size,), dtype=dtype)
