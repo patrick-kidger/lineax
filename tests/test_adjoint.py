@@ -14,7 +14,7 @@ from .helpers import (
 
 
 @pytest.mark.parametrize("make_operator", make_operators)
-@pytest.mark.parametrize("dtype", (jnp.float32, jnp.complex64))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_adjoint(make_operator, dtype, getkey):
     if make_operator is make_diagonal_operator:
         matrix = jnp.eye(4, dtype=dtype)
