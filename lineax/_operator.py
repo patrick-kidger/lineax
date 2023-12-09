@@ -1246,7 +1246,7 @@ def _(operator):
         fn,
         operator.in_size(),
         operator.out_size(),
-        holomorphic=jnp.iscomplexobj(operator.x),
+        holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
         has_aux=True,
     )(operator.x)
     out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
