@@ -27,8 +27,8 @@ from .helpers import (
     construct_singular_matrix,
     make_jac_operator,
     make_matrix_operator,
-    shaped_allclose,
     solvers_tags_pseudoinverse,
+    tree_allclose,
 )
 
 
@@ -214,7 +214,7 @@ def test_jvp_jvp(
                 jnp_primal, jnp_tangent
             )
 
-            assert shaped_allclose(out, true_out, atol=1e-4)
-            assert shaped_allclose(t_out, true_t_out, atol=1e-4)
-            assert shaped_allclose(tt_out, true_tt_out, atol=1e-4)
-            assert shaped_allclose(minus_out, minus_true_out, atol=1e-4)
+            assert tree_allclose(out, true_out, atol=1e-4)
+            assert tree_allclose(t_out, true_t_out, atol=1e-4)
+            assert tree_allclose(tt_out, true_tt_out, atol=1e-4)
+            assert tree_allclose(minus_out, minus_true_out, atol=1e-4)

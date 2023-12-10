@@ -30,8 +30,8 @@ from .helpers import (
     make_matrix_operator,
     ops,
     params,
-    shaped_allclose,
     tol,
+    tree_allclose,
 )
 
 
@@ -46,13 +46,13 @@ def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     (matrix,) = construct_singular_matrix(getkey, solver, tags, dtype=dtype)
     operator = make_operator(getkey, matrix, tags)
     operator, matrix = ops(operator, matrix)
-    assert shaped_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
+    assert tree_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
     out_size, in_size = matrix.shape
     true_x = jr.normal(getkey(), (in_size,), dtype=dtype)
     b = matrix @ true_x
     x = lx.linear_solve(operator, b, solver=solver, throw=False).value
     jax_x, *_ = jnp.linalg.lstsq(matrix, b)  # pyright: ignore
-    assert shaped_allclose(x, jax_x, atol=tol, rtol=tol)
+    assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
 def test_bicgstab_breakdown(getkey):
@@ -110,7 +110,7 @@ def test_nonsquare_pytree_operator1(solver):
     matrix = jnp.array([[1.0, 5.0, -1.0], [-2.0, -2.0, 3.0]])
     true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))  # pyright: ignore
     true_out = [true_out[0], true_out[1], true_out[2]]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 @pytest.mark.parametrize(
@@ -125,7 +125,7 @@ def test_nonsquare_pytree_operator2(solver):
     matrix = jnp.array([[1.0, -2.0], [5.0, -2.0], [-1.0, 3.0]])
     true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))  # pyright: ignore
     true_out = [true_out[0], true_out[1]]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 @pytest.mark.parametrize("full_rank", (True, False))
@@ -165,7 +165,7 @@ def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, dtype, getkey):
         x = lx_solve(*args)  # pyright: ignore
     if full_rank:
         true_x = jnp_solve(*args)
-        assert shaped_allclose(x, true_x, atol=1e-4, rtol=1e-4)
+        assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.parametrize("full_rank", (True, False))
@@ -204,7 +204,7 @@ def test_qr_nonsquare_vec(full_rank, jvp, wide, dtype, getkey):
         x = lx_solve(*args)  # pyright: ignore
     if full_rank:
         true_x = jnp_solve(*args)
-        assert shaped_allclose(x, true_x, atol=1e-4, rtol=1e-4)
+        assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
 _iterative_solvers = (

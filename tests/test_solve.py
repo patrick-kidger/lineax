@@ -19,7 +19,7 @@ import pytest
 
 import lineax as lx
 
-from .helpers import shaped_allclose
+from .helpers import tree_allclose
 
 
 def test_gmres_large_dense(getkey):
@@ -36,7 +36,7 @@ def test_gmres_large_dense(getkey):
 
     lx_soln = lx.linear_solve(operator, b, solver).value
 
-    assert shaped_allclose(lx_soln, true_x, atol=tol, rtol=tol)
+    assert tree_allclose(lx_soln, true_x, atol=tol, rtol=tol)
 
 
 def test_nontrivial_pytree_operator():
@@ -46,7 +46,7 @@ def test_nontrivial_pytree_operator():
     operator = lx.PyTreeLinearOperator(x, struct)
     out = lx.linear_solve(operator, y).value
     true_out = [jnp.array(-3.25), jnp.array(1.25)]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 @pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
@@ -59,7 +59,7 @@ def test_mixed_dtypes(solver):
     operator = lx.PyTreeLinearOperator(x, struct)
     out = lx.linear_solve(operator, y, solver=solver).value
     true_out = [f32(-3.25), f64(1.25)]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 @pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
@@ -72,7 +72,7 @@ def test_mixed_dtypes_complex(solver):
     operator = lx.PyTreeLinearOperator(x, struct)
     out = lx.linear_solve(operator, y, solver=solver).value
     true_out = [c64(-0.75 - 2.5j), c128(0.5 - 0.75j)]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 @pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
@@ -85,7 +85,7 @@ def test_mixed_dtypes_complex_real(solver):
     operator = lx.PyTreeLinearOperator(x, struct)
     out = lx.linear_solve(operator, y, solver=solver).value
     true_out = [f64(1.75), c128(0.25j)]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 def test_mixed_dtypes_triangular():
@@ -97,7 +97,7 @@ def test_mixed_dtypes_triangular():
     operator = lx.PyTreeLinearOperator(x, struct, lx.lower_triangular_tag)
     out = lx.linear_solve(operator, y, solver=lx.Triangular()).value
     true_out = [f32(3), f64(-5)]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 def test_mixed_dtypes_complex_triangular():
@@ -109,7 +109,7 @@ def test_mixed_dtypes_complex_triangular():
     operator = lx.PyTreeLinearOperator(x, struct, lx.lower_triangular_tag)
     out = lx.linear_solve(operator, y, solver=lx.Triangular()).value
     true_out = [c64(3), c128(-2 + 3.0j)]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 def test_mixed_dtypes_complex_real_triangular():
@@ -121,7 +121,7 @@ def test_mixed_dtypes_complex_real_triangular():
     operator = lx.PyTreeLinearOperator(x, struct, lx.lower_triangular_tag)
     out = lx.linear_solve(operator, y, solver=lx.Triangular()).value
     true_out = [f64(3), c128(1j)]
-    assert shaped_allclose(out, true_out)
+    assert tree_allclose(out, true_out)
 
 
 def test_ad_closure_function_linear_operator(getkey):
@@ -137,5 +137,5 @@ def test_ad_closure_function_linear_operator(getkey):
     x = jnp.where(jnp.abs(x) < 1e-6, 0.7, x)
     z = jr.normal(getkey(), (3,))
     grad, sol = jax.grad(f, has_aux=True)(x, z)
-    assert shaped_allclose(grad, -z / (x**2))
-    assert shaped_allclose(sol, z / x)
+    assert tree_allclose(grad, -z / (x**2))
+    assert tree_allclose(sol, z / x)

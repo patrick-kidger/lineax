@@ -27,8 +27,8 @@ from .helpers import (
     construct_singular_matrix,
     make_jac_operator,
     make_matrix_operator,
-    shaped_allclose,
     solvers_tags_pseudoinverse,
+    tree_allclose,
 )
 
 
@@ -145,4 +145,4 @@ def test_vmap_vmap(
                 true_result, _, _, _ = solve_with(jnp.linalg.lstsq)  # pyright: ignore
             else:
                 true_result = solve_with(jnp.linalg.solve)  # pyright: ignore
-            assert shaped_allclose(result, true_result, rtol=1e-3)
+            assert tree_allclose(result, true_result, rtol=1e-3)

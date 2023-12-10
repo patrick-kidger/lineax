@@ -14,8 +14,8 @@
 
 import functools as ft
 import math
-import operator
 
+import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
@@ -141,37 +141,8 @@ def params(only_pseudo):
             yield make_operator, solver, tags
 
 
-def _shaped_allclose(x, y, **kwargs):
-    if type(x) is not type(y):
-        return False
-    if isinstance(x, jax.Array):
-        x = np.asarray(x)
-        y = np.asarray(y)
-    if isinstance(x, np.ndarray):
-        if np.issubdtype(x.dtype, np.inexact):
-            return (
-                x.shape == y.shape
-                and x.dtype == y.dtype
-                and np.allclose(x, y, **kwargs)
-            )
-        else:
-            return x.shape == y.shape and x.dtype == y.dtype and np.all(x == y)
-    elif isinstance(x, jax.ShapeDtypeStruct):
-        assert x.shape == y.shape and x.dtype == y.dtype
-    else:
-        return x == y
-
-
-def shaped_allclose(x, y, **kwargs):
-    """As `jnp.allclose`, except:
-    - It also supports PyTree arguments.
-    - It mandates that shapes match as well (no broadcasting)
-    """
-    same_structure = jtu.tree_structure(x) == jtu.tree_structure(y)
-    allclose = ft.partial(_shaped_allclose, **kwargs)
-    return same_structure and jtu.tree_reduce(
-        operator.and_, jtu.tree_map(allclose, x, y), True
-    )
+def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
+    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
 def has_tag(tags, tag):

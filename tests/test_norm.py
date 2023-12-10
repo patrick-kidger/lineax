@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 import lineax.internal as lxi
 
-from .helpers import shaped_allclose
+from .helpers import tree_allclose
 
 
 def _square(x):
@@ -58,16 +58,16 @@ def test_nonzero():
     true_rms_jvp = jax.jvp(_rms_norm, (x,), (tx,))
     max_jvp = jax.jvp(lxi.max_norm, (x,), (tx,))
     true_max_jvp = jax.jvp(_max_norm, (x,), (tx,))
-    assert shaped_allclose(two_jvp, true_two_jvp)
-    assert shaped_allclose(rms_jvp, true_rms_jvp)
-    assert shaped_allclose(max_jvp, true_max_jvp)
+    assert tree_allclose(two_jvp, true_two_jvp)
+    assert tree_allclose(rms_jvp, true_rms_jvp)
+    assert tree_allclose(max_jvp, true_max_jvp)
 
     two0_jvp = jax.jvp(lxi.two_norm, (x,), (zero,))
     rms0_jvp = jax.jvp(lxi.rms_norm, (x,), (zero,))
     max0_jvp = jax.jvp(lxi.max_norm, (x,), (zero,))
-    assert shaped_allclose(two0_jvp, (true_two, jnp.array(0.0)))
-    assert shaped_allclose(rms0_jvp, (true_rms, jnp.array(0.0)))
-    assert shaped_allclose(max0_jvp, (true_max, jnp.array(0.0)))
+    assert tree_allclose(two0_jvp, (true_two, jnp.array(0.0)))
+    assert tree_allclose(rms0_jvp, (true_rms, jnp.array(0.0)))
+    assert tree_allclose(max0_jvp, (true_max, jnp.array(0.0)))
 
 
 def test_zero():
@@ -78,9 +78,9 @@ def test_zero():
         rms0 = jax.jvp(lxi.rms_norm, (zero,), (t,))
         max0 = jax.jvp(lxi.max_norm, (zero,), (t,))
         true0 = (jnp.array(0.0), jnp.array(0.0))
-        assert shaped_allclose(two0, true0)
-        assert shaped_allclose(rms0, true0)
-        assert shaped_allclose(max0, true0)
+        assert tree_allclose(two0, true0)
+        assert tree_allclose(rms0, true0)
+        assert tree_allclose(max0, true0)
 
 
 def test_complex():
@@ -93,19 +93,19 @@ def test_complex():
     max = jax.jvp(lxi.max_norm, (x,), (tx,))
     true_max = jax.jvp(_max_norm, (x,), (tx,))
     assert two[0].imag == 0
-    assert shaped_allclose(two, true_two)
+    assert tree_allclose(two, true_two)
     assert rms[0].imag == 0
-    assert shaped_allclose(rms, true_rms)
+    assert tree_allclose(rms, true_rms)
     assert max[0].imag == 0
-    assert shaped_allclose(max, true_max)
+    assert tree_allclose(max, true_max)
 
 
 def test_size_zero():
     zero = jnp.array(0.0)
     for x in (jnp.array([]), [jnp.array([]), jnp.array([])]):
-        assert shaped_allclose(lxi.two_norm(x), zero)
-        assert shaped_allclose(lxi.rms_norm(x), zero)
-        assert shaped_allclose(lxi.max_norm(x), zero)
-        assert shaped_allclose(jax.jvp(lxi.two_norm, (x,), (x,)), (zero, zero))
-        assert shaped_allclose(jax.jvp(lxi.rms_norm, (x,), (x,)), (zero, zero))
-        assert shaped_allclose(jax.jvp(lxi.max_norm, (x,), (x,)), (zero, zero))
+        assert tree_allclose(lxi.two_norm(x), zero)
+        assert tree_allclose(lxi.rms_norm(x), zero)
+        assert tree_allclose(lxi.max_norm(x), zero)
+        assert tree_allclose(jax.jvp(lxi.two_norm, (x,), (x,)), (zero, zero))
+        assert tree_allclose(jax.jvp(lxi.rms_norm, (x,), (x,)), (zero, zero))
+        assert tree_allclose(jax.jvp(lxi.max_norm, (x,), (x,)), (zero, zero))

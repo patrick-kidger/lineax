@@ -26,7 +26,7 @@ from .helpers import (
     make_diagonal_operator,
     make_operators,
     make_tridiagonal_operator,
-    shaped_allclose,
+    tree_allclose,
 )
 
 
@@ -41,28 +41,28 @@ def test_ops(getkey):
     div = matrix1 / scalar
     vec = jr.normal(getkey(), (3,))
 
-    assert shaped_allclose(matrix1.mv(vec) + matrix2.mv(vec), add.mv(vec))
-    assert shaped_allclose(matrix1.mv(matrix2.mv(vec)), composed.mv(vec))
+    assert tree_allclose(matrix1.mv(vec) + matrix2.mv(vec), add.mv(vec))
+    assert tree_allclose(matrix1.mv(matrix2.mv(vec)), composed.mv(vec))
     scalar_matvec = scalar * matrix1.mv(vec)
-    assert shaped_allclose(scalar_matvec, mul.mv(vec))
-    assert shaped_allclose(scalar_matvec, rmul.mv(vec))
-    assert shaped_allclose(matrix1.mv(vec) / scalar, div.mv(vec))
+    assert tree_allclose(scalar_matvec, mul.mv(vec))
+    assert tree_allclose(scalar_matvec, rmul.mv(vec))
+    assert tree_allclose(matrix1.mv(vec) / scalar, div.mv(vec))
 
     add_matrix = matrix1.as_matrix() + matrix2.as_matrix()
     composed_matrix = matrix1.as_matrix() @ matrix2.as_matrix()
     mul_matrix = scalar * matrix1.as_matrix()
     div_matrix = matrix1.as_matrix() / scalar
-    assert shaped_allclose(add_matrix, add.as_matrix())
-    assert shaped_allclose(composed_matrix, composed.as_matrix())
-    assert shaped_allclose(mul_matrix, mul.as_matrix())
-    assert shaped_allclose(mul_matrix, rmul.as_matrix())
-    assert shaped_allclose(div_matrix, div.as_matrix())
+    assert tree_allclose(add_matrix, add.as_matrix())
+    assert tree_allclose(composed_matrix, composed.as_matrix())
+    assert tree_allclose(mul_matrix, mul.as_matrix())
+    assert tree_allclose(mul_matrix, rmul.as_matrix())
+    assert tree_allclose(div_matrix, div.as_matrix())
 
-    assert shaped_allclose(add_matrix.T, add.T.as_matrix())
-    assert shaped_allclose(composed_matrix.T, composed.T.as_matrix())
-    assert shaped_allclose(mul_matrix.T, mul.T.as_matrix())
-    assert shaped_allclose(mul_matrix.T, rmul.T.as_matrix())
-    assert shaped_allclose(div_matrix.T, div.T.as_matrix())
+    assert tree_allclose(add_matrix.T, add.T.as_matrix())
+    assert tree_allclose(composed_matrix.T, composed.T.as_matrix())
+    assert tree_allclose(mul_matrix.T, mul.T.as_matrix())
+    assert tree_allclose(mul_matrix.T, rmul.T.as_matrix())
+    assert tree_allclose(div_matrix.T, div.T.as_matrix())
 
 
 @pytest.mark.parametrize("make_operator", make_operators)
@@ -83,8 +83,8 @@ def test_structures_vector(make_operator, getkey):
     operator = make_operator(getkey, matrix, tags)
     in_structure = jax.ShapeDtypeStruct((in_size,), jnp.float64)
     out_structure = jax.ShapeDtypeStruct((out_size,), jnp.float64)
-    assert shaped_allclose(in_structure, operator.in_structure())
-    assert shaped_allclose(out_structure, operator.out_structure())
+    assert tree_allclose(in_structure, operator.in_structure())
+    assert tree_allclose(out_structure, operator.out_structure())
 
 
 def _setup(getkey, matrix, tag: Union[object, frozenset[object]] = frozenset()):
@@ -340,8 +340,8 @@ def test_identity_with_different_structures():
         jnp.array(1.0, dtype=jnp.float32),
         jnp.array([[2, 3, 4], [5, 0, 0]], dtype=jnp.float16),
     )
-    assert shaped_allclose(op1.mv(vec1), vec2)
-    assert shaped_allclose(op2.mv(vec2), vec1b)
+    assert tree_allclose(op1.mv(vec1), vec2)
+    assert tree_allclose(op2.mv(vec2), vec1b)
 
 
 def test_identity_with_different_structures_complex():
@@ -369,8 +369,8 @@ def test_identity_with_different_structures_complex():
         jnp.array(1.0, dtype=jnp.complex128),
         jnp.array([[2, 3, 4], [5, 0, 0]], dtype=jnp.float16),
     )
-    assert shaped_allclose(op1.mv(vec1), vec2)
-    assert shaped_allclose(op2.mv(vec2), vec1b)
+    assert tree_allclose(op1.mv(vec1), vec2)
+    assert tree_allclose(op2.mv(vec2), vec1b)
 
 
 def test_zero_pytree_as_matrix():

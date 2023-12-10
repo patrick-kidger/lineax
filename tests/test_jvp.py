@@ -28,8 +28,8 @@ from .helpers import (
     has_tag,
     make_jac_operator,
     make_matrix_operator,
-    shaped_allclose,
     solvers_tags_pseudoinverse,
+    tree_allclose,
 )
 
 
@@ -107,13 +107,11 @@ def test_jvp(
 
         pinv_matrix = jnp.linalg.pinv(matrix)  # pyright: ignore
         expected_vec_out = pinv_matrix @ vec
-        assert shaped_allclose(vec_out, expected_vec_out)
-        assert shaped_allclose(op_out, expected_op_out)
-        assert shaped_allclose(op_vec_out, expected_op_vec_out)
+        assert tree_allclose(vec_out, expected_vec_out)
+        assert tree_allclose(op_out, expected_op_out)
+        assert tree_allclose(op_vec_out, expected_op_vec_out)
 
         t_expected_vec_out = pinv_matrix @ t_vec
-        assert shaped_allclose(
-            matrix @ t_vec_out, matrix @ t_expected_vec_out, rtol=1e-3
-        )
-        assert shaped_allclose(t_op_out, t_expected_op_out, rtol=1e-3)
-        assert shaped_allclose(t_op_vec_out, t_expected_op_vec_out, rtol=1e-3)
+        assert tree_allclose(matrix @ t_vec_out, matrix @ t_expected_vec_out, rtol=1e-3)
+        assert tree_allclose(t_op_out, t_expected_op_out, rtol=1e-3)
+        assert tree_allclose(t_op_vec_out, t_expected_op_vec_out, rtol=1e-3)

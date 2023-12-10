@@ -20,7 +20,7 @@ import pytest
 
 import lineax as lx
 
-from .helpers import construct_matrix, params, shaped_allclose
+from .helpers import construct_matrix, params, tree_allclose
 
 
 class TestTranspose:
@@ -35,7 +35,7 @@ class TestTranspose:
         def assert_transpose(operator, out_vec, in_vec, solver):
             (out,) = solve_transpose(operator, out_vec, in_vec, solver)
             true_out = lx.linear_solve(operator.T, in_vec, solver).value
-            assert shaped_allclose(out, true_out)
+            assert tree_allclose(out, true_out)
 
         return assert_transpose
 
