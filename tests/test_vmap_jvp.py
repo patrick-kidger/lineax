@@ -27,8 +27,8 @@ from .helpers import (
     construct_singular_matrix,
     make_jac_operator,
     make_matrix_operator,
-    shaped_allclose,
     solvers_tags_pseudoinverse,
+    tree_allclose,
 )
 
 
@@ -133,5 +133,5 @@ def test_vmap_jvp(
                     true_out, true_t_out = jnp_solve3((matrix, vec), (t_matrix, t_vec))
                 else:
                     assert False
-                assert shaped_allclose(out.value, true_out, atol=1e-4)
-                assert shaped_allclose(t_out.value, true_t_out, atol=1e-4)
+                assert tree_allclose(out.value, true_out, atol=1e-4)
+                assert tree_allclose(t_out.value, true_t_out, atol=1e-4)

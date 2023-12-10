@@ -23,8 +23,8 @@ from .helpers import (
     construct_matrix,
     ops,
     params,
-    shaped_allclose,
     solvers,
+    tree_allclose,
 )
 
 
@@ -39,14 +39,14 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     (matrix,) = construct_matrix(getkey, solver, tags, dtype=dtype)
     operator = make_operator(getkey, matrix, tags)
     operator, matrix = ops(operator, matrix)
-    assert shaped_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
+    assert tree_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
     out_size, _ = matrix.shape
     true_x = jr.normal(getkey(), (out_size,), dtype=dtype)
     b = matrix @ true_x
     x = lx.linear_solve(operator, b, solver=solver).value
     jax_x = jnp.linalg.solve(matrix, b)  # pyright: ignore
-    assert shaped_allclose(x, true_x, atol=tol, rtol=tol)
-    assert shaped_allclose(x, jax_x, atol=tol, rtol=tol)
+    assert tree_allclose(x, true_x, atol=tol, rtol=tol)
+    assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
 @pytest.mark.parametrize("solver", solvers)
@@ -77,4 +77,4 @@ def test_pytree_wellposed(solver, getkey):
         operator = lx.PyTreeLinearOperator(pytree, out_structure)
         b = operator.mv(true_x)
         lx_x = lx.linear_solve(operator, b, solver, throw=False)
-        assert shaped_allclose(lx_x.value, true_x, atol=tol, rtol=tol)
+        assert tree_allclose(lx_x.value, true_x, atol=tol, rtol=tol)

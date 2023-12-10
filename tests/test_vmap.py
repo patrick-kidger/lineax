@@ -24,8 +24,8 @@ from .helpers import (
     construct_singular_matrix,
     make_jac_operator,
     make_matrix_operator,
-    shaped_allclose,
     solvers_tags_pseudoinverse,
+    tree_allclose,
 )
 
 
@@ -85,4 +85,4 @@ def test_vmap(
             lx_result = eqx.filter_vmap(wrap_solve, in_axes=(op_axis, vec_axis))(
                 matrix, vec
             )
-            assert shaped_allclose(lx_result, jax_result)
+            assert tree_allclose(lx_result, jax_result)

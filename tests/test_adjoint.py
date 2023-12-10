@@ -10,7 +10,7 @@ from .helpers import (
     make_diagonal_operator,
     make_operators,
     make_tridiagonal_operator,
-    shaped_allclose,
+    tree_allclose,
 )
 
 
@@ -39,12 +39,12 @@ def test_adjoint(make_operator, dtype, getkey):
     adjoint_op1 = lx.conj(operator).transpose()
     ov2 = adjoint_op1.mv(v2)
     inner2 = v1 @ ov2.conj()
-    assert shaped_allclose(inner1, inner2)
+    assert tree_allclose(inner1, inner2)
 
     adjoint_op2 = lx.conj(operator.transpose())
     ov2 = adjoint_op2.mv(v2)
     inner2 = v1 @ ov2.conj()
-    assert shaped_allclose(inner1, inner2)
+    assert tree_allclose(inner1, inner2)
 
 
 def test_functional_pytree_adjoint():
@@ -54,4 +54,4 @@ def test_functional_pytree_adjoint():
     y_struct = jax.eval_shape(lambda: {"a": 0.0})
     operator = FunctionLinearOperator(fn, y_struct)
     conj_operator = lx.conj(operator)
-    assert shaped_allclose(lx.materialise(conj_operator), lx.materialise(operator))
+    assert tree_allclose(lx.materialise(conj_operator), lx.materialise(operator))
