@@ -433,12 +433,11 @@ class PyTreeLinearOperator(AbstractLinearOperator):
 
         def concat_in(struct, subpytree):
             leaves = jtu.tree_leaves(subpytree)
-            assert all(
-                leaf.shape[: len(struct.shape)] == struct.shape for leaf in leaves
-            )
-            size = math.prod(struct.shape)
+            assert all(leaf.shape[: struct.ndim] == struct.shape for leaf in leaves)
             leaves = [
-                leaf.astype(dtype).reshape(size, -1) if leaf.size > 0 else leaf
+                leaf.astype(dtype).reshape(
+                    struct.size, math.prod(leaf.shape[struct.ndim :])
+                )
                 for leaf in leaves
             ]
             return jnp.concatenate(leaves, axis=1)

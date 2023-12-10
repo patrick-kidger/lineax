@@ -371,3 +371,10 @@ def test_identity_with_different_structures_complex():
     )
     assert shaped_allclose(op1.mv(vec1), vec2)
     assert shaped_allclose(op2.mv(vec2), vec1b)
+
+
+def test_zero_pytree_as_matrix():
+    a = jnp.array([]).reshape(2, 1, 0, 2, 1, 0)
+    struct = jax.ShapeDtypeStruct((2, 1, 0), a.dtype)
+    op = lx.PyTreeLinearOperator(a, struct)
+    assert op.as_matrix().shape == (0, 0)
