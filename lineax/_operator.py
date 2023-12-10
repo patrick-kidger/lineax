@@ -377,8 +377,8 @@ class PyTreeLinearOperator(AbstractLinearOperator):
 
         - `pytree`: this should be a PyTree, with structure as specified in
             [`lineax.PyTreeLinearOperator`][].
-        - `out_structure`: the structure of the output space. This should be a PyTree of
-            `jax.ShapeDtypeStruct`s. (The structure of the input space is then
+        - `output_structure`: the structure of the output space. This should be a PyTree
+            of `jax.ShapeDtypeStruct`s. (The structure of the input space is then
             automatically derived from the structure of `pytree`.)
         - `tags`: any tags indicating whether this operator has any particular
             properties, like symmetry or positive-definite-ness. Note that these
