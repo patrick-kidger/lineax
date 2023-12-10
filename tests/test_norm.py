@@ -15,7 +15,6 @@
 import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
-
 import lineax.internal as lxi
 
 from .helpers import tree_allclose

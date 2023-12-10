@@ -18,9 +18,8 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 
 from .helpers import (
     construct_matrix,

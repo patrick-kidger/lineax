@@ -16,9 +16,8 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 
 from .helpers import construct_matrix, params, tree_allclose
 
