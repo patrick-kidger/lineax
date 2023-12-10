@@ -15,9 +15,8 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 
 from .helpers import (
     construct_matrix,
@@ -51,7 +50,6 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
 
 @pytest.mark.parametrize("solver", solvers)
 def test_pytree_wellposed(solver, getkey):
-
     if not isinstance(
         solver,
         (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG, lx.NormalCG),

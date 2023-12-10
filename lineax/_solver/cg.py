@@ -45,12 +45,12 @@ from .misc import preconditioner_and_y0
 
 _CGState: TypeAlias = tuple[AbstractLinearOperator, bool]
 
+
 # TODO(kidger): this is pretty slow to compile.
 # - CG evaluates `operator.mv` three times.
 # - Normal CG evaluates `operator.mv` seven (!) times.
 # Possibly this can be cheapened a bit somehow?
 class _CG(AbstractLinearSolver[_CGState]):
-
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm

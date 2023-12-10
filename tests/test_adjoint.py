@@ -1,9 +1,8 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 from lineax import FunctionLinearOperator
 
 from .helpers import (
@@ -31,8 +30,9 @@ def test_adjoint(make_operator, dtype, getkey):
         in_size = 5
         out_size = 3
     operator = make_operator(getkey, matrix, tags)
-    v1, v2 = jr.normal(getkey(), (in_size,), dtype=dtype), jr.normal(
-        getkey(), (out_size,), dtype=dtype
+    v1, v2 = (
+        jr.normal(getkey(), (in_size,), dtype=dtype),
+        jr.normal(getkey(), (out_size,), dtype=dtype),
     )
 
     inner1 = operator.mv(v1) @ v2.conj()

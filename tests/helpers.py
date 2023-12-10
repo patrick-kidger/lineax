@@ -21,10 +21,9 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import lineax as lx
 import numpy as np
 from equinox.internal import ω
-
-import lineax as lx
 
 
 @ft.lru_cache(maxsize=None)

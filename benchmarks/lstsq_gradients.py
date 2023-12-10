@@ -20,7 +20,6 @@ import sys
 
 import jax
 import jax.numpy as jnp
-
 import lineax as lx
 
 

@@ -15,9 +15,8 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 
 from .helpers import tree_allclose
 

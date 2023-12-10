@@ -17,9 +17,8 @@ import functools as ft
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 
 from .helpers import (
     construct_matrix,
@@ -90,7 +89,9 @@ def test_jvp(
             (t_matrix,),
         )
         (expected_op_vec_out, *_), (t_expected_op_vec_out, *_) = eqx.filter_jvp(
-            jnp.linalg.lstsq, (matrix, vec), (t_matrix, t_vec)  # pyright: ignore
+            jnp.linalg.lstsq,
+            (matrix, vec),
+            (t_matrix, t_vec),  # pyright: ignore
         )
 
         # Work around JAX issue #14868.
@@ -102,7 +103,9 @@ def test_jvp(
             )
         if jnp.any(jnp.isnan(t_expected_op_vec_out)):
             _, (t_expected_op_vec_out, *_) = finite_difference_jvp(
-                jnp.linalg.lstsq, (matrix, vec), (t_matrix, t_vec)  # pyright: ignore
+                jnp.linalg.lstsq,
+                (matrix, vec),
+                (t_matrix, t_vec),  # pyright: ignore
             )
 
         pinv_matrix = jnp.linalg.pinv(matrix)  # pyright: ignore

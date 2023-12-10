@@ -15,9 +15,8 @@
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 
 from .helpers import (
     construct_matrix,
@@ -80,7 +79,8 @@ def test_vmap(
                 vec = jr.normal(getkey(), (10, out_dim), dtype=dtype)
 
             jax_result, _, _, _ = eqx.filter_vmap(
-                jnp.linalg.lstsq, in_axes=(op_axis, vec_axis)  # pyright: ignore
+                jnp.linalg.lstsq,
+                in_axes=(op_axis, vec_axis),  # pyright: ignore
             )(matrix, vec)
             lx_result = eqx.filter_vmap(wrap_solve, in_axes=(op_axis, vec_axis))(
                 matrix, vec

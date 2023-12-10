@@ -14,7 +14,6 @@
 
 import jax
 import jax.numpy as jnp
-
 import lineax as lx
 import lineax._misc as lx_misc
 

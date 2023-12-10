@@ -21,7 +21,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy as jsp
-
 import lineax as lx
 
 

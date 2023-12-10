@@ -18,9 +18,8 @@ import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
-
 import lineax as lx
+import pytest
 
 from .helpers import (
     construct_matrix,
@@ -49,9 +48,7 @@ def test_vmap_jvp(
     if (make_matrix is construct_matrix) or pseudoinverse:
         t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
         if pseudoinverse:
-            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[  # pyright: ignore
-                0
-            ]
+            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
         else:
             jnp_solve1 = jnp.linalg.solve  # pyright: ignore
         if use_state:

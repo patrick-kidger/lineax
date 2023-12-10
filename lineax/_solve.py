@@ -186,7 +186,7 @@ def _linear_solve_jvp(primals, tangents):
         t_operator = TangentLinearOperator(operator, t_operator)
         t_operator = linearise(t_operator)  # optimise for matvecs
         # -A'x term
-        vec = (-t_operator.mv(solution) ** ω).ω
+        vec = (-(t_operator.mv(solution) ** ω)).ω
         vecs.append(vec)
         allow_dependent_rows = solver.allow_dependent_rows(operator)
         allow_dependent_columns = solver.allow_dependent_columns(operator)
