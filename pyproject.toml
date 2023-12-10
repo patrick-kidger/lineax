@@ -1,6 +1,6 @@
 [project]
 name = "lineax"
-version = "0.0.3"
+version = "0.0.4"
 description = "Linear solvers in JAX and Equinox."
 readme = "README.md"
 requires-python ="~=3.9"

@@ -29,7 +29,8 @@ if TYPE_CHECKING:
 else:
     from equinox.internal import AbstractClassVar
 
-from .._misc import max_norm, resolve_rcond, tree_dot, tree_where
+from .._misc import resolve_rcond, tree_where
+from .._norm import max_norm, tree_dot
 from .._operator import (
     AbstractLinearOperator,
     conj,

@@ -44,11 +44,11 @@ from jaxtyping import (  # pyright: ignore
 
 from ._custom_types import sentinel
 from ._misc import (
-    default_floating_dtype,
     inexact_asarray,
     jacobian,
     NoneAux,
 )
+from ._norm import default_floating_dtype
 from ._tags import (
     diagonal_tag,
     lower_triangular_tag,

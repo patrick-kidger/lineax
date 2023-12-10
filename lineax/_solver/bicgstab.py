@@ -23,7 +23,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
-from .._misc import max_norm, tree_dot
+from .._norm import max_norm, tree_dot
 from .._operator import AbstractLinearOperator, conj
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
