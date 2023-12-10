@@ -108,7 +108,11 @@ def rms_norm(x: PyTree[ArrayLike]) -> Scalar:
     leaves = jtu.tree_leaves(x)
     size = sum([jnp.size(xi) for xi in leaves])
     if size == 0:
-        return jnp.array(0.0, default_floating_dtype())
+        if len(leaves) == 0:
+            dtype = default_floating_dtype()
+        else:
+            dtype = jnp.result_type(*leaves)
+        return jnp.array(0.0, dtype)
     else:
         return two_norm(x) / math.sqrt(size)
 
@@ -119,9 +123,14 @@ def max_norm(x: PyTree[ArrayLike]) -> Scalar:
     This is the largest absolute elementwise value. Considering the input `x` as a flat
     vector `(x_1, ..., x_n)`, then this computes `max_i |x_i|`.
     """
-    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x) if jnp.size(xi) > 0]
+    leaves = jtu.tree_leaves(x)
+    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in leaves if jnp.size(xi) > 0]
     if len(leaf_maxes) == 0:
-        return jnp.array(0, default_floating_dtype())
+        if len(leaves) == 0:
+            dtype = default_floating_dtype()
+        else:
+            dtype = jnp.result_type(*leaves)
+        return jnp.array(0.0, dtype)
     else:
         out = ft.reduce(jnp.maximum, leaf_maxes)
         return _zero_grad_at_zero(out)
