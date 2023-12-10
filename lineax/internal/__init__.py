@@ -12,6 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .._norm import (
+    default_floating_dtype as default_floating_dtype,
+    max_norm as max_norm,
+    rms_norm as rms_norm,
+    sum_squares as sum_squares,
+    tree_dot as tree_dot,
+    two_norm as two_norm,
+)
 from .._solve import linear_solve_p as linear_solve_p
 from .._solver.misc import (
     pack_structures as pack_structures,

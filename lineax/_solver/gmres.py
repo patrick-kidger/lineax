@@ -24,7 +24,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, PyTree
 
-from .._misc import max_norm, two_norm
+from .._norm import max_norm, two_norm
 from .._operator import (
     AbstractLinearOperator,
     conj,
