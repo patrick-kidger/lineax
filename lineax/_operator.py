@@ -527,13 +527,15 @@ class JacobianLinearOperator(AbstractLinearOperator):
     args: PyTree[Any]
     tags: frozenset[object] = eqx.field(static=True)
 
+    @eqxi.doc_remove_args("closure_convert", "_has_aux")
     def __init__(
         self,
         fn: Callable,
         x: PyTree[ArrayLike],
         args: PyTree[Any] = None,
         tags: Union[object, Iterable[object]] = (),
-        _has_aux: bool = False,
+        closure_convert: bool = True,
+        _has_aux: bool = False,  # TODO(kidger): remove, no longer used
     ):
         """**Arguments:**
 
@@ -558,7 +560,8 @@ class JacobianLinearOperator(AbstractLinearOperator):
         # to respect that, and keep any non-floating-point constants as part of the
         # PyTree structure.
         x = jtu.tree_map(inexact_asarray, x)
-        fn = eqx.filter_closure_convert(fn, x, args)
+        if closure_convert:
+            fn = eqx.filter_closure_convert(fn, x, args)
         self.fn = fn
         self.x = x
         self.args = args
@@ -604,11 +607,13 @@ class FunctionLinearOperator(AbstractLinearOperator):
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
     tags: frozenset[object] = eqx.field(static=True)
 
+    @eqxi.doc_remove_args("closure_convert")
     def __init__(
         self,
         fn: Callable[[PyTree[Inexact[Array, "..."]]], PyTree[Inexact[Array, "..."]]],
         input_structure: PyTree[jax.ShapeDtypeStruct],
         tags: Union[object, Iterable[object]] = (),
+        closure_convert: bool = True,
     ):
         """**Arguments:**
 
@@ -624,8 +629,9 @@ class FunctionLinearOperator(AbstractLinearOperator):
             tags are wrong.
         """
         # See matching comment in JacobianLinearOperator.
-        fn = eqx.filter_closure_convert(fn, input_structure)
         input_structure = _inexact_structure(input_structure)
+        if closure_convert:
+            fn = eqx.filter_closure_convert(fn, input_structure)
         self.fn = fn
         self.input_structure = jtu.tree_flatten(input_structure)
         self.tags = _frozenset(tags)
