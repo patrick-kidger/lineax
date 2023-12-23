@@ -15,6 +15,7 @@
 import abc
 import functools as ft
 import math
+import warnings
 from collections.abc import Callable
 from typing import (
     Any,
@@ -228,7 +229,7 @@ class AbstractLinearOperator(eqx.Module):
         return DivLinearOperator(self, other)
 
     def __neg__(self) -> "AbstractLinearOperator":
-        return self * (-1)
+        return NegLinearOperator(self)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
@@ -429,7 +430,8 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return jtu.tree_map(matmul, self.out_structure(), self.pytree)
 
     def as_matrix(self):
-        dtype = jnp.result_type(*jtu.tree_leaves(self.pytree))
+        with jax.numpy_dtype_promotion("standard"):
+            dtype = jnp.result_type(*jtu.tree_leaves(self.pytree))
 
         def concat_in(struct, subpytree):
             leaves = jtu.tree_leaves(subpytree)
@@ -705,7 +707,8 @@ class IdentityLinearOperator(AbstractLinearOperator):
             # TODO(kidger): this could be done slightly more efficiently, by iterating
             #     leaf-by-leaf.
             leaves = jtu.tree_leaves(vector)
-            dtype = jnp.result_type(*leaves)
+            with jax.numpy_dtype_promotion("standard"):
+                dtype = jnp.result_type(*leaves)
             vector = jnp.concatenate([x.astype(dtype).reshape(-1) for x in leaves])
             out_size = self.out_size()
             if vector.size < out_size:
@@ -718,7 +721,11 @@ class IdentityLinearOperator(AbstractLinearOperator):
             sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
             split = jnp.split(vector, sizes)
             assert len(split) == len(leaves)
-            shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # ignore complex-to-real cast warning
+                shaped = [
+                    x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)
+                ]
             return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
@@ -1001,6 +1008,37 @@ class MulLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return self.operator.transpose() * self.scalar
+
+    def in_structure(self):
+        return self.operator.in_structure()
+
+    def out_structure(self):
+        return self.operator.out_structure()
+
+
+# Not just `MulLinearOperator(..., -1)` for compatibility with
+# `jax_numpy_dtype_promotion=strict`.
+class NegLinearOperator(AbstractLinearOperator):
+    """A linear operator formed by computing the negative of a linear operator.
+
+    !!! Example
+
+        ```python
+        x = MatrixLinearOperator(...)
+        assert isinstance(-x, NegLinearOperator)
+        ```
+    """
+
+    operator: AbstractLinearOperator
+
+    def mv(self, vector):
+        return (-(self.operator.mv(vector) ** ω)).ω
+
+    def as_matrix(self):
+        return -self.operator.as_matrix()
+
+    def transpose(self):
+        return -self.operator.transpose()
 
     def in_structure(self):
         return self.operator.in_structure()
@@ -1749,6 +1787,10 @@ for transform in (linearise, materialise, diagonal):
     def _(operator, transform=transform):
         return transform(operator.operator) * operator.scalar
 
+    @transform.register(NegLinearOperator)  # pyright: ignore
+    def _(operator, transform=transform):
+        return -transform(operator.operator)
+
     @transform.register(DivLinearOperator)
     def _(operator, transform=transform):
         return transform(operator.operator) / operator.scalar
@@ -1805,6 +1847,12 @@ def _(operator):
     return (diag * operator.scalar, lower * operator.scalar, upper * operator.scalar)
 
 
+@tridiagonal.register(NegLinearOperator)
+def _(operator):
+    (diag, lower, upper) = tridiagonal(operator.operator)
+    return (-diag, -lower, -upper)
+
+
 @tridiagonal.register(DivLinearOperator)
 def _(operator):
     (diag, lower, upper) = tridiagonal(operator.operator)
@@ -1847,8 +1895,6 @@ for check in (
     has_unit_diagonal,
     is_lower_triangular,
     is_upper_triangular,
-    is_positive_semidefinite,
-    is_negative_semidefinite,
     is_tridiagonal,
 ):
 
@@ -1857,7 +1903,32 @@ for check in (
         return check(operator.primal)
 
     @check.register(MulLinearOperator)
+    @check.register(NegLinearOperator)
     @check.register(DivLinearOperator)
+    @check.register(AuxLinearOperator)
+    def _(operator, check=check):
+        return check(operator.operator)
+
+
+for check in (is_positive_semidefinite, is_negative_semidefinite):
+
+    @check.register(TangentLinearOperator)
+    def _(operator):
+        # Should be unreachable: TangentLinearOperator is used for a narrow set of
+        # operations only (mv; transpose) inside the JVP rule linear_solve_p.
+        raise NotImplementedError(
+            "Please open a GitHub issue: https://github.com/google/lineax"
+        )
+
+    @check.register(MulLinearOperator)
+    @check.register(DivLinearOperator)
+    def _(operator):
+        return False  # play it safe, no way to tell.
+
+    @check.register(NegLinearOperator)
+    def _(operator, check=check):
+        return not check(operator.operator)
+
     @check.register(AuxLinearOperator)
     def _(operator, check=check):
         return check(operator.operator)
@@ -2006,6 +2077,11 @@ def _(operator):
 @conj.register(MulLinearOperator)
 def _(operator):
     return conj(operator.operator) * operator.scalar.conj()
+
+
+@conj.register(NegLinearOperator)
+def _(operator):
+    return -conj(operator.operator)
 
 
 @conj.register(DivLinearOperator)

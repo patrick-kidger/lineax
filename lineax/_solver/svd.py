@@ -72,7 +72,7 @@ class SVD(AbstractLinearSolver[_SVDState]):
         mask = s > rcond
         rank = mask.sum()
         safe_s = jnp.where(mask, s, 1)
-        s_inv = jnp.where(mask, jnp.array(1.0) / safe_s, 0)
+        s_inv = jnp.where(mask, jnp.array(1.0) / safe_s, 0).astype(u.dtype)
         uTb = jnp.matmul(u.conj().T, vector, precision=lax.Precision.HIGHEST)
         solution = jnp.matmul(vt.conj().T, s_inv * uTb, precision=lax.Precision.HIGHEST)
         solution = unravel_solution(solution, packed_structures)

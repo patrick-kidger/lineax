@@ -37,6 +37,7 @@ from ._operator import (
     materialise as materialise,
     MatrixLinearOperator as MatrixLinearOperator,
     MulLinearOperator as MulLinearOperator,
+    NegLinearOperator as NegLinearOperator,
     PyTreeLinearOperator as PyTreeLinearOperator,
     TaggedLinearOperator as TaggedLinearOperator,
     TangentLinearOperator as TangentLinearOperator,

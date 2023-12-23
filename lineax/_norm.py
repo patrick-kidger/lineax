@@ -93,7 +93,9 @@ def _two_norm_jvp(x, tx):
     # This approach is a bit more expensive (more divisions), but should be more
     # numerically stable (`x` and `denominator` should be of the same scale; `tx` is of
     # unknown scale).
-    t_out = tree_dot((x**ω / denominator).ω, tx).real
+    with jax.numpy_dtype_promotion("standard"):
+        div = (x**ω / denominator).ω
+    t_out = tree_dot(div, tx).real
     t_out = jnp.where(pred, 0, t_out)
     return out, t_out
 
