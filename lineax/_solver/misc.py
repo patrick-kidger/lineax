@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import math
+import warnings
 from typing import Any, NewType
 
 import equinox as eqx
@@ -97,7 +98,9 @@ def unravel_solution(
     sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
     split = jnp.split(solution, sizes)
     assert len(split) == len(leaves)
-    shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # ignore complex-to-real cast warning
+        shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
     return jtu.tree_unflatten(treedef, shaped)
 
 

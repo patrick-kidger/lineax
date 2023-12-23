@@ -240,7 +240,7 @@ def make_composed_operator(getkey, matrix, tags):
     _, size = matrix.shape
     diag = jr.normal(getkey(), (size,), dtype=matrix.dtype)
     diag = jnp.where(jnp.abs(diag) < 0.05, 0.8, diag)
-    operator1 = make_trivial_pytree_operator(getkey, matrix / diag, ())
+    operator1 = make_trivial_pytree_operator(getkey, matrix / diag[None], ())
     operator2 = lx.DiagonalLinearOperator(diag)
     return lx.TaggedLinearOperator(operator1 @ operator2, tags)
 
@@ -258,5 +258,7 @@ def finite_difference_jvp(fn, primals, tangents):
     ε = np.sqrt(np.finfo(np.float64).eps) * scale
     primals_ε = (ω(primals) + ε * ω(tangents)).ω
     out_ε = fn(*primals_ε)
-    tangents_out = jtu.tree_map(lambda x, y: (x - y) / ε, out_ε, out)
+    tangents_out = jtu.tree_map(
+        lambda x, y: (x - y).astype(jnp.float64) / ε, out_ε, out
+    )
     return out, tangents_out
