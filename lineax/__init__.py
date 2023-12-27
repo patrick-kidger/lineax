@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.metadata
+
 from . import internal as internal
 from ._operator import (
     AbstractLinearOperator as AbstractLinearOperator,
@@ -76,4 +78,4 @@ from ._tags import (
 )
 
 
-__version__ = "0.0.1"
+__version__ = importlib.metadata.version("lineax")
