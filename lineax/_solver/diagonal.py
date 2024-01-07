@@ -28,7 +28,7 @@ from .._solve import AbstractLinearSolver
 _DiagonalState: TypeAlias = Optional[Array]
 
 
-class Diagonal(AbstractLinearSolver[_DiagonalState]):
+class Diagonal(AbstractLinearSolver[_DiagonalState], strict=True):
     """Diagonal solver for linear systems.
 
     Requires that the operator be diagonal. Then $Ax = b$, with $A = diag[a]$, is

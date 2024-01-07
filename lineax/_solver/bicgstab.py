@@ -33,7 +33,7 @@ from .misc import preconditioner_and_y0
 _BiCGStabState: TypeAlias = AbstractLinearOperator
 
 
-class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
+class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
     """Biconjugate gradient stabilised method for linear systems.
 
     The operator should be square.

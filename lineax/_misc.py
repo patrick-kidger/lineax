@@ -38,7 +38,7 @@ def resolve_rcond(rcond, n, m, dtype):
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
 
 
-class NoneAux(eqx.Module):
+class NoneAux(eqx.Module, strict=True):
     fn: Callable
 
     def __call__(self, *args, **kwargs):
