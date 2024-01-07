@@ -34,7 +34,7 @@ from .misc import (
 _TridiagonalState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
 
 
-class Tridiagonal(AbstractLinearSolver[_TridiagonalState]):
+class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
     """Tridiagonal solver for linear systems, using the Thomas algorithm."""
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):

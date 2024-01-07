@@ -33,7 +33,7 @@ from .misc import (
 _QRState: TypeAlias = tuple[tuple[Array, Array], bool, PackedStructures]
 
 
-class QR(AbstractLinearSolver):
+class QR(AbstractLinearSolver, strict=True):
     """QR solver for linear systems.
 
     This solver can handle non-square operators.

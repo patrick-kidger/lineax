@@ -72,7 +72,7 @@ def _frozenset(x: Union[object, Iterable[object]]) -> frozenset[object]:
         return frozenset(iter_x)
 
 
-class AbstractLinearOperator(eqx.Module):
+class AbstractLinearOperator(eqx.Module, strict=True):
     """Abstract base class for all linear operators.
 
     Linear operators can act between PyTrees. Each `AbstractLinearOperator` is thought
@@ -232,7 +232,7 @@ class AbstractLinearOperator(eqx.Module):
         return NegLinearOperator(self)
 
 
-class MatrixLinearOperator(AbstractLinearOperator):
+class MatrixLinearOperator(AbstractLinearOperator, strict=True):
     """Wraps a 2-dimensional JAX array into a linear operator.
 
     If the matrix has shape `(a, b)` then matrix-vector multiplication (`self.mv`) is
@@ -332,7 +332,7 @@ class _Leaf:  # not a pytree
 
 # The `{input,output}_structure`s have to be static because otherwise abstract
 # evaluation rules will promote them to ShapedArrays.
-class PyTreeLinearOperator(AbstractLinearOperator):
+class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
     """Represents a PyTree of floating-point JAX arrays as a linear operator.
 
     This is basically a generalisation of [`lineax.MatrixLinearOperator`][], from
@@ -503,7 +503,7 @@ class _Unwrap(eqx.Module):
         return f
 
 
-class JacobianLinearOperator(AbstractLinearOperator):
+class JacobianLinearOperator(AbstractLinearOperator, strict=True):
     """Given a function `fn: X -> Y`, and a point `x in X`, then this defines the
     linear operator (also a function `X -> Y`) given by the Jacobian `(d(fn)/dx)(x)`.
 
@@ -597,7 +597,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
 
 # `input_structure` must be static as with `JacobianLinearOperator`
-class FunctionLinearOperator(AbstractLinearOperator):
+class FunctionLinearOperator(AbstractLinearOperator, strict=True):
     """Wraps a *linear* function `fn: X -> Y` into a linear operator. (So that
     `self.mv(x)` is defined by `self.mv(x) == fn(x)`.)
 
@@ -667,7 +667,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
 
 
 # `structure` must be static as with `JacobianLinearOperator`
-class IdentityLinearOperator(AbstractLinearOperator):
+class IdentityLinearOperator(AbstractLinearOperator, strict=True):
     """Represents the identity transformation `X -> X`, where each `x in X` is some
     PyTree of floating-point JAX arrays.
     """
@@ -747,7 +747,7 @@ class IdentityLinearOperator(AbstractLinearOperator):
         return frozenset()
 
 
-class DiagonalLinearOperator(AbstractLinearOperator):
+class DiagonalLinearOperator(AbstractLinearOperator, strict=True):
     """As [`lineax.MatrixLinearOperator`][], but for specifically a diagonal matrix.
 
     Only the diagonal of the matrix is stored (for memory efficiency). Matrix-vector
@@ -783,7 +783,7 @@ class DiagonalLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
-class TridiagonalLinearOperator(AbstractLinearOperator):
+class TridiagonalLinearOperator(AbstractLinearOperator, strict=True):
     """As [`lineax.MatrixLinearOperator`][], but for specifically a tridiagonal
     matrix.
     """
@@ -847,7 +847,7 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
-class TaggedLinearOperator(AbstractLinearOperator):
+class TaggedLinearOperator(AbstractLinearOperator, strict=True):
     """Wraps another linear operator and specifies that it has certain tags, e.g.
     representing symmetry.
 
@@ -911,7 +911,7 @@ def _is_none(x):
     return x is None
 
 
-class TangentLinearOperator(AbstractLinearOperator):
+class TangentLinearOperator(AbstractLinearOperator, strict=True):
     """Internal to lineax. Used to represent the tangent (jvp) computation with
     respect to the linear operator in a linear solve.
     """
@@ -946,7 +946,7 @@ class TangentLinearOperator(AbstractLinearOperator):
         return self.primal.out_structure()
 
 
-class AddLinearOperator(AbstractLinearOperator):
+class AddLinearOperator(AbstractLinearOperator, strict=True):
     """A linear operator formed by adding two other linear operators together.
 
     !!! Example
@@ -985,7 +985,7 @@ class AddLinearOperator(AbstractLinearOperator):
         return self.operator1.out_structure()
 
 
-class MulLinearOperator(AbstractLinearOperator):
+class MulLinearOperator(AbstractLinearOperator, strict=True):
     """A linear operator formed by multiplying a linear operator by a scalar.
 
     !!! Example
@@ -1018,7 +1018,7 @@ class MulLinearOperator(AbstractLinearOperator):
 
 # Not just `MulLinearOperator(..., -1)` for compatibility with
 # `jax_numpy_dtype_promotion=strict`.
-class NegLinearOperator(AbstractLinearOperator):
+class NegLinearOperator(AbstractLinearOperator, strict=True):
     """A linear operator formed by computing the negative of a linear operator.
 
     !!! Example
@@ -1047,7 +1047,7 @@ class NegLinearOperator(AbstractLinearOperator):
         return self.operator.out_structure()
 
 
-class DivLinearOperator(AbstractLinearOperator):
+class DivLinearOperator(AbstractLinearOperator, strict=True):
     """A linear operator formed by dividing a linear operator by a scalar.
 
     !!! Example
@@ -1078,7 +1078,7 @@ class DivLinearOperator(AbstractLinearOperator):
         return self.operator.out_structure()
 
 
-class ComposedLinearOperator(AbstractLinearOperator):
+class ComposedLinearOperator(AbstractLinearOperator, strict=True):
     """A linear operator formed by composing (matrix-multiplying) two other linear
     operators together.
 
@@ -1107,7 +1107,7 @@ class ComposedLinearOperator(AbstractLinearOperator):
         return jnp.matmul(
             self.operator1.as_matrix(),
             self.operator2.as_matrix(),
-            precision=lax.Precision.HIGHEST,
+            precision=lax.Precision.HIGHEST,  # pyright: ignore
         )
 
     def transpose(self):
@@ -1120,7 +1120,7 @@ class ComposedLinearOperator(AbstractLinearOperator):
         return self.operator1.out_structure()
 
 
-class AuxLinearOperator(AbstractLinearOperator):
+class AuxLinearOperator(AbstractLinearOperator, strict=True):
     """Internal to lineax. Used to represent a linear operator with additional
     metadata attached.
     """

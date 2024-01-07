@@ -57,7 +57,7 @@ class RESULTS(eqxi.Enumeration):
     )
 
 
-class Solution(eqx.Module):
+class Solution(eqx.Module, strict=True):
     """The solution to a linear solve.
 
     **Attributes:**

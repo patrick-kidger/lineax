@@ -34,7 +34,7 @@ from .misc import (
 _LUState: TypeAlias = tuple[tuple[Array, Array], PackedStructures, bool]
 
 
-class LU(AbstractLinearSolver[_LUState]):
+class LU(AbstractLinearSolver[_LUState], strict=True):
     """LU solver for linear systems.
 
     This solver can only handle square nonsingular operators.

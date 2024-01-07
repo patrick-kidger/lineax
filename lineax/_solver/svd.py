@@ -36,7 +36,7 @@ from .misc import (
 _SVDState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
 
 
-class SVD(AbstractLinearSolver[_SVDState]):
+class SVD(AbstractLinearSolver[_SVDState], strict=True):
     """SVD solver for linear systems.
 
     This solver can handle any operator, even nonsquare or singular ones. In these
