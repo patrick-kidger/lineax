@@ -27,7 +27,8 @@ from equinox.internal import ω
 
 
 @ft.lru_cache(maxsize=None)
-def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype):
+def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
+    del i  # used to break the cache
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if has_tag(tags, lx.diagonal_tag):
@@ -60,8 +61,8 @@ def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
     else:
         cond_cutoff = 1000
     return tuple(
-        _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype)
-        for _ in range(num)
+        _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i)
+        for i in range(num)
     )
 
 
