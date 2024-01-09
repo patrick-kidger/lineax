@@ -48,7 +48,6 @@ class NoneAux(eqx.Module):
 def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False, jac=None):
     # Heuristic for which is better in each case
     # These could probably be tuned a lot more.
-    # additional argument `use_jacrev` is added to force forward or reverse mode AD.
     if jac is not None:
         if jac == "bwd":
             return jax.jacrev(fn, holomorphic=holomorphic, has_aux=has_aux)
