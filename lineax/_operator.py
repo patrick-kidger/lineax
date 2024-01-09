@@ -17,13 +17,7 @@ import functools as ft
 import math
 import warnings
 from collections.abc import Callable
-from typing import (
-    Any,
-    Iterable,
-    NoReturn,
-    TypeVar,
-    Union,
-)
+from typing import Any, Iterable, NoReturn, TypeVar, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -34,21 +28,17 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jaxtyping import (  # pyright: ignore
+from jaxtyping import (
     Array,
     ArrayLike,
     Inexact,
-    PyTree,
+    PyTree,  # pyright: ignore
     Scalar,
     Shaped,
 )
 
 from ._custom_types import sentinel
-from ._misc import (
-    inexact_asarray,
-    jacobian,
-    NoneAux,
-)
+from ._misc import inexact_asarray, jacobian, NoneAux
 from ._norm import default_floating_dtype
 from ._tags import (
     diagonal_tag,
@@ -528,6 +518,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     x: PyTree[Inexact[Array, "..."]]
     args: PyTree[Any]
     tags: frozenset[object] = eqx.field(static=True)
+    use_jacrev: Union[bool, None] = None
 
     @eqxi.doc_remove_args("closure_convert", "_has_aux")
     def __init__(
@@ -538,6 +529,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         tags: Union[object, Iterable[object]] = (),
         closure_convert: bool = True,
         _has_aux: bool = False,  # TODO(kidger): remove, no longer used
+        use_jacrev: Union[bool, None] = None,
     ):
         """**Arguments:**
 
@@ -551,6 +543,9 @@ class JacobianLinearOperator(AbstractLinearOperator):
             properties, like symmetry or positive-definite-ness. Note that these
             properties are unchecked and you may get incorrect values elsewhere if these
             tags are wrong.
+        - `use_jacrev`: If `True`, use `jax.jacrev` instead of `jax.jacfwd` to compute
+           jacobian. Otherwise, if not specified it will be chosen by default according
+           to input and output shape.
         """
         if not _has_aux:
             fn = NoneAux(fn)
@@ -568,6 +563,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         self.x = x
         self.args = args
         self.tags = _frozenset(tags)
+        self.use_jacrev = use_jacrev
 
     def mv(self, vector):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
@@ -1291,6 +1287,7 @@ def _(operator):
         operator.out_size(),
         holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
         has_aux=True,
+        use_jacrev=operator.use_jacrev,
     )(operator.x)
     out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
     return AuxLinearOperator(out, aux)
