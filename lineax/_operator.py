@@ -17,7 +17,7 @@ import functools as ft
 import math
 import warnings
 from collections.abc import Callable
-from typing import Any, Iterable, NoReturn, TypeVar, Union
+from typing import Any, Iterable, Literal, NoReturn, Optional, TypeVar, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -518,7 +518,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     x: PyTree[Inexact[Array, "..."]]
     args: PyTree[Any]
     tags: frozenset[object] = eqx.field(static=True)
-    use_jacrev: Union[bool, None] = None
+    jac: Optional[Literal["fwd", "bwd"]] = None
 
     @eqxi.doc_remove_args("closure_convert", "_has_aux")
     def __init__(
@@ -529,7 +529,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         tags: Union[object, Iterable[object]] = (),
         closure_convert: bool = True,
         _has_aux: bool = False,  # TODO(kidger): remove, no longer used
-        use_jacrev: Union[bool, None] = None,
+        jac: Optional[Literal["fwd", "bwd"]] = None,
     ):
         """**Arguments:**
 
@@ -543,9 +543,10 @@ class JacobianLinearOperator(AbstractLinearOperator):
             properties, like symmetry or positive-definite-ness. Note that these
             properties are unchecked and you may get incorrect values elsewhere if these
             tags are wrong.
-        - `use_jacrev`: If `True`, use `jax.jacrev` instead of `jax.jacfwd` to compute
-           jacobian. Otherwise, if not specified it will be chosen by default according
-           to input and output shape.
+        - `jac`: allows to use specific jacobian computation method. If `jac=fwd`
+           forces `jax.jacfwd` to be used, similarly `jac=bwd` mandates the use of
+           `jax.jacrev`. Otherwise, if not specified it will be chosen
+           by default according to input and output shape.
         """
         if not _has_aux:
             fn = NoneAux(fn)
@@ -563,7 +564,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         self.x = x
         self.args = args
         self.tags = _frozenset(tags)
-        self.use_jacrev = use_jacrev
+        self.jac = jac
 
     def mv(self, vector):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
@@ -1287,7 +1288,7 @@ def _(operator):
         operator.out_size(),
         holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
         has_aux=True,
-        use_jacrev=operator.use_jacrev,
+        jac=operator.jac,
     )(operator.x)
     out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
     return AuxLinearOperator(out, aux)
