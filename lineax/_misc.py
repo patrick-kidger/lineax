@@ -46,9 +46,9 @@ class NoneAux(eqx.Module):
 
 
 def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False, jac=None):
-    # Heuristic for which is better in each case
-    # These could probably be tuned a lot more.
     if jac is None:
+        # Heuristic for which is better in each case
+        # These could probably be tuned a lot more.
         jac_fwd = (in_size < 100) or (in_size <= 1.5 * out_size)
     elif jac == "fwd":
         jac_fwd = True
