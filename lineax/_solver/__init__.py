@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from .bicgstab import BiCGStab as BiCGStab
+from .blocktridiagonal import BlockTridiagonal as BlockTridiagonal
 from .cg import CG as CG, NormalCG as NormalCG
 from .cholesky import Cholesky as Cholesky
 from .diagonal import Diagonal as Diagonal
