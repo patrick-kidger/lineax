@@ -897,7 +897,6 @@ class BlockTridiagonalLinearOperator(AbstractLinearOperator):
     def as_matrix(self):
         size, N, M = jnp.shape(self.diagonal)
         zeros_block = jnp.zeros((N, N), self.diagonal.dtype)
-
         block_matrix = jnp.array(
             [
                 [
@@ -911,11 +910,9 @@ class BlockTridiagonalLinearOperator(AbstractLinearOperator):
         block_matrix = block_matrix.at[arange, arange].set(self.diagonal)
         block_matrix = block_matrix.at[arange[1:], arange[:-1]].set(self.lower_diagonal)
         block_matrix = block_matrix.at[arange[:-1], arange[1:]].set(self.upper_diagonal)
-        block_matrix = [
-            [block_matrix[j, i, :, :] for i in range(size)] for j in range(size)
-        ]
 
-        matrix = jnp.block(block_matrix)
+        blocked_concat = [jnp.concatenate(block, axis=1) for block in block_matrix]
+        matrix = jnp.concatenate(blocked_concat, axis=0)
         return matrix
 
     def transpose(self):

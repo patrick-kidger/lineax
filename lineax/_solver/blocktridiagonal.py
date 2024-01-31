@@ -63,17 +63,6 @@ class BlockTridiagonal(AbstractLinearSolver[_BlockTridiagonalState]):
 
         vector = vector.reshape(size, block_size)
 
-        def matrix_linear_solve(A, X):
-            # Solving A X = B, where X and B are matrices
-            def matrix_linear_solve_vec(step, x_vec):
-                y = linear_solve(A, x_vec).value
-                step += 1
-                return step, y
-
-            carry = 0
-            _, B = lax.scan(matrix_linear_solve_vec, carry, X.T)
-            return B.T
-
         def blockthomas_scan(prev_cd_carry, bd):
             c_p, d_p, step = prev_cd_carry
             # the index of `a` doesn't matter at step 0 as
@@ -85,8 +74,15 @@ class BlockTridiagonal(AbstractLinearSolver[_BlockTridiagonalState]):
             a, c = lower_diagonal[a_index, :, :], upper_diagonal[c_index, :, :]
 
             denom = MatrixLinearOperator(b - jnp.matmul(a, c_p))
-            new_d_p = linear_solve(denom, d - jnp.matmul(a, d_p)).value
-            new_c_p = matrix_linear_solve(denom, c)
+
+            def matrix_linear_solve_vec(step, x_vec):
+                y = linear_solve(denom, x_vec).value
+                step += 1
+                return step, y
+
+            _, new_d_p = matrix_linear_solve_vec(0, d - jnp.matmul(a, d_p))
+            _, new_c_p = lax.scan(matrix_linear_solve_vec, 0, c.T)
+            new_c_p = new_c_p.T
             return (new_c_p, new_d_p, step + 1), (new_c_p, new_d_p)
 
         def backsub(prev_x_carry, cd_p):
@@ -98,8 +94,8 @@ class BlockTridiagonal(AbstractLinearSolver[_BlockTridiagonalState]):
         init_thomas = (jnp.zeros((block_size, block_size)), jnp.zeros(block_size), 0)
         init_backsub = (jnp.zeros(block_size), 0)
         diag_vec = (diagonal, vector)
-        _, cd_p = lax.scan(blockthomas_scan, init_thomas, diag_vec, unroll=32)
-        _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=32)
+        _, cd_p = lax.scan(blockthomas_scan, init_thomas, diag_vec)
+        _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True)
         solution = solution.flatten()
 
         solution = unravel_solution(solution, packed_structures)
