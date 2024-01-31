@@ -142,6 +142,29 @@ def test_diagonal(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64,))
+def test_blocktridiagonal(dtype, getkey):
+    tol = 1e-4
+    diag = jr.normal(getkey(), (10, 3, 3), dtype=dtype)
+    upper_diag = jr.normal(getkey(), (9, 3, 3), dtype=dtype)
+    lower_diag = jr.normal(getkey(), (9, 3, 3), dtype=dtype)
+
+    blocktridiag = lx.BlockTridiagonalLinearOperator(diag, lower_diag, upper_diag)
+    full_matrix = blocktridiag.as_matrix()
+
+    x_true = jr.normal(getkey(), (30,), dtype=dtype)
+
+    b_BTD = blocktridiag.mv(x_true)
+    b = full_matrix @ x_true
+
+    assert tree_allclose(b, b_BTD, atol=tol, rtol=tol)
+
+    BTD_soln = lx.linear_solve(blocktridiag, b)
+    soln = lx.linear_solve(lx.MatrixLinearOperator(full_matrix), b)
+
+    assert tree_allclose(BTD_soln.value, soln.value, atol=tol, rtol=tol)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64,))
 def test_is_symmetric(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     symmetric_operators = _setup(getkey, matrix.T @ matrix, lx.symmetric_tag)

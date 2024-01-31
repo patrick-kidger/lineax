@@ -34,6 +34,7 @@ from ._operator import (
     AbstractLinearOperator,
     conj,
     IdentityLinearOperator,
+    is_blocktridiagonal,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -490,6 +491,7 @@ _diagonal_token = eqxi.str2jax("diagonal_token")
 _well_posed_diagonal_token = eqxi.str2jax("well_posed_diagonal_token")
 _tridiagonal_token = eqxi.str2jax("tridiagonal_token")
 _triangular_token = eqxi.str2jax("triangular_token")
+_blocktridiagonal_token = eqxi.str2jax("blocktridiagonal_token")
 _cholesky_token = eqxi.str2jax("cholesky_token")
 _lu_token = eqxi.str2jax("lu_token")
 _svd_token = eqxi.str2jax("svd_token")
@@ -509,6 +511,7 @@ def _lookup(token) -> AbstractLinearSolver:
             well_posed=True
         ),
         _tridiagonal_token: _solver.Tridiagonal(),  # pyright: ignore
+        _blocktridiagonal_token: _solver.BlockTridiagonal(),  # pyright: ignore
         _triangular_token: _solver.Triangular(),  # pyright: ignore
         _cholesky_token: _solver.Cholesky(),  # pyright: ignore
         _lu_token: _solver.LU(),  # pyright: ignore
@@ -527,6 +530,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     - If `well_posed=True`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
+        - If the operator is block tridiagonal, then use [`lineax.BlockTridiagonal`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative definite, then use
             [`lineax.Cholesky`][].
@@ -546,6 +550,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         - If the operator is non-square, then use [`lineax.QR`][].
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
+        - If the operator is block tridiagonal, then use [`lineax.BlockTridiagonal`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative definite, then use
             [`lineax.Cholesky`][].
@@ -571,6 +576,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 token = _well_posed_diagonal_token
             elif is_tridiagonal(operator):
                 token = _tridiagonal_token
+            elif is_blocktridiagonal(operator):
+                token = _blocktridiagonal_token
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 token = _triangular_token
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(
@@ -592,6 +599,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 token = _diagonal_token
             elif is_tridiagonal(operator):
                 token = _tridiagonal_token
+            elif is_blocktridiagonal(operator):
+                token = _blocktridiagonal_token
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 token = _triangular_token
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(

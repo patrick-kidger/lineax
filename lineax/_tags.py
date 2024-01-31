@@ -24,6 +24,7 @@ class _HasRepr:
 symmetric_tag = _HasRepr("symmetric_tag")
 diagonal_tag = _HasRepr("diagonal_tag")
 tridiagonal_tag = _HasRepr("tridiagonal_tag")
+blocktridiagonal_tag = _HasRepr("blocktridiagonal_tag")
 unit_diagonal_tag = _HasRepr("unit_diagonal_tag")
 lower_triangular_tag = _HasRepr("lower_triangular_tag")
 upper_triangular_tag = _HasRepr("upper_triangular_tag")
@@ -41,6 +42,7 @@ for tag in (
     positive_semidefinite_tag,
     negative_semidefinite_tag,
     tridiagonal_tag,
+    blocktridiagonal_tag,
 ):
 
     @transpose_tags_rules.append
