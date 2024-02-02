@@ -1286,6 +1286,7 @@ def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @linearise.register(IdentityLinearOperator)
 @linearise.register(DiagonalLinearOperator)
 @linearise.register(TridiagonalLinearOperator)
+@linearise.register(BlockTridiagonalLinearOperator)
 def _(operator):
     return operator
 
