@@ -45,10 +45,18 @@ class NoneAux(eqx.Module, strict=True):
         return self.fn(*args, **kwargs), None
 
 
-def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False):
-    # Heuristic for which is better in each case
-    # These could probably be tuned a lot more.
-    if (in_size < 100) or (in_size <= 1.5 * out_size):
+def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False, jac=None):
+    if jac is None:
+        # Heuristic for which is better in each case
+        # These could probably be tuned a lot more.
+        jac_fwd = (in_size < 100) or (in_size <= 1.5 * out_size)
+    elif jac == "fwd":
+        jac_fwd = True
+    elif jac == "bwd":
+        jac_fwd = False
+    else:
+        raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
+    if jac_fwd:
         return jax.jacfwd(fn, holomorphic=holomorphic, has_aux=has_aux)
     else:
         return jax.jacrev(fn, holomorphic=holomorphic, has_aux=has_aux)
