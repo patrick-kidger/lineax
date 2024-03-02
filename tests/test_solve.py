@@ -138,3 +138,21 @@ def test_ad_closure_function_linear_operator(getkey):
     grad, sol = jax.grad(f, has_aux=True)(x, z)
     assert tree_allclose(grad, -z / (x**2))
     assert tree_allclose(sol, z / x)
+
+
+def test_grad_vmap_symbolic_cotangent():
+    def f(x):
+        return x[0], x[1]
+
+    @jax.vmap
+    def to_vmap(x):
+        op = lx.FunctionLinearOperator(f, jax.eval_shape(lambda: x))
+        sol = lx.linear_solve(op, x)
+        return sol.value[0]
+
+    @jax.grad
+    def to_grad(x):
+        return jnp.sum(to_vmap(x))
+
+    x = (jnp.arange(3.0), jnp.arange(3.0))
+    to_grad(x)
