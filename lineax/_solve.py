@@ -267,6 +267,11 @@ def _linear_solve_transpose(inputs, cts_out):
     jtu.tree_map(
         _assert_defined, (operator, state, options, solver), is_leaf=_is_undefined
     )
+    cts_solution = jtu.tree_map(
+        ft.partial(eqxi.materialise_zeros, allow_struct=True),
+        operator.in_structure(),
+        cts_solution,
+    )
     operator_transpose = operator.transpose()
     state_transpose, options_transpose = solver.transpose(state, options)
     cts_vector, _, _ = eqxi.filter_primitive_bind(
