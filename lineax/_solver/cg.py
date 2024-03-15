@@ -101,6 +101,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
     def compute(
         self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
+        input_dtype = jtu.tree_leaves(vector)[0].dtype
         operator, is_nsd = state
         if self._normal:
             # Linearise if JacobianLinearOperator, to avoid computing the forward
@@ -150,14 +151,18 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
             and self.rtol == 0
         )
         if has_scale:
-            b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
+            b_scale = ((self.atol + self.rtol * ω(vector).call(jnp.abs)).ω).astype(
+                input_dtype
+            )
 
         def not_converged(r, diff, y):
             # The primary tolerance check.
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
             if has_scale:
-                y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+                y_scale = ((self.atol + self.rtol * ω(y).call(jnp.abs)).ω).astype(
+                    input_dtype
+                )
                 norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
                 norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
@@ -177,7 +182,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
             inner_prod = tree_dot(p, mat_p)
             alpha = gamma / inner_prod
             alpha = tree_where(
-                jnp.abs(inner_prod) > 100 * rcond * gamma, alpha, jnp.nan
+                jnp.abs(inner_prod) > 100 * rcond * jnp.abs(gamma), alpha, jnp.nan
             )
             diff = (alpha * p**ω).ω
             y = (y**ω + diff**ω).ω

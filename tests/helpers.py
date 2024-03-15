@@ -252,14 +252,15 @@ def make_composed_operator(getkey, matrix, tags):
 # I'm sure it exists somewhere -- so I'm improvising a little here. (In particular
 # removing the usual "(x + h) - x" denominator.)
 def finite_difference_jvp(fn, primals, tangents):
+    input_dtype = jtu.tree_leaves(primals)[0].dtype
     out = fn(*primals)
     # Choose ε to trade-off truncation error and floating-point rounding error.
     max_leaves = [jnp.max(jnp.abs(p)) for p in jtu.tree_leaves(primals)] + [1]
     scale = jnp.max(jnp.stack(max_leaves))
-    ε = np.sqrt(np.finfo(np.float64).eps) * scale
+    ε = (np.sqrt(np.finfo(np.float64).eps) * scale).astype(input_dtype)
     primals_ε = (ω(primals) + ε * ω(tangents)).ω
     out_ε = fn(*primals_ε)
     tangents_out = jtu.tree_map(
-        lambda x, y: (x - y).astype(jnp.float64) / ε, out_ε, out
+        lambda x, y: (x - y).astype(input_dtype) / ε, out_ε, out
     )
     return out, tangents_out
