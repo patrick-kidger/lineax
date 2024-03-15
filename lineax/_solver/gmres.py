@@ -14,7 +14,7 @@
 
 import functools as ft
 from collections.abc import Callable
-from typing import Any, cast, Optional
+from typing import Any, cast, Optional, Union
 from typing_extensions import TypeAlias
 
 import equinox.internal as eqxi
@@ -401,7 +401,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
     def _normalise(
         self, x: PyTree[Array], eps: Optional[Float[ArrayLike, ""]]
     ) -> tuple[
-        PyTree[Array], Float[Array, ""] | Complex[Array, ""], Bool[ArrayLike, ""]
+        PyTree[Array], Union[Float[Array, ""], Complex[Array, ""]], Bool[ArrayLike, ""]
     ]:
         input_dtype = jtu.tree_leaves(x)[0].dtype
         norm = two_norm(x).astype(input_dtype)
