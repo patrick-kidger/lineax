@@ -518,7 +518,7 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
     x: PyTree[Inexact[Array, "..."]]
     args: PyTree[Any]
     tags: frozenset[object] = eqx.field(static=True)
-    jac: Optional[Literal["fwd", "bwd"]] = None
+    jac: Optional[Literal["fwd", "bwd"]]
 
     @eqxi.doc_remove_args("closure_convert", "_has_aux")
     def __init__(
@@ -568,7 +568,15 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
 
     def mv(self, vector):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
-        _, out = jax.jvp(fn, (self.x,), (vector,))
+        if self.jac == "fwd" or self.jac is None:
+            _, out = jax.jvp(fn, (self.x,), (vector,))
+        elif self.jac == "bwd":
+            jac = jax.jacrev(fn)(self.x)
+            out = PyTreeLinearOperator(jac, output_structure=self.out_structure()).mv(
+                vector
+            )
+        else:
+            raise ValueError("`jac` should be either `'fwd'`, `'bwd'`, or `None`.")
         return out
 
     def as_matrix(self):
