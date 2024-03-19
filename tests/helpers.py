@@ -188,7 +188,6 @@ def make_jac_operator(getkey, matrix, tags):
     jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
     diff = matrix - jac
     fn = lambda x, _: a + (b + diff) @ x + c @ x**2
-    jax.debug.print("{a} {b} {c} {diff}", a=a, b=b, c=c, diff=diff)
     return lx.JacobianLinearOperator(fn, x, None, tags)
 
 
