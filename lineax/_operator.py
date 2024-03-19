@@ -1060,7 +1060,10 @@ class DivLinearOperator(AbstractLinearOperator, strict=True):
     scalar: Scalar
 
     def mv(self, vector):
-        return (self.operator.mv(vector) ** ω / self.scalar).ω
+        return (
+            self.operator.mv(vector) ** ω
+            / self.scalar.astype(jtu.tree_leaves(vector)[0].dtype)
+        ).ω
 
     def as_matrix(self):
         return self.operator.as_matrix() / self.scalar

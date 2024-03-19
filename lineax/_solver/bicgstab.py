@@ -95,8 +95,10 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
             and self.rtol == 0
         )
         if has_scale:
-            b_scale = ((self.atol + self.rtol * ω(vector).call(jnp.abs)).ω).astype(
-                input_dtype
+            b_scale = (
+                (self.atol + self.rtol * ω(vector).call(jnp.abs))
+                .call(lambda x: x.astype(input_dtype))
+                .ω
             )
 
         # This implementation is the same a jax.scipy.sparse.linalg.bicgstab
@@ -121,9 +123,12 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
             if has_scale:
-                y_scale = ((self.atol + self.rtol * ω(y).call(jnp.abs)).ω).astype(
-                    input_dtype
+                y_scale = (
+                    (self.atol + self.rtol * ω(y).call(jnp.abs))
+                    .call(lambda x: x.astype(input_dtype))
+                    .ω
                 )
+
                 norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
                 norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
