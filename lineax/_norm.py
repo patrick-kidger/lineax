@@ -113,7 +113,7 @@ def rms_norm(x: PyTree[ArrayLike]) -> Scalar:
         if len(leaves) == 0:
             dtype = default_floating_dtype()
         else:
-            dtype = jnp.result_type(*leaves)
+            dtype = jnp.finfo(jnp.result_type(*leaves)).dtype
         return jnp.array(0.0, dtype)
     else:
         return two_norm(x) / math.sqrt(size)
@@ -131,7 +131,7 @@ def max_norm(x: PyTree[ArrayLike]) -> Scalar:
         if len(leaves) == 0:
             dtype = default_floating_dtype()
         else:
-            dtype = jnp.result_type(*leaves)
+            dtype = jnp.finfo(jnp.result_type(*leaves)).dtype
         return jnp.array(0.0, dtype)
     else:
         out = ft.reduce(jnp.maximum, leaf_maxes)
