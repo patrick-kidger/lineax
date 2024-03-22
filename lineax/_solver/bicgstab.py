@@ -101,6 +101,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
         # We use the notation found on the wikipedia except with y instead of x:
         # https://en.wikipedia.org/wiki/
         # Biconjugate_gradient_stabilized_method#Preconditioned_BiCGSTAB
+        # preconditioner in this case is K2^(-1) (i.e., right preconditioning)
 
         r0 = (vector**ω - operator.mv(y0) ** ω).ω
 
@@ -134,7 +135,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
         def body_fun(carry):
             y, r, alpha, omega, rho, p, v, diff, step = carry
 
-            rho_new = tree_dot(r0, r)
+            rho_new = tree_dot(r, r0)
             beta = (rho_new / rho) * (alpha / omega)
             p_new = (r**ω + beta * (p**ω - omega * v**ω)).ω
 
@@ -143,7 +144,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
             x = preconditioner.mv(p_new)
             v_new = operator.mv(x)
 
-            alpha_new = rho_new / tree_dot(r0, v_new)
+            alpha_new = rho_new / tree_dot(v_new, r0)
             s = (r**ω - alpha_new * v_new**ω).ω
 
             z = preconditioner.mv(s)
