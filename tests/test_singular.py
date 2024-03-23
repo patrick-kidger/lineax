@@ -36,7 +36,7 @@ from .helpers import (
 
 @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=True))
 @pytest.mark.parametrize("ops", ops)
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
@@ -130,7 +130,7 @@ def test_nonsquare_pytree_operator2(solver):
 @pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, dtype, getkey):
     if wide:
         out_size = 3
@@ -170,7 +170,7 @@ def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, dtype, getkey):
 @pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_qr_nonsquare_vec(full_rank, jvp, wide, dtype, getkey):
     if wide:
         out_size = 3
@@ -217,7 +217,7 @@ _iterative_solvers = (
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("solver, tags", _iterative_solvers)
 @pytest.mark.parametrize("use_state", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtype):
     (matrix,) = construct_singular_matrix(getkey, solver, tags)
     operator = make_operator(getkey, matrix, tags)

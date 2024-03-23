@@ -14,7 +14,7 @@
 
 import functools as ft
 from collections.abc import Callable
-from typing import Any, cast, Optional
+from typing import Any, cast, Optional, Union
 from typing_extensions import TypeAlias
 
 import equinox.internal as eqxi
@@ -22,7 +22,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, Float, PyTree
+from jaxtyping import Array, ArrayLike, Bool, Complex, Float, PyTree
 
 from .._norm import max_norm, two_norm
 from .._operator import (
@@ -109,6 +109,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
         vector: PyTree[Array],
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
+        input_dtype = jtu.tree_leaves(vector)[0].dtype
         has_scale = not (
             isinstance(self.atol, (int, float))
             and isinstance(self.rtol, (int, float))
@@ -116,7 +117,11 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             and self.rtol == 0
         )
         if has_scale:
-            b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
+            b_scale = (
+                (self.atol + self.rtol * ω(vector).call(jnp.abs))
+                .call(lambda x: x.astype(input_dtype))
+                .ω
+            )
         operator = state
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
@@ -132,7 +137,11 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
             if has_scale:
-                y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+                y_scale = (
+                    (self.atol + self.rtol * ω(y).call(jnp.abs))
+                    .call(lambda x: x.astype(input_dtype))
+                    .ω
+                )
                 norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
                 norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
@@ -395,10 +404,15 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
 
     def _normalise(
         self, x: PyTree[Array], eps: Optional[Float[ArrayLike, ""]]
-    ) -> tuple[PyTree[Array], Float[Array, ""], Bool[ArrayLike, ""]]:
-        norm = two_norm(x)
+    ) -> tuple[
+        PyTree[Array], Union[Float[Array, ""], Complex[Array, ""]], Bool[ArrayLike, ""]
+    ]:
+        input_dtype = jtu.tree_leaves(x)[0].dtype
+        norm = two_norm(x).astype(input_dtype)
         if eps is None:
-            eps = jnp.finfo(norm.dtype).eps
+            eps = jnp.finfo(norm.dtype).eps.astype(input_dtype)
+        else:
+            eps = jnp.astype(eps, input_dtype)
         breakdown = norm < eps
         safe_norm = jnp.where(breakdown, jnp.inf, norm)
         x_normalised = (x**ω / safe_norm).ω
