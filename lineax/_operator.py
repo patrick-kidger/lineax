@@ -1068,7 +1068,8 @@ class DivLinearOperator(AbstractLinearOperator, strict=True):
     scalar: Scalar
 
     def mv(self, vector):
-        return (self.operator.mv(vector) ** ω / self.scalar).ω
+        with jax.numpy_dtype_promotion("standard"):
+            return (self.operator.mv(vector) ** ω / self.scalar).ω
 
     def as_matrix(self):
         return self.operator.as_matrix() / self.scalar

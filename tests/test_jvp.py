@@ -42,7 +42,7 @@ from .helpers import (
         construct_singular_matrix,
     ),
 )
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_jvp(
     getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
 ):
