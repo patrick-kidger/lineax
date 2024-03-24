@@ -18,11 +18,12 @@ from typing import Any, cast, Optional
 from typing_extensions import TypeAlias
 
 import equinox.internal as eqxi
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, Float, PyTree
+from jaxtyping import Array, ArrayLike, Bool, Float, Inexact, PyTree
 
 from .._norm import max_norm, two_norm
 from .._operator import (
@@ -132,9 +133,10 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
             if has_scale:
-                y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-                norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
-                norm2 = self.norm((diff**ω / y_scale**ω).ω)
+                with jax.numpy_dtype_promotion("standard"):
+                    y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+                    norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
+                    norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
             else:
                 return True
@@ -291,7 +293,10 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
                 cond_fun, body_fun, init_carry, kind="lax", buffers=buffers
             )
             beta_vec = jnp.concatenate(
-                (r_norm[None], jnp.zeros_like(coeff_mat, shape=(restart,)))
+                (
+                    r_norm[None].astype(coeff_mat),
+                    jnp.zeros_like(coeff_mat, shape=(restart,)),
+                )
             )
             coeff_op_transpose = MatrixLinearOperator(coeff_mat.T)
             # TODO(raderj): move to a Hessenberg-specific solver
@@ -368,7 +373,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             basis_step_normalised,
             basis,
         )
-        proj_new = proj.at[step + 1].set(step_norm_new)
+        proj_new = proj.at[step + 1].set(step_norm_new.astype(proj))
         #
         # NOTE: two somewhat complicated things are going on here:
         #
@@ -395,13 +400,17 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
 
     def _normalise(
         self, x: PyTree[Array], eps: Optional[Float[ArrayLike, ""]]
-    ) -> tuple[PyTree[Array], Float[Array, ""], Bool[ArrayLike, ""]]:
+    ) -> tuple[PyTree[Array], Inexact[Array, ""], Bool[ArrayLike, ""]]:
+        input_dtype = jnp.result_type(*jtu.tree_leaves(x))
         norm = two_norm(x)
         if eps is None:
             eps = jnp.finfo(norm.dtype).eps
+        else:
+            eps = jnp.astype(eps, jnp.finfo(input_dtype).dtype)
         breakdown = norm < eps
         safe_norm = jnp.where(breakdown, jnp.inf, norm)
-        x_normalised = (x**ω / safe_norm).ω
+        with jax.numpy_dtype_promotion("standard"):
+            x_normalised = (x**ω / safe_norm).ω
         return x_normalised, norm, breakdown
 
     def transpose(self, state: _GMRESState, options: dict[str, Any]):
