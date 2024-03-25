@@ -50,55 +50,6 @@ from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 
 
-def givens(a: float, b: float) -> tuple[float, float, float]:
-    """Stable implementation of Givens rotation, from [1]_
-
-    finds c, s, r such that
-
-    |c  -s|[a| = |r|
-    [s   c|[b|   |0|
-
-    r = sqrt(a^2 + b^2)
-
-    Assumes a, b are real.
-
-    References
-    ----------
-    .. [1] S.-C. Choi, "Iterative Methods for Singular Linear Equations
-           and Least-Squares Problems", Dissertation,
-           http://www.stanford.edu/group/SOL/dissertations/sou-cheng-choi-thesis.pdf
-
-    """
-
-    def bzero(a, b):
-        return jnp.sign(a), 0.0, abs(a)
-
-    def azero(a, b):
-        return 0.0, jnp.sign(b), abs(b)
-
-    def b_gt_a(a, b):
-        tau = a / b
-        s = jnp.sign(b) / jnp.sqrt(1 + tau * tau)
-        c = s * tau
-        r = b / s
-        return c, s, r
-
-    def a_ge_b(a, b):
-        tau = b / a
-        c = jnp.sign(a) / jnp.sqrt(1 + tau * tau)
-        s = c * tau
-        r = a / c
-        return c, s, r
-
-    def either_zero(a, b):
-        return lax.cond(b == 0, bzero, azero, a, b)
-
-    def both_nonzero(a, b):
-        return lax.cond(abs(b) > abs(a), b_gt_a, a_ge_b, a, b)
-
-    return lax.cond((a == 0) | (b == 0), either_zero, both_nonzero, a, b)
-
-
 _LSMRState: TypeAlias = AbstractLinearOperator
 
 
@@ -371,11 +322,11 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             # At this point, beta = beta_{k+1}, alpha = alpha_{k+1}.
 
             # Construct rotation Qhat_{k,2k+1}.
-            chat, shat, alphahat = givens(alphabar, damp)
+            chat, shat, alphahat = self._givens(alphabar, damp)
 
             # Use a plane rotation (Q_i) to turn B_i to R_i
             rhoold = rho
-            c, s, rho = givens(alphahat, beta)
+            c, s, rho = self._givens(alphahat, beta)
             thetanew = s * alpha
             alphabar = c * alpha
 
@@ -384,7 +335,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             zetaold = zeta
             thetabar = sbar * rho
             rhotemp = cbar * rho
-            cbar, sbar, rhobar = givens(cbar * rho, thetanew)
+            cbar, sbar, rhobar = self._givens(cbar * rho, thetanew)
             zeta = cbar * zetabar
             zetabar = -sbar * zetabar
 
@@ -406,7 +357,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             # Apply rotation Qtilde_{k-1}.
             # betad = betad_{k-1} here.
             thetatildeold = thetatilde
-            ctildeold, stildeold, rhotildeold = givens(rhodold, thetabar)
+            ctildeold, stildeold, rhotildeold = self._givens(rhodold, thetabar)
             thetatilde = stildeold * rhobar
             rhodold = ctildeold * rhobar
             betad = -stildeold * betad + ctildeold * betahat
@@ -546,6 +497,54 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         )
 
         return x, result, stats
+
+    def _givens(self, a: float, b: float) -> tuple[float, float, float]:
+        """Stable implementation of Givens rotation, from [1]_
+
+        finds c, s, r such that
+
+        |c  -s|[a| = |r|
+        [s   c|[b|   |0|
+
+        r = sqrt(a^2 + b^2)
+
+        Assumes a, b are real.
+
+        References
+        ----------
+        .. [1] S.-C. Choi, "Iterative Methods for Singular Linear Equations
+            and Least-Squares Problems", Dissertation,
+            http://www.stanford.edu/group/SOL/dissertations/sou-cheng-choi-thesis.pdf
+
+        """
+
+        def bzero(a, b):
+            return jnp.sign(a), 0.0, abs(a)
+
+        def azero(a, b):
+            return 0.0, jnp.sign(b), abs(b)
+
+        def b_gt_a(a, b):
+            tau = a / b
+            s = jnp.sign(b) / jnp.sqrt(1 + tau * tau)
+            c = s * tau
+            r = b / s
+            return c, s, r
+
+        def a_ge_b(a, b):
+            tau = b / a
+            c = jnp.sign(a) / jnp.sqrt(1 + tau * tau)
+            s = c * tau
+            r = a / c
+            return c, s, r
+
+        def either_zero(a, b):
+            return lax.cond(b == 0, bzero, azero, a, b)
+
+        def both_nonzero(a, b):
+            return lax.cond(abs(b) > abs(a), b_gt_a, a_ge_b, a, b)
+
+        return lax.cond((a == 0) | (b == 0), either_zero, both_nonzero, a, b)
 
     def transpose(self, state: _LSMRState, options: dict[str, Any]):
         del options
