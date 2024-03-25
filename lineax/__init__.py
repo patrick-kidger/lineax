@@ -58,6 +58,7 @@ from ._solver import (
     Cholesky as Cholesky,
     Diagonal as Diagonal,
     GMRES as GMRES,
+    LSMR as LSMR,
     LU as LU,
     NormalCG as NormalCG,
     QR as QR,
