@@ -34,21 +34,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 
+from collections.abc import Callable
+from typing import Any, Optional
+from typing_extensions import TypeAlias
+
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
+from jaxtyping import Array, PyTree
 
 from .._norm import two_norm
-from .._operator import conj
+from .._operator import AbstractLinearOperator, conj
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 
 
-def givens(a, b):
+def givens(a: float, b: float) -> tuple[float, float, float]:
     """Stable implementation of Givens rotation, from [1]_
 
-    finds c, s such that
+    finds c, s, r such that
 
     |c  -s|[a| = |r|
     [s   c|[b|   |0|
@@ -94,11 +99,36 @@ def givens(a, b):
     return lax.cond((a == 0) | (b == 0), either_zero, both_nonzero, a, b)
 
 
-class LSMR(AbstractLinearSolver):
+_LSMRState: TypeAlias = AbstractLinearOperator
+
+
+class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
+    """LSMR solver for linear systems.
+
+    This solver can handle any operator, even nonsquare or singular ones. In these
+    cases it will return the pseudoinverse solution to the linear system.
+
+    Similar to `scipy.sparse.linalg.lsmr`.
+
+    This supports the following `options` (as passed to
+    `lx.linear_solve(..., options=...)`).
+
+    - `y0`: The initial estimate of the solution to the linear system. Defaults to all
+        zeros.
+    - `damp`: Damping factor for regularized least-squares. LSMR solves the regularized
+        least-squares problem:
+
+            min ||A y - b||_2 + damp*||y||_2
+
+        where damp is a scalar. If damp is None or 0, the system is solved without
+        regularization. Default is 0.
+
+    """
+
     atol: float = 1e-6
     btol: float = 1e-6
-    max_steps: int = None
-    norm = two_norm
+    norm: Callable = two_norm
+    max_steps: Optional[int] = None
     conlim: float = 1e8
 
     def __check_init__(self):
@@ -114,23 +144,28 @@ class LSMR(AbstractLinearSolver):
                     "of all three)."
                 )
 
-    def init(self, operator, options):
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         return operator
 
-    def compute(self, state, vector, options):
+    def compute(
+        self,
+        state: _LSMRState,
+        vector: PyTree[Array],
+        options: dict[str, Any],
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator = state
-        x0 = options.get("x0", None)
+        x = options.get("y0", None)
         damp = options.get("damp", 0.0)
 
         m, n = operator.out_size(), operator.in_size()
-        # stores the num of singular values
+        # number of singular values
         minDim = min([m, n])
         if self.max_steps is None:
             max_steps = minDim
         else:
             max_steps = self.max_steps
 
-        if x0 is None:
+        if x is None:
             x = jtu.tree_map(jnp.zeros_like, operator.in_structure())
 
         b = vector
@@ -155,7 +190,7 @@ class LSMR(AbstractLinearSolver):
         h = v.copy()
         hbar = jtu.tree_map(jnp.zeros_like, operator.in_structure())
 
-        state_vecs = (x, u, v, h, hbar)
+        loop_state_vecs = (x, u, v, h, hbar)
 
         # Initialize variables for 1st iteration.
         itn = 0
@@ -166,7 +201,7 @@ class LSMR(AbstractLinearSolver):
         cbar = 1.0
         sbar = 0.0
 
-        state_main = (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar)
+        loop_state_main = (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar)
 
         # Initialize variables for estimation of ||r||.
         betadd = beta
@@ -177,7 +212,7 @@ class LSMR(AbstractLinearSolver):
         zeta = 0.0
         d = 0.0
 
-        state_r_est = (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d)
+        loop_state_r_est = (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d)
 
         # Initialize variables for estimation of ||A|| and cond(A)
         normA2 = alpha**2
@@ -186,7 +221,7 @@ class LSMR(AbstractLinearSolver):
         normA = jnp.sqrt(normA2)
         condA = 1.0
 
-        state_anorm = (normA2, maxrbar, minrbar, normA, condA)
+        loop_state_anorm = (normA2, maxrbar, minrbar, normA, condA)
 
         # Items for use in stopping rules, normb set earlier
         istop = 0
@@ -195,7 +230,7 @@ class LSMR(AbstractLinearSolver):
             ctol = 1 / self.conlim
         normr = beta
 
-        state_stopping = (istop, normr, normb)
+        loop_state_stopping = (istop, normr, normb)
         # TODO: implement this early exit?
         #         normar = alpha * beta
         #         if normar == 0:
@@ -205,17 +240,45 @@ class LSMR(AbstractLinearSolver):
         #             x[()] = 0
         #             return x, istop, itn, normr, normar, normA, condA, normx
 
-        state = (state_main, state_r_est, state_anorm, state_stopping, state_vecs)
+        loop_state = (
+            loop_state_main,
+            loop_state_r_est,
+            loop_state_anorm,
+            loop_state_stopping,
+            loop_state_vecs,
+        )
 
-        def condfun(state):
-            state_main, state_r_est, state_anorm, state_stopping, state_vecs = state
-            (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar) = state_main
-            (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d) = state_r_est
-            (normA2, maxrbar, minrbar, normA, condA) = state_anorm
-            (istop, normr, normb) = state_stopping
-            (x, u, v, h, hbar) = state_vecs
-
-            # Test for convergence.
+        def condfun(loop_state):
+            (
+                loop_state_main,
+                loop_state_r_est,
+                loop_state_anorm,
+                loop_state_stopping,
+                loop_state_vecs,
+            ) = loop_state
+            (
+                itn,
+                alpha,
+                beta,
+                zetabar,
+                alphabar,
+                rho,
+                rhobar,
+                cbar,
+                sbar,
+            ) = loop_state_main
+            (
+                betadd,
+                betad,
+                rhodold,
+                tautildeold,
+                thetatilde,
+                zeta,
+                d,
+            ) = loop_state_r_est
+            (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
+            (istop, normr, normb) = loop_state_stopping
+            (x, u, v, h, hbar) = loop_state_vecs
 
             # Compute norms for convergence testing.
             normar = abs(zetabar)
@@ -224,37 +287,69 @@ class LSMR(AbstractLinearSolver):
             # Now use these norms to estimate certain other quantities,
             # some of which will be small near a solution.
             test1 = normr / normb
-            test2 = jnp.where((normA * normr) != 0, normar / (normA * normr), jnp.inf)
+            test2 = lax.select((normA * normr) != 0, normar / (normA * normr), jnp.inf)
             test3 = 1 / condA
             t1 = test1 / (1 + normA * normx / normb)
             rtol = self.btol + self.atol * normA * normx / normb
 
-            # The following tests guard against extremely small values of
-            # atol, btol or ctol.  (The user may have set any or all of
-            # the parameters atol, btol, conlim  to 0.)
-            # The effect is equivalent to the normAl tests using
+            # bitmask for istop for possibly multiple conditions?
+
+            # x is an approximate solution to A@x = b, according to atol and btol.
+            istop += (test1 <= rtol) * 2**1
+            # x approximately solves the least-squares problem according to atol.
+            istop += (test2 <= self.atol) * 2**2
+            # cond(A) seems to be greater than conlim
+            istop += (test3 <= ctol) * 2**3
+
+            # The following tests guard against extremely small values of atol, btol
+            # or ctol.  (The user may have set any or all of the parameters atol, btol,
+            # conlim  to 0.) The effect is equivalent to the normal tests using
             # atol = eps,  btol = eps,  conlim = 1/eps.
 
-            # bitmask for istop for possibly multiple conditions?
-            istop += (itn >= max_steps) * 2**7
+            # cond(A) seems to be greater than 1/eps
             istop += (1 + test3 <= 1) * 2**6
+            # x approximately solves the least-squares problem according to atol=eps.
             istop += (1 + test2 <= 1) * 2**5
+            # x is an approximate solution to A@x = b, according to atol=btol=eps.
             istop += (1 + t1 <= 1) * 2**4
-            # Allow for tolerances set by the user.
-            istop += (test3 <= ctol) * 2**3
-            istop += (test2 <= self.atol) * 2**2
-            istop += (test1 <= rtol) * 2**1
+
+            # maxiter exceeded
+            istop += (itn >= max_steps) * 2**7
 
             return istop == 0
 
-        def bodyfun(state):
+        def bodyfun(loop_state):
             # unpack everything. Maybe cleaner to use a dict or struct?
-            (state_main, state_r_est, state_anorm, state_stopping, state_vecs) = state
-            (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar) = state_main
-            (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d) = state_r_est
-            (normA2, maxrbar, minrbar, normA, condA) = state_anorm
-            (istop, normr, normb) = state_stopping
-            (x, u, v, h, hbar) = state_vecs
+            (
+                loop_state_main,
+                loop_state_r_est,
+                loop_state_anorm,
+                loop_state_stopping,
+                loop_state_vecs,
+            ) = loop_state
+            (
+                itn,
+                alpha,
+                beta,
+                zetabar,
+                alphabar,
+                rho,
+                rhobar,
+                cbar,
+                sbar,
+            ) = loop_state_main
+            (
+                betadd,
+                betad,
+                rhodold,
+                tautildeold,
+                thetatilde,
+                zeta,
+                d,
+            ) = loop_state_r_est
+            (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
+            (istop, normr, normb) = loop_state_stopping
+            (x, u, v, h, hbar) = loop_state_vecs
 
             itn = itn + 1
 
@@ -339,25 +434,55 @@ class LSMR(AbstractLinearSolver):
 
             # Estimate cond(A).
             maxrbar = jnp.maximum(maxrbar, rhobarold)
-            minrbar = jnp.where(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
+            minrbar = lax.select(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
             condA = jnp.maximum(maxrbar, rhotemp) / jnp.minimum(minrbar, rhotemp)
 
-            state_vecs = (x, u, v, h, hbar)
-            state_stopping = (istop, normr, normb)
-            state_anorm = (normA2, maxrbar, minrbar, normA, condA)
-            state_r_est = (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d)
-            state_main = (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar)
-            state = (state_main, state_r_est, state_anorm, state_stopping, state_vecs)
-            return state
+            loop_state_vecs = (x, u, v, h, hbar)
+            loop_state_stopping = (istop, normr, normb)
+            loop_state_anorm = (normA2, maxrbar, minrbar, normA, condA)
+            loop_state_r_est = (
+                betadd,
+                betad,
+                rhodold,
+                tautildeold,
+                thetatilde,
+                zeta,
+                d,
+            )
+            loop_state_main = (
+                itn,
+                alpha,
+                beta,
+                zetabar,
+                alphabar,
+                rho,
+                rhobar,
+                cbar,
+                sbar,
+            )
+            loop_state = (
+                loop_state_main,
+                loop_state_r_est,
+                loop_state_anorm,
+                loop_state_stopping,
+                loop_state_vecs,
+            )
+            return loop_state
 
-        state = lax.while_loop(condfun, bodyfun, state)
+        loop_state = lax.while_loop(condfun, bodyfun, loop_state)
 
-        (state_main, state_r_est, state_anorm, state_stopping, state_vecs) = state
-        (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar) = state_main
-        (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d) = state_r_est
-        (normA2, maxrbar, minrbar, normA, condA) = state_anorm
-        (istop, normr, normb) = state_stopping
-        (x, u, v, h, hbar) = state_vecs
+        (
+            loop_state_main,
+            loop_state_r_est,
+            loop_state_anorm,
+            loop_state_stopping,
+            loop_state_vecs,
+        ) = loop_state
+        (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar) = loop_state_main
+        (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d) = loop_state_r_est
+        (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
+        (istop, normr, normb) = loop_state_stopping
+        (x, u, v, h, hbar) = loop_state_vecs
 
         normar = abs(zetabar)
         normx = self.norm(x)
@@ -379,13 +504,13 @@ class LSMR(AbstractLinearSolver):
 
         return x, result, stats
 
-    def transpose(self, state, options):
+    def transpose(self, state: _LSMRState, options: dict[str, Any]):
         del options
         operator = state
         transpose_options = {}
         return operator.transpose(), transpose_options
 
-    def conj(self, state, options):
+    def conj(self, state: _LSMRState, options: dict[str, Any]):
         del options
         operator = state
         conj_options = {}
@@ -396,3 +521,20 @@ class LSMR(AbstractLinearSolver):
 
     def allow_dependent_columns(self, operator):
         return True
+
+
+LSMR.__init__.__doc__ = r"""**Arguments:**
+
+- `atol`: Relative tolerance (relative to norm(A*x)) for terminating solve.
+- `btol`: Relative tolerance (relative to norm(b)) for terminating solve.
+- `norm`: The norm to use when computing whether the error falls within the tolerance.
+    Defaults to the two norm.
+- `max_steps`: The maximum number of iterations to run the solver for. If more steps
+    than this are required, then the solve is halted with a failure.
+- `conlim`: The solver terminates if an estimate of cond(A) exceeds conlim. For
+    compatible systems Ax = b, conlim could be as large as 1.0e+12 (say). For
+    least-squares problems, conlim should be less than 1.0e+8. If conlim is None,
+    the default value is 1e+8. Maximum precision can be obtained by setting
+    atol = btol = conlim = 0, but the number of iterations may then be excessive.
+    Default is 1e8.
+"""
