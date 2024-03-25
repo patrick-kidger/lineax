@@ -231,14 +231,6 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         normr = beta
 
         loop_state_stopping = (istop, normr, normb)
-        # TODO: implement this early exit?
-        #         normar = alpha * beta
-        #         if normar == 0:
-        #             return x, istop, itn, normr, normar, normA, condA, normx
-
-        #         if normb == 0:
-        #             x[()] = 0
-        #             return x, istop, itn, normr, normar, normA, condA, normx
 
         loop_state = (
             loop_state_main,
@@ -469,23 +461,74 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             )
             return loop_state
 
-        loop_state = lax.while_loop(condfun, bodyfun, loop_state)
-
-        (
-            loop_state_main,
-            loop_state_r_est,
-            loop_state_anorm,
-            loop_state_stopping,
-            loop_state_vecs,
-        ) = loop_state
-        (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar) = loop_state_main
-        (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d) = loop_state_r_est
-        (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
-        (istop, normr, normb) = loop_state_stopping
-        (x, u, v, h, hbar) = loop_state_vecs
-
         normar = abs(zetabar)
-        normx = self.norm(x)
+
+        #         if normar == 0:
+        def early_stop_normar(loop_state):
+            return x, istop, itn, normr, normar, normA, condA, self.norm(x)
+
+        #         if normb == 0:
+        def early_stop_normb(loop_state):
+            return (
+                jtu.tree_map(jnp.zeros_like, operator.in_structure()),
+                istop,
+                itn,
+                normr,
+                normar,
+                normA,
+                condA,
+                self.norm(x),
+            )
+
+        def no_early_stop(loop_state):
+            loop_state = lax.while_loop(condfun, bodyfun, loop_state)
+
+            (
+                loop_state_main,
+                loop_state_r_est,
+                loop_state_anorm,
+                loop_state_stopping,
+                loop_state_vecs,
+            ) = loop_state
+            (
+                itn,
+                alpha,
+                beta,
+                zetabar,
+                alphabar,
+                rho,
+                rhobar,
+                cbar,
+                sbar,
+            ) = loop_state_main
+            (
+                betadd,
+                betad,
+                rhodold,
+                tautildeold,
+                thetatilde,
+                zeta,
+                d,
+            ) = loop_state_r_est
+            (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
+            (istop, normr, normb) = loop_state_stopping
+            (x, u, v, h, hbar) = loop_state_vecs
+
+            normar = abs(zetabar)
+            return x, istop, itn, normr, normar, normA, condA, self.norm(x)
+
+        def early_stop(loop_state):
+            return lax.cond(
+                normar == 0, early_stop_normar, early_stop_normb, loop_state
+            )
+
+        x, istop, itn, normr, normar, normA, condA, normx = lax.cond(
+            jnp.logical_or(normar == 0, normb == 0),
+            early_stop,
+            no_early_stop,
+            loop_state,
+        )
+
         stats = {
             "num_steps": itn,
             "norm_r": normr,
