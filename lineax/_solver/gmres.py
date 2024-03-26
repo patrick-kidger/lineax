@@ -401,12 +401,11 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
     def _normalise(
         self, x: PyTree[Array], eps: Optional[Float[ArrayLike, ""]]
     ) -> tuple[PyTree[Array], Inexact[Array, ""], Bool[ArrayLike, ""]]:
-        input_dtype = jnp.result_type(*jtu.tree_leaves(x))
         norm = two_norm(x)
         if eps is None:
             eps = jnp.finfo(norm.dtype).eps
         else:
-            eps = jnp.astype(eps, jnp.finfo(input_dtype).dtype)
+            eps = jnp.astype(eps, norm.dtype)
         breakdown = norm < eps
         safe_norm = jnp.where(breakdown, jnp.inf, norm)
         with jax.numpy_dtype_promotion("standard"):
