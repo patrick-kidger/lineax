@@ -21,8 +21,6 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, ArrayLike, Bool, PyTree  # pyright:ignore
 
-from ._norm import default_floating_dtype
-
 
 def tree_where(
     pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
@@ -78,6 +76,8 @@ def _asarray_jvp(dtype, x, tx):
 
 
 def inexact_asarray(x):
+    from ._norm import default_floating_dtype
+
     dtype = jnp.result_type(x)
     if not jnp.issubdtype(jnp.result_type(x), jnp.inexact):
         dtype = default_floating_dtype()
