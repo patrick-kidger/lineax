@@ -21,6 +21,8 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Inexact, PyTree, Scalar
 
+from ._misc import complex_to_real_dtype
+
 
 def default_floating_dtype():
     if jax.config.jax_enable_x64:  # pyright: ignore
@@ -113,7 +115,7 @@ def rms_norm(x: PyTree[ArrayLike]) -> Scalar:
         if len(leaves) == 0:
             dtype = default_floating_dtype()
         else:
-            dtype = jnp.finfo(jnp.result_type(*leaves)).dtype
+            dtype = complex_to_real_dtype(jnp.result_type(*leaves))
         return jnp.array(0.0, dtype)
     else:
         return two_norm(x) / math.sqrt(size)
@@ -131,7 +133,7 @@ def max_norm(x: PyTree[ArrayLike]) -> Scalar:
         if len(leaves) == 0:
             dtype = default_floating_dtype()
         else:
-            dtype = jnp.finfo(jnp.result_type(*leaves)).dtype
+            dtype = complex_to_real_dtype(jnp.result_type(*leaves))
         return jnp.array(0.0, dtype)
     else:
         out = ft.reduce(jnp.maximum, leaf_maxes)

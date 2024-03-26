@@ -82,3 +82,7 @@ def inexact_asarray(x):
     if not jnp.issubdtype(jnp.result_type(x), jnp.inexact):
         dtype = default_floating_dtype()
     return _asarray(dtype, x)
+
+
+def complex_to_real_dtype(dtype):
+    return jnp.finfo(dtype).dtype
