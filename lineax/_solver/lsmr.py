@@ -120,7 +120,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             x = jtu.tree_map(jnp.zeros_like, operator.in_structure())
 
         b = vector
-        u = b - operator.mv(x)
+        u = (ω(b) - ω(operator.mv(x))).ω
         normb = self.norm(b)
         beta = self.norm(u)
 
@@ -136,7 +136,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             return u, v, alpha
 
         u, v, alpha = lax.cond(beta > 0, beta_gt0, beta_le0, beta, u)
-        v = jnp.where(alpha > 0, v / alpha, v)
+        v = lax.cond(alpha > 0, lambda: (ω(v) / alpha).ω, lambda: v)
 
         h = v.copy()
         hbar = jtu.tree_map(jnp.zeros_like, operator.in_structure())
@@ -238,26 +238,26 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             # bitmask for istop for possibly multiple conditions?
 
             # x is an approximate solution to A@x = b, according to atol and btol.
-            istop += (test1 <= rtol) * 2**1
+            istop += (test1 <= rtol).astype(int) * 2**1
             # x approximately solves the least-squares problem according to atol.
-            istop += (test2 <= self.atol) * 2**2
+            istop += (test2 <= self.atol).astype(int) * 2**2
             # cond(A) seems to be greater than conlim
-            istop += (test3 <= ctol) * 2**3
+            istop += (test3 <= ctol).astype(int) * 2**3
 
             # The following tests guard against extremely small values of atol, btol
             # or ctol.  (The user may have set any or all of the parameters atol, btol,
             # conlim  to 0.) The effect is equivalent to the normal tests using
             # atol = eps,  btol = eps,  conlim = 1/eps.
 
-            # cond(A) seems to be greater than 1/eps
-            istop += (1 + test3 <= 1) * 2**6
-            # x approximately solves the least-squares problem according to atol=eps.
-            istop += (1 + test2 <= 1) * 2**5
             # x is an approximate solution to A@x = b, according to atol=btol=eps.
-            istop += (1 + t1 <= 1) * 2**4
+            istop += (1 + t1 <= 1).astype(int) * 2**4
+            # x approximately solves the least-squares problem according to atol=eps.
+            istop += (1 + test2 <= 1).astype(int) * 2**5
+            # cond(A) seems to be greater than 1/eps
+            istop += (1 + test3 <= 1).astype(int) * 2**6
 
             # maxiter exceeded
-            istop += (itn >= max_steps) * 2**7
+            istop += (itn >= max_steps).astype(int) * 2**7
 
             return istop == 0
 
@@ -308,7 +308,8 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             def beta_gt0(alpha, beta, u, v):
                 u = (ω(u) * (1 / beta)).ω
                 v = (ω(v) * -beta).ω
-                v = (ω(v) + operator.T.mv(u)).ω
+                Au = operator.T.mv(u)
+                v = (ω(v) + ω(Au)).ω
                 alpha = self.norm(v)
                 v = lax.cond(alpha > 0, lambda x: (ω(x) / alpha).ω, lambda x: x, v)
                 return alpha, beta, u, v
@@ -498,7 +499,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
         return x, result, stats
 
-    def _givens(self, a: float, b: float) -> tuple[float, float, float]:
+    def _givens(self, a, b):
         """Stable implementation of Givens rotation, from [1]_
 
         finds c, s, r such that
