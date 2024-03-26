@@ -17,6 +17,7 @@ from typing import Any, ClassVar, Optional
 from typing_extensions import TYPE_CHECKING, TypeAlias
 
 import equinox.internal as eqxi
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -157,9 +158,10 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
             if has_scale:
-                y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-                norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
-                norm2 = self.norm((diff**ω / y_scale**ω).ω)
+                with jax.numpy_dtype_promotion("standard"):
+                    y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+                    norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
+                    norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
             else:
                 return True

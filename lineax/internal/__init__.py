@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+from .._misc import (
+    complex_to_real_dtype as complex_to_real_dtype,
+)
 from .._norm import (
     default_floating_dtype as default_floating_dtype,
     max_norm as max_norm,
