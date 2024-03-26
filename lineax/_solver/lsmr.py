@@ -76,8 +76,8 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
     """
 
-    atol: float = 1e-6
-    btol: float = 1e-6
+    atol: float
+    btol: float
     norm: Callable = two_norm
     max_steps: Optional[int] = None
     conlim: float = 1e8
@@ -112,7 +112,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         # number of singular values
         minDim = min([m, n])
         if self.max_steps is None:
-            max_steps = minDim
+            max_steps = minDim * 10  # for consistency with other iterative solvers
         else:
             max_steps = self.max_steps
 
