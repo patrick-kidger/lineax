@@ -21,14 +21,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Inexact, PyTree, Scalar
 
-from ._misc import complex_to_real_dtype
-
-
-def default_floating_dtype():
-    if jax.config.jax_enable_x64:  # pyright: ignore
-        return jnp.float64
-    else:
-        return jnp.float32
+from ._misc import complex_to_real_dtype, default_floating_dtype
 
 
 def tree_dot(tree1: PyTree[ArrayLike], tree2: PyTree[ArrayLike]) -> Inexact[Array, ""]:
