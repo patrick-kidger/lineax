@@ -29,7 +29,7 @@ from .helpers import (
 
 @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
 @pytest.mark.parametrize("ops", ops)
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
@@ -49,7 +49,8 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
 
 
 @pytest.mark.parametrize("solver", solvers)
-def test_pytree_wellposed(solver, getkey):
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_pytree_wellposed(solver, getkey, dtype):
     if not isinstance(
         solver,
         (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG, lx.NormalCG),
@@ -59,15 +60,18 @@ def test_pytree_wellposed(solver, getkey):
         else:
             tol = 1e-4
 
-        true_x = [jr.normal(getkey(), shape=(2, 4)), jr.normal(getkey(), (3,))]
+        true_x = [
+            jr.normal(getkey(), shape=(2, 4), dtype=dtype),
+            jr.normal(getkey(), (3,), dtype=dtype),
+        ]
         pytree = [
             [
-                jr.normal(getkey(), shape=(2, 4, 2, 4)),
-                jr.normal(getkey(), shape=(2, 4, 3)),
+                jr.normal(getkey(), shape=(2, 4, 2, 4), dtype=dtype),
+                jr.normal(getkey(), shape=(2, 4, 3), dtype=dtype),
             ],
             [
-                jr.normal(getkey(), shape=(3, 2, 4)),
-                jr.normal(getkey(), shape=(3, 3)),
+                jr.normal(getkey(), shape=(3, 2, 4), dtype=dtype),
+                jr.normal(getkey(), shape=(3, 3), dtype=dtype),
             ],
         ]
         out_structure = jax.eval_shape(lambda: true_x)

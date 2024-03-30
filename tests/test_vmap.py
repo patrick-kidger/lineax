@@ -38,7 +38,7 @@ from .helpers import (
         construct_singular_matrix,
     ),
 )
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_vmap(
     getkey, make_operator, solver, tags, pseudoinverse, use_state, make_matrix, dtype
 ):
