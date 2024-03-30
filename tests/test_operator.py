@@ -111,28 +111,28 @@ def _assert_except_diag(cond_fun, operators, flip_cond):
             assert cond_fun(operator)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_linearise(dtype, getkey):
     operators = _setup(getkey, jr.normal(getkey(), (3, 3), dtype=dtype))
     for operator in operators:
         lx.linearise(operator)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_materialise(dtype, getkey):
     operators = _setup(getkey, jr.normal(getkey(), (3, 3), dtype=dtype))
     for operator in operators:
         lx.materialise(operator)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_materialise_large(dtype, getkey):
     operators = _setup(getkey, jr.normal(getkey(), (200, 500), dtype=dtype))
     for operator in operators:
         lx.materialise(operator)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     matrix_diag = jnp.diag(matrix)
@@ -141,7 +141,7 @@ def test_diagonal(dtype, getkey):
         assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_symmetric(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     symmetric_operators = _setup(getkey, matrix.T @ matrix, lx.symmetric_tag)
@@ -152,7 +152,7 @@ def test_is_symmetric(dtype, getkey):
     _assert_except_diag(lx.is_symmetric, not_symmetric_operators, flip_cond=True)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     diagonal_operators = _setup(getkey, jnp.diag(jnp.diag(matrix)), lx.diagonal_tag)
@@ -163,7 +163,7 @@ def test_is_diagonal(dtype, getkey):
     _assert_except_diag(lx.is_diagonal, not_diagonal_operators, flip_cond=True)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_has_unit_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     not_unit_diagonal = _setup(getkey, matrix)
@@ -175,7 +175,7 @@ def test_has_unit_diagonal(dtype, getkey):
     _assert_except_diag(lx.has_unit_diagonal, unit_diagonal, flip_cond=False)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_lower_triangular(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     lower_triangular = _setup(getkey, jnp.tril(matrix), lx.lower_triangular_tag)
@@ -186,7 +186,7 @@ def test_is_lower_triangular(dtype, getkey):
     _assert_except_diag(lx.is_lower_triangular, not_lower_triangular, flip_cond=True)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_upper_triangular(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     upper_triangular = _setup(getkey, jnp.triu(matrix), lx.upper_triangular_tag)
@@ -197,7 +197,7 @@ def test_is_upper_triangular(dtype, getkey):
     _assert_except_diag(lx.is_upper_triangular, not_upper_triangular, flip_cond=True)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_positive_semidefinite(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     not_positive_semidefinite = _setup(getkey, matrix)
@@ -212,7 +212,7 @@ def test_is_positive_semidefinite(dtype, getkey):
     )
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_negative_semidefinite(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     not_negative_semidefinite = _setup(getkey, matrix)
@@ -227,7 +227,7 @@ def test_is_negative_semidefinite(dtype, getkey):
     )
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_tridiagonal(dtype, getkey):
     diag1 = jr.normal(getkey(), (5,), dtype=dtype)
     diag2 = jr.normal(getkey(), (4,), dtype=dtype)
@@ -240,7 +240,7 @@ def test_is_tridiagonal(dtype, getkey):
     assert not lx.is_tridiagonal(op3)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_tangent_as_matrix(dtype, getkey):
     def _list_setup(matrix):
         return list(_setup(getkey, matrix))
@@ -258,7 +258,7 @@ def test_tangent_as_matrix(dtype, getkey):
             assert jnp.allclose(t_operator.as_matrix(), t_matrix)
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_materialise_function_linear_operator(dtype, getkey):
     x = (
         jr.normal(getkey(), (5, 9), dtype=dtype),
@@ -281,7 +281,7 @@ def test_materialise_function_linear_operator(dtype, getkey):
     assert jax.eval_shape(lambda: materialised_operator.pytree) == expected_struct
 
 
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_pytree_transpose(dtype, getkey):
     out_struct = jax.eval_shape(
         lambda: ({"a": jnp.zeros((2, 3, 3), dtype=dtype)}, jnp.zeros((2,), dtype=dtype))
@@ -372,8 +372,9 @@ def test_identity_with_different_structures_complex():
     assert tree_allclose(op2.mv(vec2), vec1b)
 
 
-def test_zero_pytree_as_matrix():
-    a = jnp.array([]).reshape(2, 1, 0, 2, 1, 0)
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_zero_pytree_as_matrix(dtype):
+    a = jnp.array([], dtype=dtype).reshape(2, 1, 0, 2, 1, 0)
     struct = jax.ShapeDtypeStruct((2, 1, 0), a.dtype)
     op = lx.PyTreeLinearOperator(a, struct)
     assert op.as_matrix().shape == (0, 0)
