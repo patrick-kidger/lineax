@@ -16,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import lineax._misc as lx_misc
+import pytest
 
 
 def test_inexact_asarray_no_copy():
@@ -32,7 +33,8 @@ def test_inexact_asarray_jvp():
     assert type(t) is not float
 
 
-def test_zero_matrix():
-    A = lx.MatrixLinearOperator(jnp.zeros((2, 2)))
-    b = jnp.array([1.0, 2.0])
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_zero_matrix(dtype):
+    A = lx.MatrixLinearOperator(jnp.zeros((2, 2), dtype=dtype))
+    b = jnp.array([1.0, 2.0], dtype=dtype)
     lx.linear_solve(A, b, lx.SVD())

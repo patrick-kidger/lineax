@@ -36,7 +36,7 @@ from .helpers import (
 
 @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=True))
 @pytest.mark.parametrize("ops", ops)
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
@@ -54,15 +54,16 @@ def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
-def test_bicgstab_breakdown(getkey):
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_bicgstab_breakdown(getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
     else:
         tol = 1e-4
     solver = lx.GMRES(atol=tol, rtol=tol, restart=2)
 
-    matrix = jr.normal(jr.PRNGKey(0), (100, 100))
-    true_x = jr.normal(jr.PRNGKey(0), (100,))
+    matrix = jr.normal(jr.PRNGKey(0), (100, 100), dtype=dtype)
+    true_x = jr.normal(jr.PRNGKey(0), (100,), dtype=dtype)
     b = matrix @ true_x
     operator = lx.MatrixLinearOperator(matrix)
 
@@ -72,7 +73,8 @@ def test_bicgstab_breakdown(getkey):
     assert jnp.all(lx_soln.result != lx.RESULTS.successful)
 
 
-def test_gmres_stagnation_or_breakdown(getkey):
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_gmres_stagnation_or_breakdown(getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
     else:
@@ -85,9 +87,10 @@ def test_gmres_stagnation_or_breakdown(getkey):
             [-1.5484863, 0.93608822, 1.94888868, 1.37069667],
             [0.62687318, -0.13996738, -0.6824359, 0.30975754],
             [-0.67428635, 1.52372255, -0.88277754, 0.69633816],
-        ]
+        ],
+        dtype=dtype,
     )
-    true_x = jnp.array([0.51383273, 1.72983427, -0.43251078, -1.11764668])
+    true_x = jnp.array([0.51383273, 1.72983427, -0.43251078, -1.11764668], dtype=dtype)
     b = matrix @ true_x
     operator = lx.MatrixLinearOperator(matrix)
 
@@ -142,7 +145,7 @@ def test_nonsquare_pytree_operator2(solver):
 @pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, dtype, getkey):
     if wide:
         out_size = 3
@@ -182,7 +185,7 @@ def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, dtype, getkey):
 @pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_qr_nonsquare_vec(full_rank, jvp, wide, dtype, getkey):
     if wide:
         out_size = 3
@@ -229,7 +232,7 @@ _iterative_solvers = (
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("solver, tags", _iterative_solvers)
 @pytest.mark.parametrize("use_state", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64,))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtype):
     (matrix,) = construct_singular_matrix(getkey, solver, tags)
     operator = make_operator(getkey, matrix, tags)

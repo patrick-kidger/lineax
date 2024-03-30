@@ -14,7 +14,7 @@ from .helpers import (
 
 
 @pytest.mark.parametrize("make_operator", make_operators)
-@pytest.mark.parametrize("dtype", (jnp.float32, jnp.complex64))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_adjoint(make_operator, dtype, getkey):
     if make_operator is make_diagonal_operator:
         matrix = jnp.eye(4, dtype=dtype)
@@ -52,6 +52,16 @@ def test_functional_pytree_adjoint():
         return {"b": y["a"]}
 
     y_struct = jax.eval_shape(lambda: {"a": 0.0})
+    operator = FunctionLinearOperator(fn, y_struct)
+    conj_operator = lx.conj(operator)
+    assert tree_allclose(lx.materialise(conj_operator), lx.materialise(operator))
+
+
+def test_functional_pytree_adjoint_complex():
+    def fn(y):
+        return {"b": y["a"]}
+
+    y_struct = jax.eval_shape(lambda: {"a": 0.0j})
     operator = FunctionLinearOperator(fn, y_struct)
     conj_operator = lx.conj(operator)
     assert tree_allclose(lx.materialise(conj_operator), lx.materialise(operator))
