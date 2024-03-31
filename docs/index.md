@@ -11,6 +11,7 @@ Features include:
 - Support for structured (e.g. symmetric) matrices;
 - Improved compilation times;
 - Improved runtime of some algorithms;
+- Support for both real-valued and complex-valued inputs;
 - All the benefits of working with JAX: autodiff, autoparallism, GPU/TPU support, etc.
 
 ## Installation
