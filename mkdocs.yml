@@ -99,6 +99,7 @@ nav:
         - 'examples/structured_matrices.ipynb'
         - 'examples/no_materialisation.ipynb'
         - 'examples/operators.ipynb'
+        - 'examples/complex_solve.ipynb'
     - API:
         - 'api/linear_solve.md'
         - 'api/solvers.md'
