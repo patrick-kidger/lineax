@@ -63,16 +63,21 @@ Check out the examples or the API reference on the left-hand bar.
 
 ## See also: other libraries in the JAX ecosystem
 
-[Equinox](https://github.com/patrick-kidger/equinox): neural networks.
+**Always useful**  
+[Equinox](https://github.com/patrick-kidger/equinox): neural networks and everything not already in core JAX!  
+[jaxtyping](https://github.com/patrick-kidger/jaxtyping): type annotations for shape/dtype of arrays.  
 
-[Optax](https://github.com/deepmind/optax): first-order gradient (SGD, Adam, ...) optimisers.
+**Deep learning**  
+[Optax](https://github.com/deepmind/optax): first-order gradient (SGD, Adam, ...) optimisers.  
+[Orbax](https://github.com/google/orbax): checkpointing (async/multi-host/multi-device).  
+[Levanter](https://github.com/stanford-crfm/levanter): scalable+reliable training of foundation models (e.g. LLMs).  
 
-[Diffrax](https://github.com/patrick-kidger/diffrax): numerical differential equation solvers.
+**Scientific computing**  
+[Diffrax](https://github.com/patrick-kidger/diffrax): numerical differential equation solvers.  
+[Optimistix](https://github.com/patrick-kidger/optimistix): root finding, minimisation, fixed points, and least squares.  
+[BlackJAX](https://github.com/blackjax-devs/blackjax): probabilistic+Bayesian sampling.  
+[sympy2jax](https://github.com/patrick-kidger/sympy2jax): SymPy<->JAX conversion; train symbolic expressions via gradient descent.  
+[PySR](https://github.com/milesCranmer/PySR): symbolic regression. (Non-JAX honourable mention!)  
 
-[jaxtyping](https://github.com/google/jaxtyping): type annotations for shape/dtype of arrays.
-
-[Eqxvision](https://github.com/paganpasta/eqxvision): computer vision models.
-
-[sympy2jax](https://github.com/google/sympy2jax): SymPy<->JAX conversion; train symbolic expressions via gradient descent.
-
-[Levanter](https://github.com/stanford-crfm/levanter): scalable+reliable training of foundation models (e.g. LLMs).
+**Awesome JAX**  
+[Awesome JAX](https://github.com/n2cholas/awesome-jax): a longer list of other JAX projects.  
