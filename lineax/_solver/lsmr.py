@@ -499,34 +499,36 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             http://www.stanford.edu/group/SOL/dissertations/sou-cheng-choi-thesis.pdf
 
         """
+        assert not jnp.iscomplexobj(a)
+        assert not jnp.iscomplexobj(b)
 
         def bzero(a, b):
-            return jnp.sign(a), 0.0, abs(a)
+            return jnp.sign(a), 0.0, jnp.abs(a)
 
         def azero(a, b):
-            return 0.0, jnp.sign(b), abs(b)
+            return 0.0, jnp.sign(b), jnp.abs(b)
 
         def b_gt_a(a, b):
-            tau = a / b
-            s = jnp.sign(b) / jnp.sqrt(1 + tau * tau)
+            tau = a / lax.select(b == 0.0, 1.0, b)
+            s = jnp.sign(b) / jnp.sqrt(1.0 + tau**2)
             c = s * tau
-            r = b / s
+            r = b / lax.select(s == 0.0, 1.0, s)
             return c, s, r
 
         def a_ge_b(a, b):
-            tau = b / a
-            c = jnp.sign(a) / jnp.sqrt(1 + tau * tau)
+            tau = b / lax.select(a == 0.0, 1.0, a)
+            c = jnp.sign(a) / jnp.sqrt(1.0 + tau**2)
             s = c * tau
-            r = a / c
+            r = a / lax.select(c == 0.0, 1.0, c)
             return c, s, r
 
         def either_zero(a, b):
-            return lax.cond(b == 0, bzero, azero, a, b)
+            return lax.cond(b == 0.0, bzero, azero, a, b)
 
         def both_nonzero(a, b):
-            return lax.cond(abs(b) > abs(a), b_gt_a, a_ge_b, a, b)
+            return lax.cond(jnp.abs(b) > jnp.abs(a), b_gt_a, a_ge_b, a, b)
 
-        return lax.cond((a == 0) | (b == 0), either_zero, both_nonzero, a, b)
+        return lax.cond((a == 0.0) | (b == 0.0), either_zero, both_nonzero, a, b)
 
     def transpose(self, state: _LSMRState, options: dict[str, Any]):
         del options
