@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
 
-
 from collections.abc import Callable
 from typing import Any, Optional
 from typing_extensions import TypeAlias
@@ -73,7 +72,6 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
         where damp is a scalar. If damp is None or 0, the system is solved without
         regularization. Default is 0.
-
     """
 
     atol: float
@@ -94,6 +92,8 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
                     "Must specify `atol`, `btol`, or `max_steps` (or some combination "
                     "of all three)."
                 )
+        if self.conlim is None:
+            self.conlim = 1e8
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         return operator
@@ -110,9 +110,9 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
         m, n = operator.out_size(), operator.in_size()
         # number of singular values
-        minDim = min([m, n])
+        min_dim = min([m, n])
         if self.max_steps is None:
-            max_steps = minDim * 10  # for consistency with other iterative solvers
+            max_steps = min_dim * 10  # for consistency with other iterative solvers
         else:
             max_steps = self.max_steps
 
@@ -138,12 +138,14 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         u, v, alpha = lax.cond(beta > 0, beta_gt0, beta_le0, beta, u)
         v = lax.cond(alpha > 0, lambda: (ω(v) / alpha).ω, lambda: v)
 
-        h = v.copy()
+        h = v
         hbar = jtu.tree_map(jnp.zeros_like, operator.in_structure())
 
         loop_state_vecs = (x, u, v, h, hbar)
 
         # Initialize variables for 1st iteration.
+        # generally, latin letters (b, x, u, v, h etc) are vectors that may be complex
+        # greek letters (alpha, beta, rho, zeta etc) are scalars that are always real
         itn = 0
         zetabar = alpha * beta
         alphabar = alpha
@@ -161,9 +163,17 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         tautildeold = 0.0
         thetatilde = 0.0
         zeta = 0.0
-        d = 0.0
+        delta = 0.0
 
-        loop_state_r_est = (betadd, betad, rhodold, tautildeold, thetatilde, zeta, d)
+        loop_state_r_est = (
+            betadd,
+            betad,
+            rhodold,
+            tautildeold,
+            thetatilde,
+            zeta,
+            delta,
+        )
 
         # Initialize variables for estimation of ||A|| and cond(A)
         normA2 = alpha**2
@@ -176,9 +186,9 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
         # Items for use in stopping rules, normb set earlier
         istop = 0
-        ctol = 0.0
-        if self.conlim > 0:
-            ctol = 1 / self.conlim
+        ctol = jnp.where(
+            self.conlim > 0, 1.0 / jnp.where(self.conlim > 0, self.conlim, 1.0), 0.0
+        )
         normr = beta
 
         loop_state_stopping = (istop, normr, normb)
@@ -217,7 +227,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
                 tautildeold,
                 thetatilde,
                 zeta,
-                d,
+                delta,
             ) = loop_state_r_est
             (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
             (istop, normr, normb) = loop_state_stopping
@@ -288,7 +298,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
                 tautildeold,
                 thetatilde,
                 zeta,
-                d,
+                delta,
             ) = loop_state_r_est
             (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
             (istop, normr, normb) = loop_state_stopping
@@ -368,8 +378,8 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
             tautildeold = (zetaold - thetatildeold * tautildeold) / rhotildeold
             taud = (zeta - thetatilde * tautildeold) / rhodold
-            d = d + betacheck * betacheck
-            normr = jnp.sqrt(d + (betad - taud) ** 2 + betadd * betadd)
+            delta = delta + betacheck**2
+            normr = jnp.sqrt(delta + (betad - taud) ** 2 + betadd**2)
 
             # Estimate ||A||.
             normA2 = normA2 + beta**2
@@ -378,7 +388,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
             # Estimate cond(A).
             maxrbar = jnp.maximum(maxrbar, rhobarold)
-            minrbar = lax.select(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
+            minrbar = jnp.where(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
             condA = jnp.maximum(maxrbar, rhotemp) / jnp.minimum(minrbar, rhotemp)
 
             loop_state_vecs = (x, u, v, h, hbar)
@@ -391,7 +401,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
                 tautildeold,
                 thetatilde,
                 zeta,
-                d,
+                delta,
             )
             loop_state_main = (
                 itn,
@@ -492,7 +502,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
         # TODO: return actual status when failed
         result = RESULTS.where(
-            istop == 0,
+            istop < 2**6,
             RESULTS.successful,
             RESULTS.max_steps_reached,
         )
