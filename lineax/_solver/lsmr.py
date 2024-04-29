@@ -119,24 +119,30 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         if x is None:
             x = jtu.tree_map(jnp.zeros_like, operator.in_structure())
 
+        dtype = jnp.result_type(
+            *jtu.tree_leaves(vector),
+            *jtu.tree_leaves(x),
+            *jtu.tree_leaves(operator.in_structure()),
+        )
+
         b = vector
         u = (ω(b) - ω(operator.mv(x))).ω
         normb = self.norm(b)
         beta = self.norm(u)
 
-        def beta_gt0(beta, u):
-            u = (ω(u) * (1 / beta)).ω
-            v = operator.T.mv(u)
+        def beta_nonzero(beta, u):
+            u = (ω(u) / lax.select(beta == 0.0, 1.0, beta).astype(dtype)).ω
+            v = conj(operator).T.mv(u)
             alpha = self.norm(v)
             return u, v, alpha
 
-        def beta_le0(beta, u):
+        def beta_zero(beta, u):
             v = jtu.tree_map(jnp.zeros_like, operator.in_structure())
             alpha = 0.0
             return u, v, alpha
 
-        u, v, alpha = lax.cond(beta > 0, beta_gt0, beta_le0, beta, u)
-        v = lax.cond(alpha > 0, lambda: (ω(v) / alpha).ω, lambda: v)
+        u, v, alpha = lax.cond(beta == 0.0, beta_zero, beta_nonzero, beta, u)
+        v = (ω(v) / lax.select(alpha == 0.0, 1.0, alpha).astype(dtype)).ω
 
         h = v
         hbar = jtu.tree_map(jnp.zeros_like, operator.in_structure())
@@ -186,8 +192,8 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
         # Items for use in stopping rules, normb set earlier
         istop = 0
-        ctol = jnp.where(
-            self.conlim > 0, 1.0 / jnp.where(self.conlim > 0, self.conlim, 1.0), 0.0
+        ctol = lax.select(
+            self.conlim > 0, 1.0 / lax.select(self.conlim > 0, self.conlim, 1.0), 0.0
         )
         normr = beta
 
@@ -311,24 +317,23 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             #         beta*u  =  A@v   -  alpha*u,
             #        alpha*v  =  A'@u  -  beta*v.
 
-            u = (ω(u) * -alpha).ω
+            u = (ω(u) * -alpha.astype(dtype)).ω
             u = (ω(u) + ω(operator.mv(v))).ω
             beta = self.norm(u)
 
-            def beta_gt0(alpha, beta, u, v):
-                u = (ω(u) * (1 / beta)).ω
-                v = (ω(v) * -beta).ω
-                Au = operator.T.mv(u)
-                v = (ω(v) + ω(Au)).ω
+            def beta_nonzero(alpha, beta, u, v):
+                u = (ω(u) / lax.select(beta == 0.0, 1.0, beta).astype(dtype)).ω
+                v = (ω(v) * -beta.astype(dtype)).ω
+                v = (ω(v) + ω(conj(operator).T.mv(u))).ω
                 alpha = self.norm(v)
-                v = lax.cond(alpha > 0, lambda x: (ω(x) / alpha).ω, lambda x: x, v)
+                v = (ω(v) / lax.select(alpha == 0.0, 1.0, alpha).astype(dtype)).ω
                 return alpha, beta, u, v
 
-            def beta_le0(alpha, beta, u, v):
+            def beta_zero(alpha, beta, u, v):
                 return alpha, beta, u, v
 
             alpha, beta, u, v = lax.cond(
-                beta > 0, beta_gt0, beta_le0, alpha, beta, u, v
+                beta == 0, beta_zero, beta_nonzero, alpha, beta, u, v
             )
             # At this point, beta = beta_{k+1}, alpha = alpha_{k+1}.
 
@@ -351,10 +356,10 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             zetabar = -sbar * zetabar
 
             # Update h, h_hat, x.
-            hbar = (ω(hbar) * -(thetabar * rho / (rhoold * rhobarold))).ω
+            hbar = (ω(hbar) * -(thetabar * rho / (rhoold * rhobarold)).astype(dtype)).ω
             hbar = (ω(hbar) + ω(h)).ω
-            x = (ω(x) + (zeta / (rho * rhobar)) * ω(hbar)).ω
-            h = (ω(h) * -(thetanew / rho)).ω
+            x = (ω(x) + (zeta / (rho * rhobar)).astype(dtype) * ω(hbar)).ω
+            h = (ω(h) * -(thetanew / rho).astype(dtype)).ω
             h = (ω(h) + ω(v)).ω
 
             # Estimate of ||r||.
@@ -388,7 +393,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
             # Estimate cond(A).
             maxrbar = jnp.maximum(maxrbar, rhobarold)
-            minrbar = jnp.where(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
+            minrbar = lax.select(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
             condA = jnp.maximum(maxrbar, rhotemp) / jnp.minimum(minrbar, rhotemp)
 
             loop_state_vecs = (x, u, v, h, hbar)
