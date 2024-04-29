@@ -196,8 +196,9 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             self.conlim > 0, 1.0 / lax.select(self.conlim > 0, self.conlim, 1.0), 0.0
         )
         normr = beta
+        normAr = alpha * beta
 
-        loop_state_stopping = (istop, normr, normb)
+        loop_state_stopping = (istop, normr, normAr, normb)
 
         loop_state = (
             loop_state_main,
@@ -236,44 +237,8 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
                 delta,
             ) = loop_state_r_est
             (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
-            (istop, normr, normb) = loop_state_stopping
+            (istop, normr, normAr, normb) = loop_state_stopping
             (x, u, v, h, hbar) = loop_state_vecs
-
-            # Compute norms for convergence testing.
-            normar = abs(zetabar)
-            normx = self.norm(x)
-
-            # Now use these norms to estimate certain other quantities,
-            # some of which will be small near a solution.
-            test1 = normr / normb
-            test2 = lax.select((normA * normr) != 0, normar / (normA * normr), jnp.inf)
-            test3 = 1 / condA
-            t1 = test1 / (1 + normA * normx / normb)
-            rtol = self.btol + self.atol * normA * normx / normb
-
-            # bitmask for istop for possibly multiple conditions?
-
-            # x is an approximate solution to A@x = b, according to atol and btol.
-            istop += (test1 <= rtol).astype(int) * 2**1
-            # x approximately solves the least-squares problem according to atol.
-            istop += (test2 <= self.atol).astype(int) * 2**2
-            # cond(A) seems to be greater than conlim
-            istop += (test3 <= ctol).astype(int) * 2**3
-
-            # The following tests guard against extremely small values of atol, btol
-            # or ctol.  (The user may have set any or all of the parameters atol, btol,
-            # conlim  to 0.) The effect is equivalent to the normal tests using
-            # atol = eps,  btol = eps,  conlim = 1/eps.
-
-            # x is an approximate solution to A@x = b, according to atol=btol=eps.
-            istop += (1 + t1 <= 1).astype(int) * 2**4
-            # x approximately solves the least-squares problem according to atol=eps.
-            istop += (1 + test2 <= 1).astype(int) * 2**5
-            # cond(A) seems to be greater than 1/eps
-            istop += (1 + test3 <= 1).astype(int) * 2**6
-
-            # maxiter exceeded
-            istop += (itn >= max_steps).astype(int) * 2**7
 
             return istop == 0
 
@@ -307,7 +272,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
                 delta,
             ) = loop_state_r_est
             (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
-            (istop, normr, normb) = loop_state_stopping
+            (istop, normr, normAr, normb) = loop_state_stopping
             (x, u, v, h, hbar) = loop_state_vecs
 
             itn = itn + 1
@@ -396,8 +361,44 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             minrbar = lax.select(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
             condA = jnp.maximum(maxrbar, rhotemp) / jnp.minimum(minrbar, rhotemp)
 
+            # Compute norms for convergence testing.
+            normAr = jnp.abs(zetabar)
+            normx = self.norm(x)
+
+            # Now use these norms to estimate certain other quantities,
+            # some of which will be small near a solution.
+            test1 = normr / normb
+            test2 = lax.select((normA * normr) != 0, normAr / (normA * normr), jnp.inf)
+            test3 = 1 / condA
+            t1 = test1 / (1.0 + normA * normx / normb)
+            rtol = self.btol + self.atol * normA * normx / normb
+
+            # bitmask for istop for possibly multiple conditions?
+
+            # x is an approximate solution to A@x = b, according to atol and btol.
+            istop += jnp.array(test1 <= rtol).astype(jnp.int32) * 2**1
+            # x approximately solves the least-squares problem according to atol.
+            istop += jnp.array(test2 <= self.atol).astype(jnp.int32) * 2**2
+            # cond(A) seems to be greater than conlim
+            istop += jnp.array(test3 <= ctol).astype(jnp.int32) * 2**3
+
+            # The following tests guard against extremely small values of atol, btol
+            # or ctol.  (The user may have set any or all of the parameters atol, btol,
+            # conlim  to 0.) The effect is equivalent to the normal tests using
+            # atol = eps,  btol = eps,  conlim = 1/eps.
+
+            # x is an approximate solution to A@x = b, according to atol=btol=eps.
+            istop += jnp.array(1 + t1 <= 1).astype(jnp.int32) * 2**4
+            # x approximately solves the least-squares problem according to atol=eps.
+            istop += jnp.array(1 + test2 <= 1).astype(jnp.int32) * 2**5
+            # cond(A) seems to be greater than 1/eps
+            istop += jnp.array(1 + test3 <= 1).astype(jnp.int32) * 2**6
+
+            # maxiter exceeded
+            istop += jnp.array(itn >= max_steps).astype(jnp.int32) * 2**7
+
             loop_state_vecs = (x, u, v, h, hbar)
-            loop_state_stopping = (istop, normr, normb)
+            loop_state_stopping = (istop, normr, normAr, normb)
             loop_state_anorm = (normA2, maxrbar, minrbar, normA, condA)
             loop_state_r_est = (
                 betadd,
@@ -428,81 +429,46 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             )
             return loop_state
 
-        normar = abs(zetabar)
-
-        #         if normar == 0:
-        def early_stop_normar(loop_state):
-            return x, istop, itn, normr, normar, normA, condA, self.norm(x)
-
-        #         if normb == 0:
-        def early_stop_normb(loop_state):
-            return (
-                jtu.tree_map(jnp.zeros_like, operator.in_structure()),
-                istop,
-                itn,
-                normr,
-                normar,
-                normA,
-                condA,
-                self.norm(x),
-            )
-
-        def no_early_stop(loop_state):
-            loop_state = lax.while_loop(condfun, bodyfun, loop_state)
-
-            (
-                loop_state_main,
-                loop_state_r_est,
-                loop_state_anorm,
-                loop_state_stopping,
-                loop_state_vecs,
-            ) = loop_state
-            (
-                itn,
-                alpha,
-                beta,
-                zetabar,
-                alphabar,
-                rho,
-                rhobar,
-                cbar,
-                sbar,
-            ) = loop_state_main
-            (
-                betadd,
-                betad,
-                rhodold,
-                tautildeold,
-                thetatilde,
-                zeta,
-                d,
-            ) = loop_state_r_est
-            (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
-            (istop, normr, normb) = loop_state_stopping
-            (x, u, v, h, hbar) = loop_state_vecs
-
-            normar = abs(zetabar)
-            return x, istop, itn, normr, normar, normA, condA, self.norm(x)
-
-        def early_stop(loop_state):
-            return lax.cond(
-                normar == 0, early_stop_normar, early_stop_normb, loop_state
-            )
-
-        x, istop, itn, normr, normar, normA, condA, normx = lax.cond(
-            jnp.logical_or(normar == 0, normb == 0),
-            early_stop,
-            no_early_stop,
-            loop_state,
-        )
+        loop_state = lax.while_loop(condfun, bodyfun, loop_state)
+        (
+            loop_state_main,
+            loop_state_r_est,
+            loop_state_anorm,
+            loop_state_stopping,
+            loop_state_vecs,
+        ) = loop_state
+        (
+            itn,
+            alpha,
+            beta,
+            zetabar,
+            alphabar,
+            rho,
+            rhobar,
+            cbar,
+            sbar,
+        ) = loop_state_main
+        (
+            betadd,
+            betad,
+            rhodold,
+            tautildeold,
+            thetatilde,
+            zeta,
+            d,
+        ) = loop_state_r_est
+        (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
+        (istop, normr, normAr, normb) = loop_state_stopping
+        (x, u, v, h, hbar) = loop_state_vecs
 
         stats = {
             "num_steps": itn,
+            "istop": istop,
             "norm_r": normr,
-            "norm_Ar": normar,
+            "norm_Ar": normAr,
             "norm_A": normA,
             "cond_A": condA,
-            "norm_x": normx,
+            "norm_x": self.norm(x),
         }
 
         # TODO: return actual status when failed
