@@ -74,22 +74,24 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         regularization. Default is 0.
     """
 
+    rtol: float
     atol: float
-    btol: float
     norm: Callable = two_norm
     max_steps: Optional[int] = None
     conlim: float = 1e8
 
     def __check_init__(self):
+        if isinstance(self.rtol, (int, float)) and self.rtol < 0:
+            raise ValueError("Tolerances must be non-negative.")
         if isinstance(self.atol, (int, float)) and self.atol < 0:
             raise ValueError("Tolerances must be non-negative.")
-        if isinstance(self.btol, (int, float)) and self.btol < 0:
+        if isinstance(self.conlim, (int, float)) and self.conlim < 0:
             raise ValueError("Tolerances must be non-negative.")
 
-        if isinstance(self.atol, (int, float)) and isinstance(self.btol, (int, float)):
-            if self.atol == 0 and self.btol == 0 and self.max_steps is None:
+        if isinstance(self.atol, (int, float)) and isinstance(self.rtol, (int, float)):
+            if self.atol == 0 and self.rtol == 0 and self.max_steps is None:
                 raise ValueError(
-                    "Must specify `atol`, `btol`, or `max_steps` (or some combination "
+                    "Must specify `atol`, `rtol`, or `max_steps` (or some combination "
                     "of all three)."
                 )
         if self.conlim is None:
@@ -192,9 +194,6 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
         # Items for use in stopping rules, normb set earlier
         istop = 0
-        ctol = lax.select(
-            self.conlim > 0, 1.0 / lax.select(self.conlim > 0, self.conlim, 1.0), 0.0
-        )
         normr = beta
         normAr = alpha * beta
 
@@ -365,37 +364,16 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             normAr = jnp.abs(zetabar)
             normx = self.norm(x)
 
-            # Now use these norms to estimate certain other quantities,
-            # some of which will be small near a solution.
-            test1 = normr / normb
-            test2 = lax.select((normA * normr) != 0, normAr / (normA * normr), jnp.inf)
-            test3 = 1 / condA
-            t1 = test1 / (1.0 + normA * normx / normb)
-            rtol = self.btol + self.atol * normA * normx / normb
-
-            # bitmask for istop for possibly multiple conditions?
-
-            # x is an approximate solution to A@x = b, according to atol and btol.
-            istop += jnp.array(test1 <= rtol).astype(jnp.int32) * 2**1
-            # x approximately solves the least-squares problem according to atol.
-            istop += jnp.array(test2 <= self.atol).astype(jnp.int32) * 2**2
+            well_posed_tol = self.atol + self.rtol * (normA * normx + normb)
+            least_squares_tol = self.atol + self.rtol * (normA * normr)
+            # x is a solution to A@x = b, according to atol and rtol.
+            istop = lax.select(normr < well_posed_tol, 1, istop)
+            # x solves the least-squares problem according to atol and rtol.
+            istop = lax.select(normAr < least_squares_tol, 2, istop)
             # cond(A) seems to be greater than conlim
-            istop += jnp.array(test3 <= ctol).astype(jnp.int32) * 2**3
-
-            # The following tests guard against extremely small values of atol, btol
-            # or ctol.  (The user may have set any or all of the parameters atol, btol,
-            # conlim  to 0.) The effect is equivalent to the normal tests using
-            # atol = eps,  btol = eps,  conlim = 1/eps.
-
-            # x is an approximate solution to A@x = b, according to atol=btol=eps.
-            istop += jnp.array(1 + t1 <= 1).astype(jnp.int32) * 2**4
-            # x approximately solves the least-squares problem according to atol=eps.
-            istop += jnp.array(1 + test2 <= 1).astype(jnp.int32) * 2**5
-            # cond(A) seems to be greater than 1/eps
-            istop += jnp.array(1 + test3 <= 1).astype(jnp.int32) * 2**6
-
+            istop = lax.select(condA > self.conlim, 3, istop)
             # maxiter exceeded
-            istop += jnp.array(itn >= max_steps).astype(jnp.int32) * 2**7
+            istop = lax.select(itn >= max_steps, 4, istop)
 
             loop_state_vecs = (x, u, v, h, hbar)
             loop_state_stopping = (istop, normr, normAr, normb)
@@ -470,12 +448,10 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             "cond_A": condA,
             "norm_x": self.norm(x),
         }
-
-        # TODO: return actual status when failed
         result = RESULTS.where(
-            istop < 2**6,
+            istop < 3,
             RESULTS.successful,
-            RESULTS.max_steps_reached,
+            RESULTS.where(istop == 3, RESULTS.conlim, RESULTS.max_steps_reached),
         )
 
         return x, result, stats
@@ -551,8 +527,8 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
 
 LSMR.__init__.__doc__ = r"""**Arguments:**
 
-- `atol`: Relative tolerance (relative to norm(A*x)) for terminating solve.
-- `btol`: Relative tolerance (relative to norm(b)) for terminating solve.
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
 - `norm`: The norm to use when computing whether the error falls within the tolerance.
     Defaults to the two norm.
 - `max_steps`: The maximum number of iterations to run the solver for. If more steps
@@ -561,6 +537,6 @@ LSMR.__init__.__doc__ = r"""**Arguments:**
     compatible systems Ax = b, conlim could be as large as 1.0e+12 (say). For
     least-squares problems, conlim should be less than 1.0e+8. If conlim is None,
     the default value is 1e+8. Maximum precision can be obtained by setting
-    atol = btol = conlim = 0, but the number of iterations may then be excessive.
+    atol = rtol = conlim = 0, but the number of iterations may then be excessive.
     Default is 1e8.
 """
