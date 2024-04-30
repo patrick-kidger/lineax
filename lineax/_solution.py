@@ -55,6 +55,7 @@ class RESULTS(eqxi.Enumeration):
         "A stagnation in an iterative linear solve has occurred. Try increasing "
         "`stagnation_iters` or `restart`."
     )
+    conlim = "Condition number of A seems to be larger than `conlim`."
 
 
 class Solution(eqx.Module, strict=True):
