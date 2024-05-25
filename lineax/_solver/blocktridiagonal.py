@@ -1,6 +1,7 @@
 from typing import Any
 from typing_extensions import TypeAlias
 
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
@@ -81,7 +82,7 @@ class BlockTridiagonal(AbstractLinearSolver[_BlockTridiagonalState]):
                 return step, y
 
             _, new_d_p = matrix_linear_solve_vec(0, d - jnp.matmul(a, d_p))
-            _, new_c_p = lax.scan(matrix_linear_solve_vec, 0, c.T)
+            _, new_c_p = jax.vmap(matrix_linear_solve_vec, in_axes=(None, 0))(0, c.T)
             new_c_p = new_c_p.T
             return (new_c_p, new_d_p, step + 1), (new_c_p, new_d_p)
 
