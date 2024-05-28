@@ -22,3 +22,4 @@ from .qr import QR as QR
 from .svd import SVD as SVD
 from .triangular import Triangular as Triangular
 from .tridiagonal import Tridiagonal as Tridiagonal
+from .Woodbury import Woodbury as Woodbury

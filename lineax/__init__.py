@@ -34,6 +34,7 @@ from ._operator import (
     is_symmetric as is_symmetric,
     is_tridiagonal as is_tridiagonal,
     is_upper_triangular as is_upper_triangular,
+    is_Woodbury as is_Woodbury,
     JacobianLinearOperator as JacobianLinearOperator,
     linearise as linearise,
     materialise as materialise,
@@ -45,6 +46,7 @@ from ._operator import (
     TangentLinearOperator as TangentLinearOperator,
     tridiagonal as tridiagonal,
     TridiagonalLinearOperator as TridiagonalLinearOperator,
+    WoodburyLinearOperator as WoodburyLinearOperator,
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solve import (
