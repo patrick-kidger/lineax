@@ -7,9 +7,8 @@ from jaxtyping import Array, PyTree
 
 from .._operator import (
     AbstractLinearOperator,
-    is_Woodbury,
     MatrixLinearOperator,
-    woodbury,
+    WoodburyLinearOperator,
 )
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver, AutoLinearSolver
@@ -22,14 +21,16 @@ from .misc import (
 )
 
 
-_Woodbury_State: TypeAlias = tuple[
+_WoodburyState: TypeAlias = tuple[
     tuple[Array, Array, Array],
     tuple[AbstractLinearSolver, Any, AbstractLinearSolver, Any],
     PackedStructures,
 ]
 
 
-def compute_pushthrough(A_solver, A_state, C, U, V):
+def _compute_pushthrough(
+    A_solver: AbstractLinearSolver, A_state: Any, C: Array, U: Array, V: Array
+) -> tuple[AbstractLinearSolver, Any]:
     # Push through ( C^-1 + V A^-1 U) y = x
     vmapped_solve = jax.vmap(
         lambda x_vec: A_solver.compute(A_state, x_vec, {})[0], in_axes=1, out_axes=1
@@ -41,24 +42,28 @@ def compute_pushthrough(A_solver, A_state, C, U, V):
     return solver, state
 
 
-class Woodbury(AbstractLinearSolver[_Woodbury_State]):
+class Woodbury(AbstractLinearSolver[_WoodburyState]):
     """Solving system using Woodbury matrix identity"""
 
-    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
+    def init(
+        self,
+        operator: AbstractLinearOperator,
+        options: dict[str, Any],
+        A_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
+    ):
         del options
-        if not is_Woodbury(operator):
+        if not isinstance(operator, WoodburyLinearOperator):
             raise ValueError(
                 "`Woodbury` may only be used for linear solves with A + U C V structure"
             )
         else:
-            A, C, U, V = woodbury(operator)
+            A, C, U, V = operator.A, operator.C, operator.U, operator.V  # pyright: ignore
             if A.in_size() != A.out_size():
                 raise ValueError("""A must be square""")
             # Find correct solvers and init for A
-            A_solver = AutoLinearSolver(well_posed=True).select_solver(A)
             A_state = A_solver.init(A, {})
             # Compute pushthrough operator
-            pt_solver, pt_state = compute_pushthrough(A_solver, A_state, C, U, V)
+            pt_solver, pt_state = _compute_pushthrough(A_solver, A_state, C, U, V)
             return (
                 (C, U, V),
                 (A_solver, A_state, pt_solver, pt_state),
@@ -67,7 +72,7 @@ class Woodbury(AbstractLinearSolver[_Woodbury_State]):
 
     def compute(
         self,
-        state: _Woodbury_State,
+        state: _WoodburyState,
         vector,
         options,
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
@@ -94,7 +99,7 @@ class Woodbury(AbstractLinearSolver[_Woodbury_State]):
         solution = unravel_solution(solution, A_packed_structures)
         return solution, RESULTS.successful, {}
 
-    def transpose(self, state: _Woodbury_State, options: dict[str, Any]):
+    def transpose(self, state: _WoodburyState, options: dict[str, Any]):
         (
             (C, U, V),
             (A_solver, A_state, pt_solver, pt_state),
@@ -105,7 +110,7 @@ class Woodbury(AbstractLinearSolver[_Woodbury_State]):
         U = jnp.transpose(V)
         V = jnp.transpose(U)
         A_state, _ = A_solver.transpose(A_state, {})
-        pt_solver, pt_state = compute_pushthrough(A_solver, A_state, C, U, V)
+        pt_solver, pt_state = _compute_pushthrough(A_solver, A_state, C, U, V)
         transpose_state = (
             (C, U, V),
             (A_solver, A_state, pt_solver, pt_state),
@@ -113,7 +118,7 @@ class Woodbury(AbstractLinearSolver[_Woodbury_State]):
         )
         return transpose_state, options
 
-    def conj(self, state: _Woodbury_State, options: dict[str, Any]):
+    def conj(self, state: _WoodburyState, options: dict[str, Any]):
         (
             (C, U, V),
             (A_solver, A_state, pt_solver, pt_state),
@@ -123,7 +128,7 @@ class Woodbury(AbstractLinearSolver[_Woodbury_State]):
         U = jnp.conj(U)
         V = jnp.conj(V)
         A_state, _ = A_solver.conj(A_state, {})
-        pt_solver, pt_state = compute_pushthrough(A_solver, A_state, C, U, V)
+        pt_solver, pt_state = _compute_pushthrough(A_solver, A_state, C, U, V)
         conj_state = (
             (C, U, V),
             (A_solver, A_state, pt_solver, pt_state),

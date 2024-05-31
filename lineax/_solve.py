@@ -40,9 +40,9 @@ from ._operator import (
     is_positive_semidefinite,
     is_tridiagonal,
     is_upper_triangular,
-    is_Woodbury,
     linearise,
     TangentLinearOperator,
+    WoodburyLinearOperator,
 )
 from ._solution import RESULTS, Solution
 
@@ -587,7 +587,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True
                 operator
             ):
                 token = _cholesky_token
-            elif is_Woodbury(operator):
+            elif isinstance(operator, WoodburyLinearOperator):
                 token = _woodbury_token
             else:
                 token = _lu_token
