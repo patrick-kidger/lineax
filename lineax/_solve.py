@@ -27,6 +27,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, PyTree
+from jax._src.ad_util import stop_gradient_p
 
 from ._custom_types import sentinel
 from ._misc import inexact_asarray
@@ -812,3 +813,12 @@ def linear_solve(
     # TODO: prevent forward-mode autodiff through stats
     stats = eqxi.nondifferentiable_backward(stats)
     return Solution(value=solution, result=result, state=state, stats=stats)
+
+
+# Work around JAX issue #22011,
+# as well as https://github.com/patrick-kidger/diffrax/pull/387#issuecomment-2174488365
+def stop_gradient_transpose(ct, x):
+    return ct,
+
+
+ad.primitive_transposes[stop_gradient_p] = stop_gradient_transpose
