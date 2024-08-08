@@ -199,6 +199,12 @@ def make_diagonal_operator(getkey, matrix, tags):
 
 
 @_operators_append
+def make_identity_operator(getkey, matrix, tags):
+    in_struct = jax.ShapeDtypeStruct((matrix.shape[-1],), matrix.dtype)
+    return lx.IdentityLinearOperator(input_structure=in_struct)
+
+
+@_operators_append
 def make_tridiagonal_operator(getkey, matrix, tags):
     diag1 = jnp.diag(matrix)
     if tags == lx.tridiagonal_tag:

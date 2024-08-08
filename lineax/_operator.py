@@ -733,7 +733,14 @@ class IdentityLinearOperator(AbstractLinearOperator, strict=True):
             return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
-        return jnp.eye(self.out_size(), self.in_size())
+        leaves = jtu.tree_leaves(self.in_structure())
+        with jax.numpy_dtype_promotion("standard"):
+            dtype = (
+                default_floating_dtype()
+                if len(leaves) == 0
+                else jnp.result_type(*leaves)
+            )
+        return jnp.eye(self.out_size(), self.in_size(), dtype=dtype)
 
     def transpose(self):
         return IdentityLinearOperator(self.out_structure(), self.in_structure())
