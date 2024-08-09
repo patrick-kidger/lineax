@@ -133,6 +133,8 @@ def params(only_pseudo):
                 continue
             if make_operator is make_diagonal_operator and tags != lx.diagonal_tag:
                 continue
+            if make_operator is make_identity_operator and tags != lx.unit_diagonal_tag:
+                continue
             if (
                 make_operator is make_tridiagonal_operator
                 and tags != lx.tridiagonal_tag
