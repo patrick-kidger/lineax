@@ -7,6 +7,7 @@ from lineax import FunctionLinearOperator
 
 from .helpers import (
     make_diagonal_operator,
+    make_identity_operator,
     make_operators,
     make_tridiagonal_operator,
     tree_allclose,
@@ -16,7 +17,10 @@ from .helpers import (
 @pytest.mark.parametrize("make_operator", make_operators)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_adjoint(make_operator, dtype, getkey):
-    if make_operator is make_diagonal_operator:
+    if (
+        make_operator is make_diagonal_operator
+        or make_operator is make_identity_operator
+    ):
         matrix = jnp.eye(4, dtype=dtype)
         tags = lx.diagonal_tag
         in_size = out_size = 4

@@ -133,6 +133,8 @@ def params(only_pseudo):
                 continue
             if make_operator is make_diagonal_operator and tags != lx.diagonal_tag:
                 continue
+            if make_operator is make_identity_operator and tags != lx.unit_diagonal_tag:
+                continue
             if (
                 make_operator is make_tridiagonal_operator
                 and tags != lx.tridiagonal_tag
@@ -196,6 +198,12 @@ def make_diagonal_operator(getkey, matrix, tags):
     assert tags == lx.diagonal_tag
     diag = jnp.diag(matrix)
     return lx.DiagonalLinearOperator(diag)
+
+
+@_operators_append
+def make_identity_operator(getkey, matrix, tags):
+    in_struct = jax.ShapeDtypeStruct((matrix.shape[-1],), matrix.dtype)
+    return lx.IdentityLinearOperator(input_structure=in_struct)
 
 
 @_operators_append
