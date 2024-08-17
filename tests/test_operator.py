@@ -188,6 +188,22 @@ def test_is_diagonal(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_scalar(dtype, getkey):
+    matrix = jr.normal(getkey(), (1, 1), dtype=dtype)
+    diagonal_operators = _setup(getkey, matrix)
+    for operator in diagonal_operators:
+        assert lx.is_diagonal(operator)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_tridiagonal(dtype, getkey):
+    diag1 = jr.normal(getkey(), (1,), dtype=dtype)
+    diag2 = jnp.zeros((0,), dtype=dtype)
+    op1 = lx.TridiagonalLinearOperator(diag1, diag2, diag2)
+    assert lx.is_diagonal(op1)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_has_unit_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     not_unit_diagonal = _setup(getkey, matrix)
