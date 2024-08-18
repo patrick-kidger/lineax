@@ -136,7 +136,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
         def body_fun(carry):
             y, r, alpha, omega, rho, p, v, diff, step = carry
 
-            rho_new = tree_dot(r0, r)
+            rho_new = tree_dot(r, r0)
             beta = (rho_new / rho) * (alpha / omega)
             p_new = (r**ω + beta * (p**ω - omega * v**ω)).ω
 
@@ -145,7 +145,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
             x = preconditioner.mv(p_new)
             v_new = operator.mv(x)
 
-            alpha_new = rho_new / tree_dot(r0, v_new)
+            alpha_new = rho_new / tree_dot(v_new, r0)
             s = (r**ω - alpha_new * v_new**ω).ω
 
             z = preconditioner.mv(s)
