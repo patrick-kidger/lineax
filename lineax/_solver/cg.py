@@ -134,7 +134,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
             max_steps = self.max_steps
         r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
-        gamma0 = tree_dot(r0, p0)
+        gamma0 = tree_dot(p0, r0)
         rcond = resolve_rcond(None, size, size, jnp.result_type(*leaves))
         initial_value = (
             ω(y0).call(lambda x: jnp.full_like(x, jnp.inf)).ω,
@@ -176,7 +176,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
         def body_fun(value):
             _, y, r, p, gamma, step = value
             mat_p = mv(p)
-            inner_prod = tree_dot(p, mat_p)
+            inner_prod = tree_dot(mat_p, p)
             alpha = gamma / inner_prod
             alpha = tree_where(
                 jnp.abs(inner_prod) > 100 * rcond * jnp.abs(gamma), alpha, jnp.nan
@@ -206,7 +206,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
 
             z = preconditioner.mv(r)
             gamma_prev = gamma
-            gamma = tree_dot(r, z)
+            gamma = tree_dot(z, r)
             beta = gamma / gamma_prev
             p = (z**ω + beta * p**ω).ω
             return diff, y, r, p, gamma, step

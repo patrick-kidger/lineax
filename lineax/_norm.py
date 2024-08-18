@@ -36,8 +36,8 @@ def tree_dot(tree1: PyTree[ArrayLike], tree2: PyTree[ArrayLike]) -> Inexact[Arra
     for leaf1, leaf2 in zip(leaves1, leaves2):
         dots.append(
             jnp.dot(
-                jnp.reshape(leaf1, -1),
-                jnp.conj(leaf2).reshape(-1),
+                jnp.conj(leaf1).reshape(-1),
+                jnp.reshape(leaf2, -1),
                 precision=jax.lax.Precision.HIGHEST,  # pyright: ignore
             )
         )
