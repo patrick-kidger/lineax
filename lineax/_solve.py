@@ -30,7 +30,7 @@ from jax._src.ad_util import stop_gradient_p
 from jaxtyping import Array, ArrayLike, PyTree
 
 from ._custom_types import sentinel
-from ._misc import inexact_asarray
+from ._misc import inexact_asarray, strip_weak_dtype
 from ._operator import (
     AbstractLinearOperator,
     conj,
@@ -778,8 +778,8 @@ def linear_solve(
     if options is None:
         options = {}
     vector = jtu.tree_map(inexact_asarray, vector)
-    vector_struct = jax.eval_shape(lambda: vector)
-    operator_out_structure = operator.out_structure()
+    vector_struct = strip_weak_dtype(jax.eval_shape(lambda: vector))
+    operator_out_structure = strip_weak_dtype(operator.out_structure())
     # `is` to handle tracers
     if eqx.tree_equal(vector_struct, operator_out_structure) is not True:
         raise ValueError(
