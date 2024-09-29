@@ -91,3 +91,18 @@ def inexact_asarray(x):
 
 def complex_to_real_dtype(dtype):
     return jnp.finfo(dtype).dtype
+
+
+def strip_weak_dtype(tree: PyTree) -> PyTree:
+    return jtu.tree_map(
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=x.sharding)
+        if type(x) is jax.ShapeDtypeStruct
+        else x,
+        tree,
+    )
+
+
+def structure_equal(x, y) -> bool:
+    x = strip_weak_dtype(jax.eval_shape(lambda: x))
+    y = strip_weak_dtype(jax.eval_shape(lambda: y))
+    return eqx.tree_equal(x, y) is True

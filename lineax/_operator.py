@@ -38,7 +38,13 @@ from jaxtyping import (
 )
 
 from ._custom_types import sentinel
-from ._misc import default_floating_dtype, inexact_asarray, jacobian, NoneAux
+from ._misc import (
+    default_floating_dtype,
+    inexact_asarray,
+    jacobian,
+    NoneAux,
+    strip_weak_dtype,
+)
 from ._tags import (
     diagonal_tag,
     lower_triangular_tag,
@@ -311,7 +317,7 @@ def _inexact_structure_impl(x):
 
 
 def _inexact_structure(x: PyTree[jax.ShapeDtypeStruct]) -> PyTree[jax.ShapeDtypeStruct]:
-    return jax.eval_shape(_inexact_structure_impl, x)
+    return strip_weak_dtype(jax.eval_shape(_inexact_structure_impl, x))
 
 
 class _Leaf:  # not a pytree
@@ -593,11 +599,11 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
         )
 
     def in_structure(self):
-        return jax.eval_shape(lambda: self.x)
+        return strip_weak_dtype(jax.eval_shape(lambda: self.x))
 
     def out_structure(self):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
-        return eqxi.cached_filter_eval_shape(fn, self.x)
+        return strip_weak_dtype(eqxi.cached_filter_eval_shape(fn, self.x))
 
 
 # `input_structure` must be static as with `JacobianLinearOperator`
@@ -667,7 +673,9 @@ class FunctionLinearOperator(AbstractLinearOperator, strict=True):
         return jtu.tree_unflatten(treedef, leaves)
 
     def out_structure(self):
-        return eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
+        return strip_weak_dtype(
+            eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
+        )
 
 
 # `structure` must be static as with `JacobianLinearOperator`
@@ -703,7 +711,10 @@ class IdentityLinearOperator(AbstractLinearOperator, strict=True):
         self.output_structure = jtu.tree_flatten(output_structure)
 
     def mv(self, vector):
-        if jax.eval_shape(lambda: vector) != self.in_structure():
+        if not eqx.tree_equal(
+            strip_weak_dtype(jax.eval_shape(lambda: vector)),
+            strip_weak_dtype(self.in_structure()),
+        ):
             raise ValueError("Vector and operator structures do not match")
         elif self.input_structure == self.output_structure:
             return vector  # fast-path for common special case
@@ -1311,7 +1322,9 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    flat, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    flat, unravel = strip_weak_dtype(
+        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    )
     eye = jnp.eye(flat.size, dtype=flat.dtype)
     jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
 

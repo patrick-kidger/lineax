@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 else:
     from equinox.internal import AbstractClassVar
 
-from .._misc import resolve_rcond, tree_where
+from .._misc import resolve_rcond, structure_equal, tree_where
 from .._norm import max_norm, tree_dot
 from .._operator import (
     AbstractLinearOperator,
@@ -77,7 +77,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
         del options
         is_nsd = is_negative_semidefinite(operator)
         if not self._normal:
-            if operator.in_structure() != operator.out_structure():
+            if not structure_equal(operator.in_structure(), operator.out_structure()):
                 raise ValueError(
                     "`CG()` may only be used for linear solves with " "square matrices."
                 )

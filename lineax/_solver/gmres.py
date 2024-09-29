@@ -25,6 +25,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, Inexact, PyTree
 
+from .._misc import structure_equal
 from .._norm import max_norm, two_norm
 from .._operator import (
     AbstractLinearOperator,
@@ -78,7 +79,8 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
                 )
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
-        if operator.in_structure() != operator.out_structure():
+        del options
+        if not structure_equal(operator.in_structure(), operator.out_structure()):
             raise ValueError(
                 "`GMRES(..., normal=False)` may only be used for linear solves with "
                 "square matrices."
