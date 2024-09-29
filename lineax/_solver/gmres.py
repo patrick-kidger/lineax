@@ -296,7 +296,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             )
             beta_vec = jnp.concatenate(
                 (
-                    r_norm[None].astype(coeff_mat),
+                    r_norm[None].astype(jnp.result_type(coeff_mat)),
                     jnp.zeros_like(coeff_mat, shape=(restart,)),
                 )
             )
@@ -375,7 +375,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             basis_step_normalised,
             basis,
         )
-        proj_new = proj.at[step + 1].set(step_norm_new.astype(proj))
+        proj_new = proj.at[step + 1].set(step_norm_new.astype(jnp.result_type(proj)))
         #
         # NOTE: two somewhat complicated things are going on here:
         #
