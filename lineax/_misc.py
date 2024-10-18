@@ -31,7 +31,11 @@ def tree_where(
 
 def resolve_rcond(rcond, n, m, dtype):
     if rcond is None:
-        return jnp.finfo(dtype).eps * max(n, m)
+        # This `2 *` is a heuristic: I have seen very rare failures without it, in ways
+        # that seem to depend on JAX compilation state. (E.g. running unrelated JAX
+        # computations beforehand, in a completely different JIT-compiled region, can
+        # result in differences in the success/failure of the solve.)
+        return 2 * jnp.finfo(dtype).eps * max(n, m)
     else:
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
 
