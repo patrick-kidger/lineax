@@ -27,12 +27,16 @@ from .helpers import (
     has_tag,
     make_jac_operator,
     make_matrix_operator,
+    make_real_function_operator,
     solvers_tags_pseudoinverse,
     tree_allclose,
 )
 
 
-@pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
+@pytest.mark.parametrize(
+    "make_operator",
+    (make_matrix_operator, make_jac_operator, make_real_function_operator),
+)
 @pytest.mark.parametrize("solver, tags, pseudoinverse", solvers_tags_pseudoinverse)
 @pytest.mark.parametrize("use_state", (True, False))
 @pytest.mark.parametrize(

@@ -1325,6 +1325,11 @@ def _(operator):
     flat, unravel = strip_weak_dtype(
         eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
     )
+    if jnp.result_type(operator.out_structure()) != jnp.result_type(
+        operator.in_structure()
+    ):
+        # We'll use R^2->R representation for C->R function.
+        pass
     eye = jnp.eye(flat.size, dtype=flat.dtype)
     jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
 
