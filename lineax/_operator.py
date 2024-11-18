@@ -28,7 +28,6 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jax import ShapeDtypeStruct
 from jaxtyping import (
     Array,
     ArrayLike,
@@ -40,11 +39,12 @@ from jaxtyping import (
 
 from ._custom_types import sentinel
 from ._misc import (
-    complex_to_real_dtype,
+    complex_to_real_structure,
     default_floating_dtype,
     inexact_asarray,
     jacobian,
     NoneAux,
+    real_to_complex_tree,
     strip_weak_dtype,
 )
 from ._tags import (
@@ -1334,24 +1334,12 @@ def _(operator):
     )
     if complex_input and real_output:
         # We'll use R^2->R representation for C->R function.
-        in_structure = jtu.tree_map(
-            lambda x: ShapeDtypeStruct(
-                tuple(x.shape) + (2,), complex_to_real_dtype(x.dtype)
-            )
-            if jnp.isdtype(x.dtype, "complex floating")
-            else x,
+        in_structure = complex_to_real_structure(operator.in_structure())
+
+        map_to_original = lambda x: real_to_complex_tree(
+            x,
             operator.in_structure(),
         )
-
-        def map_to_original(x):
-            with jax.numpy_dtype_promotion("standard"):
-                return jtu.tree_map(
-                    lambda x, struct: x[..., 0] + 1.0j * x[..., 1]
-                    if jnp.isdtype(struct.dtype, "complex floating")
-                    else x,
-                    x,
-                    operator.in_structure(),
-                )
     else:
         map_to_original = lambda x: x
         in_structure = operator.in_structure()

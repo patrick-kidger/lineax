@@ -22,7 +22,12 @@ import jax.tree_util as jtu
 import numpy as np
 from jaxtyping import Array, PyTree, Shaped
 
-from .._misc import strip_weak_dtype, structure_equal
+from .._misc import (
+    complex_to_real_structure,
+    real_to_complex_tree,
+    strip_weak_dtype,
+    structure_equal,
+)
 from .._operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
@@ -96,14 +101,14 @@ def unravel_solution(
 ) -> PyTree[Array]:
     leaves, treedef = packed_structures.value
     _, in_structure = jtu.tree_unflatten(treedef, leaves)
-    leaves, treedef = jtu.tree_flatten(in_structure)
+    leaves, treedef = jtu.tree_flatten(complex_to_real_structure(in_structure))
     sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
     split = jnp.split(solution, sizes)
     assert len(split) == len(leaves)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # ignore complex-to-real cast warning
         shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
-    return jtu.tree_unflatten(treedef, shaped)
+    return real_to_complex_tree(jtu.tree_unflatten(treedef, shaped), in_structure)
 
 
 def transpose_packed_structures(
