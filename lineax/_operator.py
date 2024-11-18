@@ -28,6 +28,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
+from jax import ShapeDtypeStruct
 from jaxtyping import (
     Array,
     ArrayLike,
@@ -39,6 +40,7 @@ from jaxtyping import (
 
 from ._custom_types import sentinel
 from ._misc import (
+    complex_to_real_dtype,
     default_floating_dtype,
     inexact_asarray,
     jacobian,
@@ -1322,16 +1324,44 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    flat, unravel = strip_weak_dtype(
-        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    complex_input = jnp.isdtype(
+        jnp.result_type(*(jax.tree.flatten(operator.in_structure())[0])),
+        "complex floating",
     )
-    if jnp.result_type(operator.out_structure()) != jnp.result_type(
-        operator.in_structure()
-    ):
+    real_output = not jnp.isdtype(
+        jnp.result_type(*(jax.tree.flatten(operator.out_structure())[0])),
+        "complex floating",
+    )
+    if complex_input and real_output:
         # We'll use R^2->R representation for C->R function.
-        pass
+        in_structure = jtu.tree_map(
+            lambda x: ShapeDtypeStruct(
+                tuple(x.shape) + (2,), complex_to_real_dtype(x.dtype)
+            )
+            if jnp.isdtype(x.dtype, "complex floating")
+            else x,
+            operator.in_structure(),
+        )
+
+        def map_to_original(x):
+            with jax.numpy_dtype_promotion("standard"):
+                return jtu.tree_map(
+                    lambda x, struct: x[..., 0] + 1.0j * x[..., 1]
+                    if jnp.isdtype(struct.dtype, "complex floating")
+                    else x,
+                    x,
+                    operator.in_structure(),
+                )
+    else:
+        map_to_original = lambda x: x
+        in_structure = operator.in_structure()
+    flat, unravel = strip_weak_dtype(
+        eqx.filter_eval_shape(jfu.ravel_pytree, in_structure)
+    )
+    fn = lambda x: operator.fn(map_to_original(unravel(x)))
     eye = jnp.eye(flat.size, dtype=flat.dtype)
-    jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
+
+    jac = jax.vmap(fn, out_axes=-1)(eye)
 
     def batch_unravel(x):
         assert x.ndim > 0
