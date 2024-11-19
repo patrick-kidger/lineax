@@ -114,10 +114,11 @@ def structure_equal(x, y) -> bool:
 
 
 def is_complex_structure(structure):
-    return jnp.isdtype(
-        jnp.result_type(*(jax.tree.flatten(structure)[0])),
-        "complex floating",
-    )
+    with jax.numpy_dtype_promotion("standard"):
+        return jnp.isdtype(
+            jnp.result_type(*(jax.tree.flatten(structure)[0])),
+            "complex floating",
+        )
 
 
 def complex_to_real_structure(in_structure):
