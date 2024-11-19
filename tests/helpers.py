@@ -181,14 +181,6 @@ def make_function_operator(getkey, matrix, tags):
 
 
 @_operators_append
-def make_real_function_operator(getkey, matrix, tags):
-    fn = lambda x: (matrix @ x).real
-    _, in_size = matrix.shape
-    in_struct = jax.ShapeDtypeStruct((in_size,), matrix.dtype)
-    return lx.FunctionLinearOperator(fn, in_struct, tags)
-
-
-@_operators_append
 def make_jac_operator(getkey, matrix, tags):
     out_size, in_size = matrix.shape
     x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
@@ -260,6 +252,13 @@ def make_composed_operator(getkey, matrix, tags):
     operator1 = make_trivial_pytree_operator(getkey, matrix / diag[None], ())
     operator2 = lx.DiagonalLinearOperator(diag)
     return lx.TaggedLinearOperator(operator1 @ operator2, tags)
+
+
+def make_real_function_operator(getkey, matrix, tags):
+    fn = lambda x: (matrix @ x).real
+    _, in_size = matrix.shape
+    in_struct = jax.ShapeDtypeStruct((in_size,), matrix.dtype)
+    return lx.FunctionLinearOperator(fn, in_struct, tags)
 
 
 # Slightly sketchy approach to finite differences, in that this is pulled out of
