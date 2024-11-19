@@ -42,6 +42,7 @@ from ._misc import (
     complex_to_real_structure,
     default_floating_dtype,
     inexact_asarray,
+    is_complex_structure,
     jacobian,
     NoneAux,
     real_to_complex_tree,
@@ -1324,15 +1325,9 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    complex_input = jnp.isdtype(
-        jnp.result_type(*(jax.tree.flatten(operator.in_structure())[0])),
-        "complex floating",
-    )
-    real_output = not jnp.isdtype(
-        jnp.result_type(*(jax.tree.flatten(operator.out_structure())[0])),
-        "complex floating",
-    )
-    if complex_input and real_output:
+    if is_complex_structure(operator.in_structure()) and not is_complex_structure(
+        operator.out_structure()
+    ):
         # We'll use R^2->R representation for C->R function.
         in_structure = complex_to_real_structure(operator.in_structure())
 

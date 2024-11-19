@@ -113,6 +113,13 @@ def structure_equal(x, y) -> bool:
     return eqx.tree_equal(x, y) is True
 
 
+def is_complex_structure(structure):
+    return jnp.isdtype(
+        jnp.result_type(*(jax.tree.flatten(structure)[0])),
+        "complex floating",
+    )
+
+
 def complex_to_real_structure(in_structure):
     return jtu.tree_map(
         lambda x: ShapeDtypeStruct(
@@ -122,6 +129,17 @@ def complex_to_real_structure(in_structure):
         else x,
         in_structure,
     )
+
+
+def complex_to_real_tree(x, in_structure):
+    with jax.numpy_dtype_promotion("standard"):
+        return jtu.tree_map(
+            lambda x, struct: jnp.stack([x.real, x.imag], axis=-1)
+            if jnp.isdtype(struct.dtype, "complex floating")
+            else x,
+            x,
+            in_structure,
+        )
 
 
 def real_to_complex_tree(x, in_structure):
