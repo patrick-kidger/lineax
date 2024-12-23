@@ -16,7 +16,6 @@ from collections.abc import Callable
 
 import equinox as eqx
 import jax
-import jax.core
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, ArrayLike, Bool, PyTree  # pyright:ignore
