@@ -132,18 +132,13 @@ def params(only_pseudo):
         for solver, tags, pseudoinverse in solvers_tags_pseudoinverse:
             if only_pseudo and not pseudoinverse:
                 continue
-            if make_operator is make_diagonal_operator and tags != lx.diagonal_tag:
+            if make_operator is make_trivial_diagonal_operator and tags != lx.diagonal_tag:
                 continue
             if make_operator is make_identity_operator and tags != lx.unit_diagonal_tag:
                 continue
             if (
                 make_operator is make_tridiagonal_operator
                 and tags != lx.tridiagonal_tag
-            ):
-                continue
-            if (
-                make_operator is make_trivial_pytree_diagonal_operator
-                and tags != lx.diagonal_tag
             ):
                 continue
             yield make_operator, solver, tags
@@ -200,17 +195,10 @@ def make_jac_operator(getkey, matrix, tags):
 
 
 @_operators_append
-def make_diagonal_operator(getkey, matrix, tags):
+def make_trivial_diagonal_operator(getkey, matrix, tags):
     assert tags == lx.diagonal_tag
     diag = jnp.diag(matrix)
     return lx.DiagonalLinearOperator(diag)
-
-
-@_operators_append
-def make_trivial_pytree_diagonal_operator(getkey, matrix, tags):
-    assert tags == lx.diagonal_tag
-    diag = jnp.diag(matrix)
-    return lx.PyTreeDiagonalLinearOperator(diag)
 
 
 @_operators_append

@@ -22,11 +22,10 @@ import lineax as lx
 import pytest
 
 from .helpers import (
-    make_diagonal_operator,
     make_identity_operator,
     make_operators,
     make_tridiagonal_operator,
-    make_trivial_pytree_diagonal_operator,
+    make_trivial_diagonal_operator,
     tree_allclose,
 )
 
@@ -35,9 +34,8 @@ from .helpers import (
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_ops(make_operator, getkey, dtype):
     if (
-        make_operator is make_diagonal_operator
+        make_operator is make_trivial_diagonal_operator
         or make_operator is make_identity_operator
-        or make_operator is make_trivial_pytree_diagonal_operator
     ):
         matrix = jnp.eye(3, dtype=dtype)
         tags = lx.diagonal_tag
@@ -84,9 +82,8 @@ def test_ops(make_operator, getkey, dtype):
 @pytest.mark.parametrize("make_operator", make_operators)
 def test_structures_vector(make_operator, getkey):
     if (
-        make_operator is make_diagonal_operator
+        make_operator is make_trivial_diagonal_operator
         or make_operator is make_identity_operator
-        or make_operator is make_trivial_pytree_diagonal_operator
     ):
         matrix = jnp.eye(4)
         tags = lx.diagonal_tag
@@ -109,7 +106,7 @@ def test_structures_vector(make_operator, getkey):
 
 def _setup(getkey, matrix, tag: Union[object, frozenset[object]] = frozenset()):
     for make_operator in make_operators:
-        if make_operator is make_diagonal_operator and tag != lx.diagonal_tag:
+        if make_operator is make_trivial_diagonal_operator and tag != lx.diagonal_tag:
             continue
         if make_operator is make_tridiagonal_operator and tag not in (
             lx.tridiagonal_tag,
@@ -122,8 +119,6 @@ def _setup(getkey, matrix, tag: Union[object, frozenset[object]] = frozenset()):
             lx.diagonal_tag,
             lx.symmetric_tag,
         ):
-            continue
-        if make_operator is make_trivial_pytree_diagonal_operator and tag != lx.diagonal_tag:
             continue
         operator = make_operator(getkey, matrix, tag)
         yield operator
