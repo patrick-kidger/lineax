@@ -40,6 +40,7 @@ from ._operator import (
     MatrixLinearOperator as MatrixLinearOperator,
     MulLinearOperator as MulLinearOperator,
     NegLinearOperator as NegLinearOperator,
+    PyTreeDiagonalLinearOperator as PyTreeDiagonalLinearOperator,
     PyTreeLinearOperator as PyTreeLinearOperator,
     TaggedLinearOperator as TaggedLinearOperator,
     TangentLinearOperator as TangentLinearOperator,

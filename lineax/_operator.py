@@ -474,6 +474,47 @@ class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
         return jtu.tree_unflatten(treedef, leaves)
 
 
+class PyTreeDiagonalLinearOperator(AbstractLinearOperator, strict=True):
+    """As [lineax.DiagonalLinearOperator][], but with a single PyTree defining the
+    diagonal. It returns a pytree of the same shape as the input pytree.
+    """
+
+    pytree: PyTree[Inexact[Array, "..."]]
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
+    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
+    tags: frozenset[object] = eqx.field(static=True)
+
+    def __init__(
+        self,
+        pytree: PyTree[ArrayLike],
+        tags: Union[object, frozenset[object]] = (),
+    ):
+        self.pytree = jtu.tree_map(inexact_asarray, pytree)
+        structure = jax.eval_shape(lambda: pytree)
+        self.input_structure = jtu.tree_flatten(structure)
+        self.output_structure = jtu.tree_flatten(structure)
+        self.tags = _frozenset(tags)
+
+    def mv(self, vector):
+        return jtu.tree_map(lambda x, y: x * y, self.pytree, vector)
+
+    def as_matrix(self):
+        leaves = jtu.tree_leaves(self.pytree)
+        array = jnp.concatenate([jnp.asarray(leaf).ravel() for leaf in leaves])
+        return jnp.diag(array)
+
+    def transpose(self):
+        return self
+
+    def in_structure(self):
+        leaves, treedef = self.input_structure
+        return jtu.tree_unflatten(treedef, leaves)
+
+    def out_structure(self):
+        leaves, treedef = self.output_structure
+        return jtu.tree_unflatten(treedef, leaves)
+
+
 class _NoAuxIn(eqx.Module):
     fn: Callable
     args: Any
@@ -1491,6 +1532,7 @@ def _(operator):
     return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
 
 
+@is_symmetric.register(PyTreeDiagonalLinearOperator)
 @is_symmetric.register(DiagonalLinearOperator)
 def _(operator):
     return True
