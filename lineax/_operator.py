@@ -476,24 +476,22 @@ class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
 
 class PyTreeDiagonalLinearOperator(AbstractLinearOperator, strict=True):
     """As [lineax.DiagonalLinearOperator][], but with a single PyTree defining the
-    diagonal. It returns a pytree of the same shape as the input pytree.
+    diagonal. It returns a PyTree of the same shape as the input PyTree.
     """
 
     pytree: PyTree[Inexact[Array, "..."]]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
     output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    tags: frozenset[object] = eqx.field(static=True)
 
-    def __init__(
-        self,
-        pytree: PyTree[ArrayLike],
-        tags: Union[object, frozenset[object]] = (),
-    ):
+    def __init__(self, pytree: PyTree[ArrayLike]):
+        """**Arguments:**
+
+        - `pytree`: a PyTree.
+        """
         self.pytree = jtu.tree_map(inexact_asarray, pytree)
         structure = jax.eval_shape(lambda: pytree)
         self.input_structure = jtu.tree_flatten(structure)
         self.output_structure = jtu.tree_flatten(structure)
-        self.tags = _frozenset(tags)
 
     def mv(self, vector):
         return jtu.tree_map(lambda x, y: x * y, self.pytree, vector)
@@ -1266,6 +1264,7 @@ def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @linearise.register(IdentityLinearOperator)
 @linearise.register(DiagonalLinearOperator)
 @linearise.register(TridiagonalLinearOperator)
+@linearise.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     return operator
 
@@ -1342,6 +1341,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @materialise.register(IdentityLinearOperator)
 @materialise.register(DiagonalLinearOperator)
 @materialise.register(TridiagonalLinearOperator)
+@materialise.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     return operator
 
@@ -1407,6 +1407,7 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 @diagonal.register(PyTreeLinearOperator)
 @diagonal.register(JacobianLinearOperator)
 @diagonal.register(FunctionLinearOperator)
+@diagonal.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     return jnp.diag(operator.as_matrix())
 
@@ -1467,6 +1468,14 @@ def _(operator):
     diagonal = jnp.diagonal(matrix, offset=0)
     upper_diagonal = jnp.diagonal(matrix, offset=1)
     lower_diagonal = jnp.diagonal(matrix, offset=-1)
+    return diagonal, lower_diagonal, upper_diagonal
+
+
+@tridiagonal.register(PyTreeDiagonalLinearOperator)
+def _(operator):
+    diagonal = jnp.diag(operator.as_matrix())
+    upper_diagonal = jnp.zeros(diagonal.size - 1)
+    lower_diagonal = jnp.zeros(diagonal.size - 1)
     return diagonal, lower_diagonal, upper_diagonal
 
 

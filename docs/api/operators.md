@@ -49,6 +49,13 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
 
 ---
 
+::: lineax.PyTreeDiagonalLinearOperator
+    selection: 
+        members: 
+            - __init__
+
+---
+
 ::: lineax.JacobianLinearOperator
     selection:
         members:
