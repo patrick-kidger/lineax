@@ -811,42 +811,6 @@ class IdentityLinearOperator(AbstractLinearOperator, strict=True):
         return frozenset()
 
 
-# class DiagonalLinearOperator(AbstractLinearOperator, strict=True):
-#     """As [`lineax.MatrixLinearOperator`][], but for specifically a diagonal matrix.
-
-#     Only the diagonal of the matrix is stored (for memory efficiency). Matrix-vector
-#     products are computed by doing a pointwise `diagonal * vector`, rather than a full
-#     `matrix @ vector` (for speed).
-#     """
-
-#     diagonal: Inexact[Array, " size"]
-
-#     def __init__(self, diagonal: Shaped[Array, " size"]):
-#         """**Arguments:**
-
-#         - `diagonal`: A rank-one JAX array, i.e. of shape `(a,)` for some `a`. This is
-#             the diagonal of the matrix.
-#         """
-#         self.diagonal = inexact_asarray(diagonal)
-
-#     def mv(self, vector):
-#         return self.diagonal * vector
-
-#     def as_matrix(self):
-#         return jnp.diag(self.diagonal)
-
-#     def transpose(self):
-#         return self
-
-#     def in_structure(self):
-#         (size,) = jnp.shape(self.diagonal)
-#         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
-
-#     def out_structure(self):
-#         (size,) = jnp.shape(self.diagonal)
-#         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
-
-
 class TridiagonalLinearOperator(AbstractLinearOperator, strict=True):
     """As [`lineax.MatrixLinearOperator`][], but for specifically a tridiagonal
     matrix.
