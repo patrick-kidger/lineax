@@ -10,6 +10,7 @@ from .helpers import (
     make_identity_operator,
     make_operators,
     make_tridiagonal_operator,
+    make_trivial_pytree_diagonal_operator,
     tree_allclose,
 )
 
@@ -20,6 +21,7 @@ def test_adjoint(make_operator, dtype, getkey):
     if (
         make_operator is make_diagonal_operator
         or make_operator is make_identity_operator
+        or make_operator is make_trivial_pytree_diagonal_operator
     ):
         matrix = jnp.eye(4, dtype=dtype)
         tags = lx.diagonal_tag
