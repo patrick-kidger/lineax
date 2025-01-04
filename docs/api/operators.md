@@ -28,13 +28,6 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
 
 ---
 
-::: lineax.DiagonalLinearOperator
-    selection:
-        members:
-            - __init__
-
----
-
 ::: lineax.TridiagonalLinearOperator
     selection:
         members:
@@ -49,7 +42,7 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
 
 ---
 
-::: lineax.PyTreeDiagonalLinearOperator
+::: lineax.DiagonalLinearOperator
     selection: 
         members: 
             - __init__
