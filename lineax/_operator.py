@@ -1576,6 +1576,7 @@ def _(operator):
 
 @is_diagonal.register(IdentityLinearOperator)
 @is_diagonal.register(DiagonalLinearOperator)
+@is_diagonal.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     return True
 
