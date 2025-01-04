@@ -476,10 +476,8 @@ class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
 
 class DiagonalLinearOperator(AbstractLinearOperator, strict=True):
     """A diagonal linear operator, with a single PyTree defining the diagonal. It 
-    returns a PyTree of the same shape as the input PyTree. If the diagonal is a 1D 
-    array, then the operator is equivalent to a matrix with that array on the diagonal.
-    When materialising the matrix, a 2D array is returned, where the diagonal is defined
-    by the flattened input PyTree.
+    returns a PyTree of the same shape as the input PyTree. Only the PyTree is stored 
+    for efficiency, and only element-wise operations are performed.
     """
 
     pytree: PyTree[Inexact[Array, "..."]]
