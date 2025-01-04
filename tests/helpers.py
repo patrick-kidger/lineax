@@ -202,6 +202,13 @@ def make_diagonal_operator(getkey, matrix, tags):
 
 
 @_operators_append
+def make_trivial_pytree_diagonal_operator(getkey, matrix, tags):
+    assert tags == lx.diagonal_tag
+    diag = jnp.diag(matrix)  
+    return lx.PyTreeDiagonalLinearOperator(diag)
+
+
+@_operators_append
 def make_identity_operator(getkey, matrix, tags):
     in_struct = jax.ShapeDtypeStruct((matrix.shape[-1],), matrix.dtype)
     return lx.IdentityLinearOperator(input_structure=in_struct)
