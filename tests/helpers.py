@@ -141,6 +141,11 @@ def params(only_pseudo):
                 and tags != lx.tridiagonal_tag
             ):
                 continue
+            if (
+                make_operator is make_trivial_pytree_diagonal_operator
+                and tags != lx.diagonal_tag
+            ):
+                continue
             yield make_operator, solver, tags
 
 
@@ -204,7 +209,7 @@ def make_diagonal_operator(getkey, matrix, tags):
 @_operators_append
 def make_trivial_pytree_diagonal_operator(getkey, matrix, tags):
     assert tags == lx.diagonal_tag
-    diag = jnp.diag(matrix)  
+    diag = jnp.diag(matrix)
     return lx.PyTreeDiagonalLinearOperator(diag)
 
 
