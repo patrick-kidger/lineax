@@ -488,8 +488,10 @@ class PyTreeDiagonalLinearOperator(AbstractLinearOperator, strict=True):
 
         - `pytree`: a PyTree.
         """
-        self.pytree = jtu.tree_map(inexact_asarray, pytree)
+        pytree = jtu.tree_map(inexact_asarray, pytree)
         structure = jax.eval_shape(lambda: pytree)
+        
+        self.pytree = pytree
         self.input_structure = jtu.tree_flatten(structure)
         self.output_structure = jtu.tree_flatten(structure)
 
