@@ -1658,6 +1658,7 @@ def _(operator):
 
 @has_unit_diagonal.register(DiagonalLinearOperator)
 @has_unit_diagonal.register(TridiagonalLinearOperator)
+@has_unit_diagonal.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     # TODO: refine this
     return False
@@ -1694,6 +1695,7 @@ def _(operator):
 
 @is_lower_triangular.register(IdentityLinearOperator)
 @is_lower_triangular.register(DiagonalLinearOperator)
+@is_lower_triangular.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     return True
 
@@ -1734,6 +1736,7 @@ def _(operator):
 
 @is_upper_triangular.register(IdentityLinearOperator)
 @is_upper_triangular.register(DiagonalLinearOperator)
+@is_upper_triangular.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     return True
 
