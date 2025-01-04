@@ -2112,7 +2112,7 @@ def _(operator):
 @conj.register(PyTreeDiagonalLinearOperator)
 def _(operator):
     pytree_conj = jtu.tree_map(lambda x: x.conj(), operator.pytree)
-    return PyTreeDiagonalLinearOperator(pytree_conj, operator.tags)
+    return PyTreeDiagonalLinearOperator(pytree_conj)
 
 
 @conj.register(JacobianLinearOperator)
