@@ -1375,9 +1375,18 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 @diagonal.register(PyTreeLinearOperator)
 @diagonal.register(JacobianLinearOperator)
 @diagonal.register(FunctionLinearOperator)
-@diagonal.register(DiagonalLinearOperator)
 def _(operator):
     return jnp.diag(operator.as_matrix())
+
+
+@diagonal.register(DiagonalLinearOperator)
+def _(operator):
+    trivial_structure = jtu.tree_structure(jnp.ones(1,))  # diagonal is 1D array
+    is_trivial = jtu.tree_structure(operator.diagonal) == trivial_structure
+    if is_trivial:  # Avoid materialising the whole matrix in this case
+        return operator.diagonal
+    else:
+        return jnp.diag(operator.as_matrix())
 
 
 @diagonal.register(IdentityLinearOperator)
@@ -1385,7 +1394,6 @@ def _(operator):
     return jnp.ones(operator.in_size())
 
 
-# @diagonal.register(DiagonalLinearOperator)
 @diagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return operator.diagonal
