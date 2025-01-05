@@ -29,8 +29,8 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
 ---
 
 ::: lineax.DiagonalLinearOperator
-    selection:
-        members:
+    selection: 
+        members: 
             - __init__
 
 ---

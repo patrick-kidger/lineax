@@ -48,6 +48,19 @@ def test_nontrivial_pytree_operator():
     assert tree_allclose(out, true_out)
 
 
+def test_nontrivial_diagonal_operator():
+    x = (8.0, jnp.array([1, 2, 3]), {"a": jnp.array([4, 5]), "b": 6})
+    y = (4.0, jnp.array([7, 8, 9]), {"a": jnp.array([2, 10]), "b": 12})
+    operator = lx.DiagonalLinearOperator(x)
+    out = lx.linear_solve(operator, y).value
+    true_out = (
+        jnp.array(0.5),
+        jnp.array([7.0, 4.0, 3.0]),
+        {"a": jnp.array([0.5, 2.0]), "b": jnp.array(2.0)},
+    )
+    assert tree_allclose(out, true_out)
+
+
 @pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
 def test_mixed_dtypes(solver):
     f32 = lambda x: jnp.array(x, dtype=jnp.float32)
