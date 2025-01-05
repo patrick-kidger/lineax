@@ -485,38 +485,28 @@ class DiagonalLinearOperator(AbstractLinearOperator, strict=True):
     """
 
     diagonal: PyTree[Inexact[Array, "..."]]
-    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
 
     def __init__(self, diagonal: PyTree[ArrayLike]):
         """**Arguments:**
 
         - `diagonal`: an array or PyTree defining the diagonal of the matrix.
         """
-        diagonal = jtu.tree_map(inexact_asarray, diagonal)
-        structure = jax.eval_shape(lambda: diagonal)
-
-        self.diagonal = diagonal
-        self.input_structure = jtu.tree_flatten(structure)
-        self.output_structure = jtu.tree_flatten(structure)
+        self.diagonal = jtu.tree_map(inexact_asarray, diagonal)
 
     def mv(self, vector):
         return (ω(self.diagonal) * ω(vector)).ω
 
     def as_matrix(self):
-        array, _ = jfu.ravel_pytree(self.diagonal)
-        return jnp.diag(array)
+        return jnp.diag(diagonal(self))
 
     def transpose(self):
         return self
 
     def in_structure(self):
-        leaves, treedef = self.input_structure
-        return jtu.tree_unflatten(treedef, leaves)
+        return jax.eval_shape(lambda: self.diagonal)
 
     def out_structure(self):
-        leaves, treedef = self.output_structure
-        return jtu.tree_unflatten(treedef, leaves)
+        return jax.eval_shape(lambda: self.diagonal)
 
 
 class _NoAuxIn(eqx.Module):
@@ -1381,12 +1371,8 @@ def _(operator):
 
 @diagonal.register(DiagonalLinearOperator)
 def _(operator):
-    trivial_structure = jtu.tree_structure(jnp.ones(1,))  # diagonal is 1D array
-    is_trivial = jtu.tree_structure(operator.diagonal) == trivial_structure
-    if is_trivial:  # Avoid materialising the whole matrix in this case
-        return operator.diagonal
-    else:
-        return jnp.diag(operator.as_matrix())
+    diagonal, _ = jfu.ravel_pytree(operator.diagonal)
+    return diagonal
 
 
 @diagonal.register(IdentityLinearOperator)
@@ -1449,10 +1435,10 @@ def _(operator):
 
 @tridiagonal.register(DiagonalLinearOperator)
 def _(operator):
-    diagonal = jnp.diag(operator.as_matrix())
-    upper_diagonal = jnp.zeros(diagonal.size - 1)
-    lower_diagonal = jnp.zeros(diagonal.size - 1)
-    return diagonal, lower_diagonal, upper_diagonal
+    diag = diagonal(operator) 
+    upper_diag = jnp.zeros(diag.size - 1)
+    lower_diag = jnp.zeros(diag.size - 1)
+    return diag, lower_diag, upper_diag
 
 
 @tridiagonal.register(IdentityLinearOperator)
