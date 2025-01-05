@@ -132,7 +132,10 @@ def params(only_pseudo):
         for solver, tags, pseudoinverse in solvers_tags_pseudoinverse:
             if only_pseudo and not pseudoinverse:
                 continue
-            if make_operator is make_trivial_diagonal_operator and tags != lx.diagonal_tag:
+            if (
+                make_operator is make_trivial_diagonal_operator
+                and tags != lx.diagonal_tag
+            ):
                 continue
             if make_operator is make_identity_operator and tags != lx.unit_diagonal_tag:
                 continue

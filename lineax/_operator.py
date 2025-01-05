@@ -480,7 +480,7 @@ class DiagonalLinearOperator(AbstractLinearOperator, strict=True):
     pointwise diagonal * vector, rather than a full matrix @ vector (for speed).
 
     The diagonal may also be a PyTree, rather than a 1D array. When materialising the
-    matrix, the diagonal is taken to be defined by the flattened PyTree (i.e. values 
+    matrix, the diagonal is taken to be defined by the flattened PyTree (i.e. values
     show up in the same order.)
     """
 
@@ -1435,7 +1435,7 @@ def _(operator):
 
 @tridiagonal.register(DiagonalLinearOperator)
 def _(operator):
-    diag = diagonal(operator) 
+    diag = diagonal(operator)
     upper_diag = jnp.zeros(diag.size - 1)
     lower_diag = jnp.zeros(diag.size - 1)
     return diag, lower_diag, upper_diag
