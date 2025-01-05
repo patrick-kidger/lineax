@@ -475,36 +475,36 @@ class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
 
 
 class DiagonalLinearOperator(AbstractLinearOperator, strict=True):
-    """A diagonal linear operator, with a single PyTree defining the diagonal. It 
-    returns a PyTree of the same shape as the input PyTree. Only the PyTree is stored 
-    for efficiency, and only element-wise operations are performed.
+    """A diagonal linear operator, e.g. for a diagonal matrix. Only the diagonal is
+    stored (for memory efficiency). Matrix-vector products are computed by doing a
+    pointwise diagonal * vector, rather than a full matrix @ vector (for speed).
 
-    This operator generalises a diagonal linear operator (the PyTree may be a 1D array), 
-    similar to how [lineax.PyTreeLinearOperator][] generalises a matrix linear operator.
+    The diagonal may also be a PyTree, rather than a 1D array. When materialising the
+    matrix, the diagonal is taken to be defined by the flattened PyTree (i.e. values 
+    show up in the same order.)
     """
 
-    pytree: PyTree[Inexact[Array, "..."]]
+    diagonal: PyTree[Inexact[Array, "..."]]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
     output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
 
-    def __init__(self, pytree: PyTree[ArrayLike]):
+    def __init__(self, diagonal: PyTree[ArrayLike]):
         """**Arguments:**
 
-        - `pytree`: a PyTree.
+        - `diagonal`: an array or PyTree defining the diagonal of the matrix.
         """
-        pytree = jtu.tree_map(inexact_asarray, pytree)
-        structure = jax.eval_shape(lambda: pytree)
-        
-        self.pytree = pytree
+        diagonal = jtu.tree_map(inexact_asarray, diagonal)
+        structure = jax.eval_shape(lambda: diagonal)
+
+        self.diagonal = diagonal
         self.input_structure = jtu.tree_flatten(structure)
         self.output_structure = jtu.tree_flatten(structure)
 
     def mv(self, vector):
-        return jtu.tree_map(lambda x, y: x * y, self.pytree, vector)
+        return (ω(self.diagonal) * ω(vector)).ω
 
     def as_matrix(self):
-        leaves = jtu.tree_leaves(self.pytree)
-        array = jnp.concatenate([jnp.asarray(leaf).ravel() for leaf in leaves])
+        array, _ = jfu.ravel_pytree(self.diagonal)
         return jnp.diag(array)
 
     def transpose(self):
@@ -1455,13 +1455,6 @@ def _(operator):
     return diagonal, off_diagonal, off_diagonal
 
 
-# @tridiagonal.register(DiagonalLinearOperator)
-# def _(operator):
-#     (size,) = operator.diagonal.shape
-#     off_diagonal = jnp.zeros(size - 1)
-#     return operator.diagonal, off_diagonal, off_diagonal
-
-
 @tridiagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return operator.diagonal, operator.lower_diagonal, operator.upper_diagonal
@@ -2072,8 +2065,8 @@ def _(operator):
 
 @conj.register(DiagonalLinearOperator)
 def _(operator):
-    pytree_conj = jtu.tree_map(lambda x: x.conj(), operator.pytree)
-    return DiagonalLinearOperator(pytree_conj)
+    diagonal_conj = jtu.tree_map(lambda x: x.conj(), operator.diagonal)
+    return DiagonalLinearOperator(diagonal_conj)
 
 
 @conj.register(JacobianLinearOperator)
@@ -2093,11 +2086,6 @@ def _(operator):
 @conj.register(IdentityLinearOperator)
 def _(operator):
     return operator
-
-
-# @conj.register(DiagonalLinearOperator)
-# def _(operator):
-#     return DiagonalLinearOperator(operator.diagonal.conj())
 
 
 @conj.register(TridiagonalLinearOperator)
