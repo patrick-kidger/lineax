@@ -81,6 +81,15 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
             return tuple(matrix[:, 1:] for matrix in matrices)
 
 
+def construct_poisson_matrix(size, dtype=jnp.float64):
+    matrix = (
+        -2 * jnp.diag(jnp.ones(size, dtype=dtype))
+        + jnp.diag(jnp.ones(size - 1, dtype=dtype), 1)
+        + jnp.diag(jnp.ones(size - 1, dtype=dtype), -1)
+    )
+    return matrix
+
+
 if jax.config.jax_enable_x64:  # pyright: ignore
     tol = 1e-12
 else:
