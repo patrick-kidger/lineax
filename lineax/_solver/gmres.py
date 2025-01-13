@@ -224,7 +224,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
         else:
             result = RESULTS.where(
                 (num_steps == self.max_steps),
-                RESULTS.max_steps_reached,
+                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
                 RESULTS.successful,
             )
         result = RESULTS.where(

@@ -224,7 +224,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
         else:
             result = RESULTS.where(
                 num_steps == max_steps,
-                RESULTS.max_steps_reached,
+                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
                 RESULTS.successful,
             )
 
