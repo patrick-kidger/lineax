@@ -168,6 +168,7 @@ def test_grad_vmap_symbolic_cotangent():
     ),
 )
 def test_iterative_solver_max_steps_only(solver):
+    """Iterative solvers should work with max_steps only (no Equinox errors)."""
     SIZE = 100
 
     poisson_matrix = construct_poisson_matrix(SIZE)
