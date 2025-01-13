@@ -18,7 +18,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from .helpers import tree_allclose
+from .helpers import construct_poisson_matrix, tree_allclose
 
 
 def test_gmres_large_dense(getkey):
@@ -156,3 +156,24 @@ def test_grad_vmap_symbolic_cotangent():
 
     x = (jnp.arange(3.0), jnp.arange(3.0))
     to_grad(x)
+
+
+@pytest.mark.parametrize(
+    "solver",
+    (
+        lx.CG(0.0, 0.0, max_steps=2),
+        lx.NormalCG(0.0, 0.0, max_steps=2),
+        lx.BiCGStab(0.0, 0.0, max_steps=2),
+        lx.GMRES(0.0, 0.0, max_steps=2),
+    ),
+)
+def test_iterative_solver_max_steps_only(solver):
+    NUM_POINTS = 100
+
+    poisson_matrix = construct_poisson_matrix(NUM_POINTS)
+    poisson_operator = lx.MatrixLinearOperator(
+        poisson_matrix, tags=(lx.negative_semidefinite_tag, lx.symmetric_tag)
+    )
+    rhs = jax.random.normal(jax.random.key(0), (NUM_POINTS,))
+
+    lx.linear_solve(poisson_operator, rhs, solver)
