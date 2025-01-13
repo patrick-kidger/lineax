@@ -168,12 +168,12 @@ def test_grad_vmap_symbolic_cotangent():
     ),
 )
 def test_iterative_solver_max_steps_only(solver):
-    NUM_POINTS = 100
+    SIZE = 100
 
-    poisson_matrix = construct_poisson_matrix(NUM_POINTS)
+    poisson_matrix = construct_poisson_matrix(SIZE)
     poisson_operator = lx.MatrixLinearOperator(
         poisson_matrix, tags=(lx.negative_semidefinite_tag, lx.symmetric_tag)
     )
-    rhs = jax.random.normal(jax.random.key(0), (NUM_POINTS,))
+    rhs = jax.random.normal(jax.random.key(0), (SIZE,))
 
     lx.linear_solve(poisson_operator, rhs, solver)
