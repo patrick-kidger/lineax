@@ -57,6 +57,7 @@ from ._solver import (
     CG as CG,
     Cholesky as Cholesky,
     Diagonal as Diagonal,
+    GaussSeidel as GaussSeidel,
     GMRES as GMRES,
     Jacobi as Jacobi,
     LU as LU,

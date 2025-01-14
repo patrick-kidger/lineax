@@ -16,6 +16,7 @@ from .bicgstab import BiCGStab as BiCGStab
 from .cg import CG as CG, NormalCG as NormalCG
 from .cholesky import Cholesky as Cholesky
 from .diagonal import Diagonal as Diagonal
+from .gauss_seidel import GaussSeidel as GaussSeidel
 from .gmres import GMRES as GMRES
 from .jacobi import Jacobi as Jacobi
 from .lu import LU as LU
