@@ -17,6 +17,7 @@ from .cg import CG as CG, NormalCG as NormalCG
 from .cholesky import Cholesky as Cholesky
 from .diagonal import Diagonal as Diagonal
 from .gmres import GMRES as GMRES
+from .jacobi import Jacobi as Jacobi
 from .lu import LU as LU
 from .qr import QR as QR
 from .svd import SVD as SVD
