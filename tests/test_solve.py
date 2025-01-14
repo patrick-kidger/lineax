@@ -17,6 +17,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
+from lineax._solution import RESULTS
 
 from .helpers import construct_poisson_matrix, tree_allclose
 
@@ -191,3 +192,18 @@ def test_iterative_solver_max_steps_only(solver):
     rhs = jax.random.normal(jax.random.key(0), (SIZE,))
 
     lx.linear_solve(poisson_operator, rhs, solver)
+
+
+def test_nonfinite_input():
+    operator = lx.DiagonalLinearOperator((1.0, 1.0))
+    vector = (1.0, jnp.inf)
+    sol = lx.linear_solve(operator, vector, throw=False)
+    assert sol.result == RESULTS.nonfinite_input
+
+    vector = (1.0, jnp.nan)
+    sol = lx.linear_solve(operator, vector, throw=False)
+    assert sol.result == RESULTS.nonfinite_input
+
+    vector = (jnp.nan, jnp.inf)
+    sol = lx.linear_solve(operator, vector, throw=False)
+    assert sol.result == RESULTS.nonfinite_input
