@@ -115,6 +115,7 @@ solvers_tags_pseudoinverse = [
     (lx.NormalCG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
+    (lx.Jacobi(rtol=tol, atol=tol), (), False),
 ]
 solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
 solvers = [a for a, _, _ in solvers_tags_pseudoinverse]
