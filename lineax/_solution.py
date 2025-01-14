@@ -40,6 +40,15 @@ If you *were* expecting this solver to work with this operator, then it may be b
 """.strip()
 
 
+_nonfinite_msg = """
+The linear solver received non-finite (NaN or inf) input and cannot determine a 
+solution. 
+
+This means that you have a bug upstream of lineax and should check the inputs to 
+`lineax.linear_solve` for non-finite values.
+""".strip()
+
+
 class RESULTS(eqxi.Enumeration):
     successful = ""
     max_steps_reached = (
@@ -55,6 +64,7 @@ class RESULTS(eqxi.Enumeration):
         "A stagnation in an iterative linear solve has occurred. Try increasing "
         "`stagnation_iters` or `restart`."
     )
+    nonfinite_input = _nonfinite_msg
 
 
 class Solution(eqx.Module, strict=True):

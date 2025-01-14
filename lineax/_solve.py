@@ -90,14 +90,24 @@ def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closur
             out, name="lineax.linear_solve with respect to a closed-over value"
         )
     solution, result, stats = out
-    has_nonfinites = jnp.any(
+    has_nonfinite_output = jnp.any(
         jnp.stack(
             [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(solution)]
         )
     )
     result = RESULTS.where(
-        (result == RESULTS.successful) & has_nonfinites,
+        (result == RESULTS.successful) & has_nonfinite_output,
         RESULTS.singular,
+        result,
+    )
+    has_nonfinite_input = jnp.any(
+        jnp.stack(
+            [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(vector)]
+        )
+    )
+    result = RESULTS.where(
+        (result == RESULTS.singular) & has_nonfinite_input,
+        RESULTS.nonfinite_input,
         result,
     )
     if throw:
