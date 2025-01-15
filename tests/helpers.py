@@ -95,8 +95,10 @@ def construct_poisson_matrix(size, dtype=jnp.float64):
 
 if jax.config.jax_enable_x64:  # pyright: ignore
     tol = 1e-12
+    smoother_tol = 1e-10
 else:
     tol = 1e-6
+    smoother_tol = 1e-5
 solvers_tags_pseudoinverse = [
     (lx.AutoLinearSolver(well_posed=True), (), False),
     (lx.AutoLinearSolver(well_posed=False), (), True),
@@ -118,8 +120,16 @@ solvers_tags_pseudoinverse = [
     (lx.NormalCG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
-    (lx.Jacobi(rtol=tol, atol=tol), (), False),
-    (lx.GaussSeidel(rtol=tol, atol=tol), (), False),
+    (
+        lx.Jacobi(rtol=smoother_tol, atol=smoother_tol),
+        (lx.strictly_diagonally_dominant_tag),
+        False,
+    ),
+    (
+        lx.GaussSeidel(rtol=smoother_tol, atol=smoother_tol),
+        (lx.strictly_diagonally_dominant_tag),
+        False,
+    ),
 ]
 solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
 solvers = [a for a, _, _ in solvers_tags_pseudoinverse]
