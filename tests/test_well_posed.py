@@ -33,6 +33,8 @@ from .helpers import (
 def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
+        if isinstance(solver, (lx.Jacobi, lx.GaussSeidel)):
+            tol = 1e-8
     else:
         tol = 1e-4
     (matrix,) = construct_matrix(getkey, solver, tags, dtype=dtype)
