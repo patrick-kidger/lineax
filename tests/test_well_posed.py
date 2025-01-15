@@ -55,7 +55,16 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
 def test_pytree_wellposed(solver, getkey, dtype):
     if not isinstance(
         solver,
-        (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG, lx.NormalCG),
+        (
+            lx.Diagonal,
+            lx.Triangular,
+            lx.Tridiagonal,
+            lx.Cholesky,
+            lx.CG,
+            lx.NormalCG,
+            lx.Jacobi,
+            lx.GaussSeidel,
+        ),
     ):
         if jax.config.jax_enable_x64:  # pyright: ignore
             tol = 1e-10
