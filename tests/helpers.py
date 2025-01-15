@@ -36,6 +36,9 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
             matrix = jnp.diag(jnp.diag(matrix))
         if has_tag(tags, lx.symmetric_tag):
             matrix = matrix + matrix.T
+        if has_tag(tags, lx.strictly_diagonally_dominant_tag):
+            row_sum = (jnp.sum(jnp.abs(matrix), axis=0) + 0.1).astype(dtype)
+            matrix += jnp.diag(row_sum)
         if has_tag(tags, lx.lower_triangular_tag):
             matrix = jnp.tril(matrix)
         if has_tag(tags, lx.upper_triangular_tag):
