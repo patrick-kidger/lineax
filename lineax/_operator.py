@@ -50,6 +50,7 @@ from ._tags import (
     lower_triangular_tag,
     negative_semidefinite_tag,
     positive_semidefinite_tag,
+    strictly_diagonally_dominant_tag,
     symmetric_tag,
     transpose_tags,
     tridiagonal_tag,
@@ -1780,6 +1781,42 @@ def _(operator):
 def _(operator):
     # TODO: refine this
     return False
+
+
+# is_strictly_diagonally_dominant
+
+
+@ft.singledispatch
+def is_strictly_diagonally_dominant(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as strictly diagonally dominant.
+
+    See [the documentation on linear operator tags](../api/tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
+    _default_not_implemented("is_strictly_diagonally_dominant", operator)
+
+
+@is_strictly_diagonally_dominant.register(MatrixLinearOperator)
+@is_strictly_diagonally_dominant.register(PyTreeLinearOperator)
+@is_strictly_diagonally_dominant.register(JacobianLinearOperator)
+@is_strictly_diagonally_dominant.register(FunctionLinearOperator)
+@is_strictly_diagonally_dominant.register(TridiagonalLinearOperator)
+def _(operator):
+    return strictly_diagonally_dominant_tag in operator.tags
+
+
+@is_strictly_diagonally_dominant.register(IdentityLinearOperator)
+@is_strictly_diagonally_dominant.register(DiagonalLinearOperator)
+def _(operator):
+    return True
 
 
 # ops for wrapper operators
