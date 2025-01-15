@@ -1961,6 +1961,7 @@ for check in (
     is_lower_triangular,
     is_upper_triangular,
     is_tridiagonal,
+    is_strictly_diagonally_dominant,
 ):
 
     @check.register(TangentLinearOperator)
@@ -2008,6 +2009,7 @@ for check, tag in (
     (is_positive_semidefinite, positive_semidefinite_tag),
     (is_negative_semidefinite, negative_semidefinite_tag),
     (is_tridiagonal, tridiagonal_tag),
+    (is_strictly_diagonally_dominant, strictly_diagonally_dominant_tag),
 ):
 
     @check.register(TaggedLinearOperator)
@@ -2023,6 +2025,7 @@ for check in (
     is_positive_semidefinite,
     is_negative_semidefinite,
     is_tridiagonal,
+    is_strictly_diagonally_dominant,
 ):
 
     @check.register(AddLinearOperator)
@@ -2043,6 +2046,7 @@ for check in (
     is_positive_semidefinite,
     is_negative_semidefinite,
     is_tridiagonal,
+    is_strictly_diagonally_dominant,
 ):
 
     @check.register(ComposedLinearOperator)
