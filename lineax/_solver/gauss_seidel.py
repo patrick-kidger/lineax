@@ -66,7 +66,9 @@ class GaussSeidel(AbstractLinearSolver[_GaussSeidelState], strict=False):
         leaves, _ = jtu.tree_flatten(vector)
         if self.max_steps is None:
             size = sum(leaf.size for leaf in leaves)
-            max_steps = 10 * size
+            # This differs from the Krylov solvers (CG, NormalCG, BiCGStab,
+            # GMRES) because Smoothers typically converge way slower
+            max_steps = 100 * size
         else:
             max_steps = self.max_steps
 
