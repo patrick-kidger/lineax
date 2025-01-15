@@ -49,10 +49,9 @@ class Jacobi(AbstractLinearSolver[_JacobiState], strict=False):
         del options
 
         packed_structures = pack_structures(operator)
-        # Needs to materialize the system matrix to extract the diagonal
+        # Needs to materialize the system matrix to decompose it
         system_matrix = operator.as_matrix()
         diagonal = jnp.diag(system_matrix)
-        # inverse_diagonal = 1.0 / diagonal
         strictly_lower = jnp.tril(system_matrix, k=-1)
         strictly_upper = jnp.triu(system_matrix, k=1)
         strictly_lower_upper = strictly_lower + strictly_upper
