@@ -72,6 +72,7 @@ from ._tags import (
     lower_triangular_tag as lower_triangular_tag,
     negative_semidefinite_tag as negative_semidefinite_tag,
     positive_semidefinite_tag as positive_semidefinite_tag,
+    strictly_diagonally_dominant_tag as strictly_diagonally_dominant_tag,
     symmetric_tag as symmetric_tag,
     transpose_tags as transpose_tags,
     transpose_tags_rules as transpose_tags_rules,
