@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
+from lineax._misc import complex_to_real_dtype
 
 from .helpers import (
     make_diagonal_operator,
@@ -316,6 +317,28 @@ def test_materialise_function_linear_operator(dtype, getkey):
         "a": (
             jax.ShapeDtypeStruct((1, 2, 5, 9), dtype),
             jax.ShapeDtypeStruct((1, 2, 3), dtype),
+        )
+    }
+    assert jax.eval_shape(lambda: materialised_operator.pytree) == expected_struct
+
+
+def test_materialise_function_real_linear_operator(getkey):
+    dtype = jnp.complex128
+    x = (
+        jr.normal(getkey(), (5, 9), dtype=dtype),
+        jr.normal(getkey(), (3,), dtype=dtype),
+    )
+    input_structure = jax.eval_shape(lambda: x)
+    fn = lambda x: {"a": jnp.broadcast_to(jnp.sum(x[0]).real, (1, 2))}
+    output_structure = jax.eval_shape(fn, input_structure)
+    operator = lx.FunctionLinearOperator(fn, input_structure)
+    materialised_operator = lx.materialise(operator)
+    assert materialised_operator.out_structure() == output_structure
+    assert isinstance(materialised_operator, lx.PyTreeLinearOperator)
+    expected_struct = {
+        "a": (
+            jax.ShapeDtypeStruct((1, 2, 5, 9, 2), complex_to_real_dtype(dtype)),
+            jax.ShapeDtypeStruct((1, 2, 3, 2), complex_to_real_dtype(dtype)),
         )
     }
     assert jax.eval_shape(lambda: materialised_operator.pytree) == expected_struct
