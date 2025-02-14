@@ -534,7 +534,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative definite, then use
+        - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
         - Else use [`lineax.LU`][].
 
@@ -553,7 +553,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative definite, then use
+        - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
         - Else, use [`lineax.LU`][].
 
