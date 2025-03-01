@@ -38,7 +38,13 @@ from jaxtyping import (
 )
 
 from ._custom_types import sentinel
-from ._misc import default_floating_dtype, inexact_asarray, jacobian, NoneAux
+from ._misc import (
+    default_floating_dtype,
+    inexact_asarray,
+    jacobian,
+    NoneAux,
+    strip_weak_dtype,
+)
 from ._tags import (
     diagonal_tag,
     lower_triangular_tag,
@@ -311,7 +317,7 @@ def _inexact_structure_impl(x):
 
 
 def _inexact_structure(x: PyTree[jax.ShapeDtypeStruct]) -> PyTree[jax.ShapeDtypeStruct]:
-    return jax.eval_shape(_inexact_structure_impl, x)
+    return strip_weak_dtype(jax.eval_shape(_inexact_structure_impl, x))
 
 
 class _Leaf:  # not a pytree
@@ -593,11 +599,11 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
         )
 
     def in_structure(self):
-        return jax.eval_shape(lambda: self.x)
+        return strip_weak_dtype(jax.eval_shape(lambda: self.x))
 
     def out_structure(self):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
-        return eqxi.cached_filter_eval_shape(fn, self.x)
+        return strip_weak_dtype(eqxi.cached_filter_eval_shape(fn, self.x))
 
 
 # `input_structure` must be static as with `JacobianLinearOperator`
@@ -667,7 +673,9 @@ class FunctionLinearOperator(AbstractLinearOperator, strict=True):
         return jtu.tree_unflatten(treedef, leaves)
 
     def out_structure(self):
-        return eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
+        return strip_weak_dtype(
+            eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
+        )
 
 
 # `structure` must be static as with `JacobianLinearOperator`
@@ -703,7 +711,10 @@ class IdentityLinearOperator(AbstractLinearOperator, strict=True):
         self.output_structure = jtu.tree_flatten(output_structure)
 
     def mv(self, vector):
-        if jax.eval_shape(lambda: vector) != self.in_structure():
+        if not eqx.tree_equal(
+            strip_weak_dtype(jax.eval_shape(lambda: vector)),
+            strip_weak_dtype(self.in_structure()),
+        ):
             raise ValueError("Vector and operator structures do not match")
         elif self.input_structure == self.output_structure:
             return vector  # fast-path for common special case
@@ -733,7 +744,14 @@ class IdentityLinearOperator(AbstractLinearOperator, strict=True):
             return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
-        return jnp.eye(self.out_size(), self.in_size())
+        leaves = jtu.tree_leaves(self.in_structure())
+        with jax.numpy_dtype_promotion("standard"):
+            dtype = (
+                default_floating_dtype()
+                if len(leaves) == 0
+                else jnp.result_type(*leaves)
+            )
+        return jnp.eye(self.out_size(), self.in_size(), dtype=dtype)
 
     def transpose(self):
         return IdentityLinearOperator(self.out_structure(), self.in_structure())
@@ -1304,7 +1322,9 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    flat, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    flat, unravel = strip_weak_dtype(
+        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    )
     eye = jnp.eye(flat.size, dtype=flat.dtype)
     jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
 
@@ -1507,7 +1527,9 @@ def is_diagonal(operator: AbstractLinearOperator) -> bool:
 @is_diagonal.register(JacobianLinearOperator)
 @is_diagonal.register(FunctionLinearOperator)
 def _(operator):
-    return diagonal_tag in operator.tags
+    return diagonal_tag in operator.tags or (
+        operator.in_size() == 1 and operator.out_size() == 1
+    )
 
 
 @is_diagonal.register(IdentityLinearOperator)
@@ -1518,7 +1540,7 @@ def _(operator):
 
 @is_diagonal.register(TridiagonalLinearOperator)
 def _(operator):
-    return False
+    return operator.in_size() == 1
 
 
 # is_tridiagonal

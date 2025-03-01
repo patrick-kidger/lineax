@@ -136,7 +136,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
         def body_fun(carry):
             y, r, alpha, omega, rho, p, v, diff, step = carry
 
-            rho_new = tree_dot(r, r0)
+            rho_new = tree_dot(r0, r)
             beta = (rho_new / rho) * (alpha / omega)
             p_new = (r**ω + beta * (p**ω - omega * v**ω)).ω
 
@@ -145,13 +145,13 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
             x = preconditioner.mv(p_new)
             v_new = operator.mv(x)
 
-            alpha_new = rho_new / tree_dot(v_new, r0)
+            alpha_new = rho_new / tree_dot(r0, v_new)
             s = (r**ω - alpha_new * v_new**ω).ω
 
             z = preconditioner.mv(s)
             t = operator.mv(z)
 
-            omega_new = tree_dot(t, s) / tree_dot(t, t)
+            omega_new = tree_dot(s, t) / tree_dot(t, t)
 
             diff = (alpha_new * x**ω + omega_new * z**ω).ω
             y_new = (y**ω + diff**ω).ω
@@ -193,7 +193,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
         else:
             result = RESULTS.where(
                 (num_steps == self.max_steps),
-                RESULTS.max_steps_reached,
+                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
                 RESULTS.successful,
             )
         # breakdown is only an issue if we did not converge

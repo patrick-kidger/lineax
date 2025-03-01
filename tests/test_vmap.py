@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -86,3 +87,44 @@ def test_vmap(
                 matrix, vec
             )
             assert tree_allclose(lx_result, jax_result)
+
+
+# https://github.com/patrick-kidger/lineax/issues/101
+def test_grad_vmap_basic(getkey):
+    A = jr.normal(getkey(), (16, 8))
+    B = jr.normal(getkey(), (128, 16))
+
+    @jax.jit
+    @jax.grad
+    def fn(A):
+        op = lx.MatrixLinearOperator(A)
+        return jax.vmap(
+            lambda b: lx.linear_solve(
+                op, b, lx.AutoLinearSolver(well_posed=False)
+            ).value
+        )(B).mean()
+
+    fn(A)
+
+
+def test_grad_vmap_advanced(getkey):
+    # this is a more complicated version of the above test, in which the batch axes and
+    # the undefinedprimals do not necessarily line up in the same arguments.
+    A = jr.normal(getkey(), (2, 8)), jr.normal(getkey(), (3, 8, 128))
+    B = jr.normal(getkey(), (2, 128)), jr.normal(getkey(), (3,))
+
+    output_structure = (
+        jax.ShapeDtypeStruct((2,), jnp.float64),
+        jax.ShapeDtypeStruct((3,), jnp.float64),
+    )
+
+    def to_vmap(A, B):
+        op = lx.PyTreeLinearOperator(A, output_structure)
+        return lx.linear_solve(op, B, lx.AutoLinearSolver(well_posed=False)).value
+
+    @jax.jit
+    @jax.grad
+    def fn(A):
+        return jax.vmap(to_vmap, in_axes=((None, 2), (1, None)))(A, B).mean()
+
+    fn(A)

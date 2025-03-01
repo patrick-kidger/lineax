@@ -26,10 +26,11 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
+from jax._src.ad_util import stop_gradient_p
 from jaxtyping import Array, ArrayLike, PyTree
 
 from ._custom_types import sentinel
-from ._misc import inexact_asarray
+from ._misc import inexact_asarray, strip_weak_dtype
 from ._operator import (
     AbstractLinearOperator,
     conj,
@@ -533,7 +534,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative definite, then use
+        - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
         - Else use [`lineax.LU`][].
 
@@ -552,7 +553,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative definite, then use
+        - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
         - Else, use [`lineax.LU`][].
 
@@ -777,8 +778,8 @@ def linear_solve(
     if options is None:
         options = {}
     vector = jtu.tree_map(inexact_asarray, vector)
-    vector_struct = jax.eval_shape(lambda: vector)
-    operator_out_structure = operator.out_structure()
+    vector_struct = strip_weak_dtype(jax.eval_shape(lambda: vector))
+    operator_out_structure = strip_weak_dtype(operator.out_structure())
     # `is` to handle tracers
     if eqx.tree_equal(vector_struct, operator_out_structure) is not True:
         raise ValueError(
@@ -812,3 +813,12 @@ def linear_solve(
     # TODO: prevent forward-mode autodiff through stats
     stats = eqxi.nondifferentiable_backward(stats)
     return Solution(value=solution, result=result, state=state, stats=stats)
+
+
+# Work around JAX issue #22011,
+# as well as https://github.com/patrick-kidger/diffrax/pull/387#issuecomment-2174488365
+def stop_gradient_transpose(ct, x):
+    return (ct,)
+
+
+ad.primitive_transposes[stop_gradient_p] = stop_gradient_transpose

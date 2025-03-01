@@ -16,7 +16,6 @@ from collections.abc import Callable
 
 import equinox as eqx
 import jax
-import jax.core
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, ArrayLike, Bool, PyTree  # pyright:ignore
@@ -31,7 +30,11 @@ def tree_where(
 
 def resolve_rcond(rcond, n, m, dtype):
     if rcond is None:
-        return jnp.finfo(dtype).eps * max(n, m)
+        # This `2 *` is a heuristic: I have seen very rare failures without it, in ways
+        # that seem to depend on JAX compilation state. (E.g. running unrelated JAX
+        # computations beforehand, in a completely different JIT-compiled region, can
+        # result in differences in the success/failure of the solve.)
+        return 2 * jnp.finfo(dtype).eps * max(n, m)
     else:
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
 
@@ -91,3 +94,18 @@ def inexact_asarray(x):
 
 def complex_to_real_dtype(dtype):
     return jnp.finfo(dtype).dtype
+
+
+def strip_weak_dtype(tree: PyTree) -> PyTree:
+    return jtu.tree_map(
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=x.sharding)
+        if type(x) is jax.ShapeDtypeStruct
+        else x,
+        tree,
+    )
+
+
+def structure_equal(x, y) -> bool:
+    x = strip_weak_dtype(jax.eval_shape(lambda: x))
+    y = strip_weak_dtype(jax.eval_shape(lambda: y))
+    return eqx.tree_equal(x, y) is True

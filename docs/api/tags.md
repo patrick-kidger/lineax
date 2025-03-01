@@ -110,8 +110,6 @@ Marks than operator is positive **semidefinite**.
 
 For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Cholesky`][] as the solver.
 
-If you wish to mark that an operator is specifically postive **definite** then combine this with [`lineax.nonsingular_tag`].
-
 ---
 
 ::: lineax.negative_semidefinite_tag
@@ -119,5 +117,3 @@ If you wish to mark that an operator is specifically postive **definite** then c
 Marks than operator is negative **semidefinite**.
 
 For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Cholesky`][] as the solver.
-
-If you wish to mark that an operator is specifically postive **definite** then combine this with [`lineax.nonsingular_tag`].

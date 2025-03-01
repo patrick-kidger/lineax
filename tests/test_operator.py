@@ -23,22 +23,37 @@ import pytest
 
 from .helpers import (
     make_diagonal_operator,
+    make_identity_operator,
     make_operators,
     make_tridiagonal_operator,
     tree_allclose,
 )
 
 
-def test_ops(getkey):
-    matrix1 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
-    matrix2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
-    scalar = jr.normal(getkey(), ())
+@pytest.mark.parametrize("make_operator", make_operators)
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_ops(make_operator, getkey, dtype):
+    if (
+        make_operator is make_diagonal_operator
+        or make_operator is make_identity_operator
+    ):
+        matrix = jnp.eye(3, dtype=dtype)
+        tags = lx.diagonal_tag
+    elif make_operator is make_tridiagonal_operator:
+        matrix = jnp.eye(3, dtype=dtype)
+        tags = lx.tridiagonal_tag
+    else:
+        matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+        tags = ()
+    matrix1 = make_operator(getkey, matrix, tags)
+    matrix2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3), dtype=dtype))
+    scalar = jr.normal(getkey(), (), dtype=dtype)
     add = matrix1 + matrix2
     composed = matrix1 @ matrix2
     mul = matrix1 * scalar
     rmul = cast(lx.AbstractLinearOperator, scalar * matrix1)
     div = matrix1 / scalar
-    vec = jr.normal(getkey(), (3,))
+    vec = jr.normal(getkey(), (3,), dtype=dtype)
 
     assert tree_allclose(matrix1.mv(vec) + matrix2.mv(vec), add.mv(vec))
     assert tree_allclose(matrix1.mv(matrix2.mv(vec)), composed.mv(vec))
@@ -66,7 +81,10 @@ def test_ops(getkey):
 
 @pytest.mark.parametrize("make_operator", make_operators)
 def test_structures_vector(make_operator, getkey):
-    if make_operator is make_diagonal_operator:
+    if (
+        make_operator is make_diagonal_operator
+        or make_operator is make_identity_operator
+    ):
         matrix = jnp.eye(4)
         tags = lx.diagonal_tag
         in_size = out_size = 4
@@ -91,6 +109,12 @@ def _setup(getkey, matrix, tag: Union[object, frozenset[object]] = frozenset()):
         if make_operator is make_diagonal_operator and tag != lx.diagonal_tag:
             continue
         if make_operator is make_tridiagonal_operator and tag not in (
+            lx.tridiagonal_tag,
+            lx.diagonal_tag,
+            lx.symmetric_tag,
+        ):
+            continue
+        if make_operator is make_identity_operator and tag not in (
             lx.tridiagonal_tag,
             lx.diagonal_tag,
             lx.symmetric_tag,
@@ -161,6 +185,22 @@ def test_is_diagonal(dtype, getkey):
 
     not_diagonal_operators = _setup(getkey, matrix)
     _assert_except_diag(lx.is_diagonal, not_diagonal_operators, flip_cond=True)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_scalar(dtype, getkey):
+    matrix = jr.normal(getkey(), (1, 1), dtype=dtype)
+    diagonal_operators = _setup(getkey, matrix)
+    for operator in diagonal_operators:
+        assert lx.is_diagonal(operator)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_tridiagonal(dtype, getkey):
+    diag1 = jr.normal(getkey(), (1,), dtype=dtype)
+    diag2 = jnp.zeros((0,), dtype=dtype)
+    op1 = lx.TridiagonalLinearOperator(diag1, diag2, diag2)
+    assert lx.is_diagonal(op1)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -327,7 +367,7 @@ def test_identity_with_different_structures():
 
     assert op1.T == op2
     # assert op2.transpose((True, False)) == op3
-    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7))
+    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7, dtype=jnp.float32))
     assert op1.in_size() == 7
     assert op1.out_size() == 5
     vec1 = (
@@ -356,7 +396,7 @@ def test_identity_with_different_structures_complex():
 
     assert op1.T == op2
     # assert op2.transpose((True, False)) == op3
-    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7))
+    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7, dtype=jnp.complex128))
     assert op1.in_size() == 7
     assert op1.out_size() == 5
     vec1 = (

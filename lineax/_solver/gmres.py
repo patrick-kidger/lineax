@@ -25,6 +25,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, Inexact, PyTree
 
+from .._misc import structure_equal
 from .._norm import max_norm, two_norm
 from .._operator import (
     AbstractLinearOperator,
@@ -78,7 +79,8 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
                 )
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
-        if operator.in_structure() != operator.out_structure():
+        del options
+        if not structure_equal(operator.in_structure(), operator.out_structure()):
             raise ValueError(
                 "`GMRES(..., normal=False)` may only be used for linear solves with "
                 "square matrices."
@@ -222,7 +224,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
         else:
             result = RESULTS.where(
                 (num_steps == self.max_steps),
-                RESULTS.max_steps_reached,
+                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
                 RESULTS.successful,
             )
         result = RESULTS.where(
@@ -294,7 +296,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             )
             beta_vec = jnp.concatenate(
                 (
-                    r_norm[None].astype(coeff_mat),
+                    r_norm[None].astype(jnp.result_type(coeff_mat)),
                     jnp.zeros_like(coeff_mat, shape=(restart,)),
                 )
             )
@@ -373,7 +375,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
             basis_step_normalised,
             basis,
         )
-        proj_new = proj.at[step + 1].set(step_norm_new.astype(proj))
+        proj_new = proj.at[step + 1].set(step_norm_new.astype(jnp.result_type(proj)))
         #
         # NOTE: two somewhat complicated things are going on here:
         #
