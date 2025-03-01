@@ -109,6 +109,12 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         operator = state
         x = options.get("y0", None)
         damp = options.get("damp", 0.0)
+        has_scale = not (
+            isinstance(self.atol, (int, float))
+            and isinstance(self.rtol, (int, float))
+            and self.atol == 0
+            and self.rtol == 0
+        )
 
         m, n = operator.out_size(), operator.in_size()
         # number of singular values
@@ -149,141 +155,61 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
         h = v
         hbar = jtu.tree_map(jnp.zeros_like, operator.in_structure())
 
-        loop_state_vecs = (x, u, v, h, hbar)
-
         # Initialize variables for 1st iteration.
         # generally, latin letters (b, x, u, v, h etc) are vectors that may be complex
         # greek letters (alpha, beta, rho, zeta etc) are scalars that are always real
-        itn = 0
-        zetabar = alpha * beta
-        alphabar = alpha
-        rho = 1.0
-        rhobar = 1.0
-        cbar = 1.0
-        sbar = 0.0
-
-        loop_state_main = (itn, alpha, beta, zetabar, alphabar, rho, rhobar, cbar, sbar)
-
-        # Initialize variables for estimation of ||r||.
-        betadd = beta
-        betad = 0.0
-        rhodold = 1.0
-        tautildeold = 0.0
-        thetatilde = 0.0
-        zeta = 0.0
-        delta = 0.0
-
-        loop_state_r_est = (
-            betadd,
-            betad,
-            rhodold,
-            tautildeold,
-            thetatilde,
-            zeta,
-            delta,
-        )
-
-        # Initialize variables for estimation of ||A|| and cond(A)
-        normA2 = alpha**2
-        maxrbar = 0.0
-        minrbar = 1e100
-        normA = jnp.sqrt(normA2)
-        condA = 1.0
-
-        loop_state_anorm = (normA2, maxrbar, minrbar, normA, condA)
-
-        # Items for use in stopping rules, normb set earlier
-        istop = 0
-        normr = beta
-        normAr = alpha * beta
-
-        loop_state_stopping = (istop, normr, normAr, normb)
-
-        loop_state = (
-            loop_state_main,
-            loop_state_r_est,
-            loop_state_anorm,
-            loop_state_stopping,
-            loop_state_vecs,
+        loop_state = dict(
+            # vectors
+            x=x,
+            u=u,
+            v=v,
+            h=h,
+            hbar=hbar,
+            # main loop variables
+            itn=0,
+            alpha=alpha,
+            beta=beta,
+            zetabar=alpha * beta,
+            alphabar=alpha,
+            rho=1.0,
+            rhobar=1.0,
+            cbar=1.0,
+            sbar=0.0,
+            # loop variables for estimation of ||r||.
+            betadd=beta,
+            betad=0.0,
+            rhodold=1.0,
+            tautildeold=0.0,
+            thetatilde=0.0,
+            zeta=0.0,
+            delta=0.0,
+            # variables for estimation of ||A|| and cond(A)
+            normA2=alpha**2,
+            maxrbar=0.0,
+            minrbar=1e100,
+            normA=jnp.abs(alpha),
+            condA=1.0,
+            # variables for use in stopping rules
+            istop=0,
+            normr=beta,
+            normAr=alpha * beta,
         )
 
         def condfun(loop_state):
-            (
-                loop_state_main,
-                loop_state_r_est,
-                loop_state_anorm,
-                loop_state_stopping,
-                loop_state_vecs,
-            ) = loop_state
-            (
-                itn,
-                alpha,
-                beta,
-                zetabar,
-                alphabar,
-                rho,
-                rhobar,
-                cbar,
-                sbar,
-            ) = loop_state_main
-            (
-                betadd,
-                betad,
-                rhodold,
-                tautildeold,
-                thetatilde,
-                zeta,
-                delta,
-            ) = loop_state_r_est
-            (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
-            (istop, normr, normAr, normb) = loop_state_stopping
-            (x, u, v, h, hbar) = loop_state_vecs
-
-            return istop == 0
+            return loop_state["istop"] == 0
 
         def bodyfun(loop_state):
-            # unpack everything. Maybe cleaner to use a dict or struct?
-            (
-                loop_state_main,
-                loop_state_r_est,
-                loop_state_anorm,
-                loop_state_stopping,
-                loop_state_vecs,
-            ) = loop_state
-            (
-                itn,
-                alpha,
-                beta,
-                zetabar,
-                alphabar,
-                rho,
-                rhobar,
-                cbar,
-                sbar,
-            ) = loop_state_main
-            (
-                betadd,
-                betad,
-                rhodold,
-                tautildeold,
-                thetatilde,
-                zeta,
-                delta,
-            ) = loop_state_r_est
-            (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
-            (istop, normr, normAr, normb) = loop_state_stopping
-            (x, u, v, h, hbar) = loop_state_vecs
-
-            itn = itn + 1
+            st = loop_state  # to avoid writing out loop_state every time
+            st["itn"] = st["itn"] + 1
 
             # Perform the next step of the bidiagonalization to obtain the
             # next  beta, u, alpha, v.  These satisfy the relations
             #         beta*u  =  A@v   -  alpha*u,
             #        alpha*v  =  A'@u  -  beta*v.
 
-            u = (ω(u) * -alpha.astype(dtype)).ω
-            u = (ω(u) + ω(operator.mv(v))).ω
-            beta = self.norm(u)
+            st["u"] = (ω(st["u"]) * -st["alpha"].astype(dtype)).ω
+            st["u"] = (ω(st["u"]) + ω(operator.mv(st["v"]))).ω
+            st["beta"] = self.norm(st["u"])
 
             def beta_nonzero(alpha, beta, u, v):
                 u = (ω(u) / lax.select(beta == 0.0, 1.0, beta).astype(dtype)).ω
@@ -296,165 +222,137 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
             def beta_zero(alpha, beta, u, v):
                 return alpha, beta, u, v
 
-            alpha, beta, u, v = lax.cond(
-                beta == 0, beta_zero, beta_nonzero, alpha, beta, u, v
+            st["alpha"], st["beta"], st["u"], st["v"] = lax.cond(
+                st["beta"] == 0,
+                beta_zero,
+                beta_nonzero,
+                st["alpha"],
+                st["beta"],
+                st["u"],
+                st["v"],
             )
             # At this point, beta = beta_{k+1}, alpha = alpha_{k+1}.
 
             # Construct rotation Qhat_{k,2k+1}.
-            chat, shat, alphahat = self._givens(alphabar, damp)
+            chat, shat, alphahat = self._givens(st["alphabar"], damp)
 
             # Use a plane rotation (Q_i) to turn B_i to R_i
-            rhoold = rho
-            c, s, rho = self._givens(alphahat, beta)
-            thetanew = s * alpha
-            alphabar = c * alpha
+            rhoold = st["rho"]
+            c, s, st["rho"] = self._givens(alphahat, st["beta"])
+            thetanew = s * st["alpha"]
+            st["alphabar"] = c * st["alpha"]
 
             # Use a plane rotation (Qbar_i) to turn R_i^T to R_i^bar
-            rhobarold = rhobar
-            zetaold = zeta
-            thetabar = sbar * rho
-            rhotemp = cbar * rho
-            cbar, sbar, rhobar = self._givens(cbar * rho, thetanew)
-            zeta = cbar * zetabar
-            zetabar = -sbar * zetabar
+            rhobarold = st["rhobar"]
+            zetaold = st["zeta"]
+            thetabar = st["sbar"] * st["rho"]
+            rhotemp = st["cbar"] * st["rho"]
+            st["cbar"], st["sbar"], st["rhobar"] = self._givens(
+                st["cbar"] * st["rho"], thetanew
+            )
+            st["zeta"] = st["cbar"] * st["zetabar"]
+            st["zetabar"] = -st["sbar"] * st["zetabar"]
 
             # Update h, h_hat, x.
-            hbar = (ω(hbar) * -(thetabar * rho / (rhoold * rhobarold)).astype(dtype)).ω
-            hbar = (ω(hbar) + ω(h)).ω
-            x = (ω(x) + (zeta / (rho * rhobar)).astype(dtype) * ω(hbar)).ω
-            h = (ω(h) * -(thetanew / rho).astype(dtype)).ω
-            h = (ω(h) + ω(v)).ω
+            st["hbar"] = (
+                ω(st["hbar"])
+                * -(thetabar * st["rho"] / (rhoold * rhobarold)).astype(dtype)
+            ).ω
+            st["hbar"] = (ω(st["hbar"]) + ω(st["h"])).ω
+            st["x"] = (
+                ω(st["x"])
+                + (st["zeta"] / (st["rho"] * st["rhobar"])).astype(dtype)
+                * ω(st["hbar"])
+            ).ω
+            st["h"] = (ω(st["h"]) * -(thetanew / st["rho"]).astype(dtype)).ω
+            st["h"] = (ω(st["h"]) + ω(st["v"])).ω
 
             # Estimate of ||r||.
             # Apply rotation Qhat_{k,2k+1}.
-            betaacute = chat * betadd
-            betacheck = -shat * betadd
+            betaacute = chat * st["betadd"]
+            betacheck = -shat * st["betadd"]
             # Apply rotation Q_{k,k+1}.
             betahat = c * betaacute
-            betadd = -s * betaacute
+            st["betadd"] = -s * betaacute
 
             # Apply rotation Qtilde_{k-1}.
             # betad = betad_{k-1} here.
-            thetatildeold = thetatilde
-            ctildeold, stildeold, rhotildeold = self._givens(rhodold, thetabar)
-            thetatilde = stildeold * rhobar
-            rhodold = ctildeold * rhobar
-            betad = -stildeold * betad + ctildeold * betahat
+            thetatildeold = st["thetatilde"]
+            ctildeold, stildeold, rhotildeold = self._givens(st["rhodold"], thetabar)
+            st["thetatilde"] = stildeold * loop_state["rhobar"]
+            st["rhodold"] = ctildeold * st["rhobar"]
+            st["betad"] = -stildeold * st["betad"] + ctildeold * betahat
 
             # betad   = betad_k here.
             # rhodold = rhod_k  here.
 
-            tautildeold = (zetaold - thetatildeold * tautildeold) / rhotildeold
-            taud = (zeta - thetatilde * tautildeold) / rhodold
-            delta = delta + betacheck**2
-            normr = jnp.sqrt(delta + (betad - taud) ** 2 + betadd**2)
+            loop_state["tautildeold"] = (
+                zetaold - thetatildeold * st["tautildeold"]
+            ) / rhotildeold
+            taud = (st["zeta"] - st["thetatilde"] * st["tautildeold"]) / st["rhodold"]
+            st["delta"] = st["delta"] + betacheck**2
+            st["normr"] = jnp.sqrt(
+                st["delta"] + (st["betad"] - taud) ** 2 + st["betadd"] ** 2
+            )
 
             # Estimate ||A||.
-            normA2 = normA2 + beta**2
-            normA = jnp.sqrt(normA2)
-            normA2 = normA2 + alpha**2
+            st["normA2"] = st["normA2"] + st["beta"] ** 2
+            st["normA"] = jnp.sqrt(st["normA2"])
+            st["normA2"] = st["normA2"] + st["alpha"] ** 2
 
             # Estimate cond(A).
-            maxrbar = jnp.maximum(maxrbar, rhobarold)
-            minrbar = lax.select(itn > 1, jnp.minimum(minrbar, rhobarold), minrbar)
-            condA = jnp.maximum(maxrbar, rhotemp) / jnp.minimum(minrbar, rhotemp)
+            st["maxrbar"] = jnp.maximum(st["maxrbar"], rhobarold)
+            st["minrbar"] = lax.select(
+                st["itn"] > 1, jnp.minimum(st["minrbar"], rhobarold), st["minrbar"]
+            )
+            st["condA"] = jnp.maximum(st["maxrbar"], rhotemp) / jnp.minimum(
+                st["minrbar"], rhotemp
+            )
 
             # Compute norms for convergence testing.
-            normAr = jnp.abs(zetabar)
-            normx = self.norm(x)
+            st["normAr"] = jnp.abs(st["zetabar"])
+            normx = self.norm(st["x"])
 
-            well_posed_tol = self.atol + self.rtol * (normA * normx + normb)
-            least_squares_tol = self.atol + self.rtol * (normA * normr)
+            well_posed_tol = self.atol + self.rtol * (st["normA"] * normx + normb)
+            least_squares_tol = self.atol + self.rtol * (st["normA"] * st["normr"])
             # x is a solution to A@x = b, according to atol and rtol.
-            istop = lax.select(normr < well_posed_tol, 1, istop)
+            st["istop"] = lax.select(st["normr"] < well_posed_tol, 1, st["istop"])
             # x solves the least-squares problem according to atol and rtol.
-            istop = lax.select(normAr < least_squares_tol, 2, istop)
+            st["istop"] = lax.select(st["normAr"] < least_squares_tol, 2, st["istop"])
             # cond(A) seems to be greater than conlim
-            istop = lax.select(condA > self.conlim, 3, istop)
+            st["istop"] = lax.select(st["condA"] > self.conlim, 3, st["istop"])
             # maxiter exceeded
-            istop = lax.select(itn >= max_steps, 4, istop)
-
-            loop_state_vecs = (x, u, v, h, hbar)
-            loop_state_stopping = (istop, normr, normAr, normb)
-            loop_state_anorm = (normA2, maxrbar, minrbar, normA, condA)
-            loop_state_r_est = (
-                betadd,
-                betad,
-                rhodold,
-                tautildeold,
-                thetatilde,
-                zeta,
-                delta,
-            )
-            loop_state_main = (
-                itn,
-                alpha,
-                beta,
-                zetabar,
-                alphabar,
-                rho,
-                rhobar,
-                cbar,
-                sbar,
-            )
-            loop_state = (
-                loop_state_main,
-                loop_state_r_est,
-                loop_state_anorm,
-                loop_state_stopping,
-                loop_state_vecs,
-            )
-            return loop_state
+            st["istop"] = lax.select(st["itn"] >= max_steps, 4, st["istop"])
+            return st
 
         loop_state = lax.while_loop(condfun, bodyfun, loop_state)
-        (
-            loop_state_main,
-            loop_state_r_est,
-            loop_state_anorm,
-            loop_state_stopping,
-            loop_state_vecs,
-        ) = loop_state
-        (
-            itn,
-            alpha,
-            beta,
-            zetabar,
-            alphabar,
-            rho,
-            rhobar,
-            cbar,
-            sbar,
-        ) = loop_state_main
-        (
-            betadd,
-            betad,
-            rhodold,
-            tautildeold,
-            thetatilde,
-            zeta,
-            d,
-        ) = loop_state_r_est
-        (normA2, maxrbar, minrbar, normA, condA) = loop_state_anorm
-        (istop, normr, normAr, normb) = loop_state_stopping
-        (x, u, v, h, hbar) = loop_state_vecs
 
         stats = {
-            "num_steps": itn,
-            "istop": istop,
-            "norm_r": normr,
-            "norm_Ar": normAr,
-            "norm_A": normA,
-            "cond_A": condA,
-            "norm_x": self.norm(x),
+            "num_steps": loop_state["itn"],
+            "istop": loop_state["istop"],
+            "norm_r": loop_state["normr"],
+            "norm_Ar": loop_state["normAr"],
+            "norm_A": loop_state["normA"],
+            "cond_A": loop_state["condA"],
+            "norm_x": self.norm(loop_state["x"]),
         }
-        result = RESULTS.where(
-            istop < 3,
-            RESULTS.successful,
-            RESULTS.where(istop == 3, RESULTS.conlim, RESULTS.max_steps_reached),
-        )
+        if (self.max_steps is None) or (max_steps < self.max_steps):
+            result = RESULTS.where(
+                loop_state["itn"] == max_steps,
+                RESULTS.singular,
+                RESULTS.successful,
+            )
+        else:
+            result = RESULTS.where(
+                loop_state["itn"] == max_steps,
+                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
+                RESULTS.successful,
+            )
 
-        return x, result, stats
+        result = RESULTS.where(loop_state["istop"] < 3, RESULTS.successful, result)
+        result = RESULTS.where(loop_state["istop"] == 3, RESULTS.conlim, result)
+
+        return loop_state["x"], result, stats
 
     def _givens(self, a, b):
         """Stable implementation of Givens rotation, from [1]_
@@ -537,6 +435,6 @@ LSMR.__init__.__doc__ = r"""**Arguments:**
     compatible systems Ax = b, conlim could be as large as 1.0e+12 (say). For
     least-squares problems, conlim should be less than 1.0e+8. If conlim is None,
     the default value is 1e+8. Maximum precision can be obtained by setting
-    atol = rtol = conlim = 0, but the number of iterations may then be excessive.
-    Default is 1e8.
+    atol = rtol = 0, conlim = np.inf, but the number of iterations may then be
+    excessive. Default is 1e8.
 """
