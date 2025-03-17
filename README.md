@@ -19,7 +19,7 @@ Features include:
 pip install lineax
 ```
 
-Requires Python 3.10+, JAX 0.4.26+, and [Equinox](https://github.com/patrick-kidger/equinox) 0.11.5+.
+Requires Python 3.10+, JAX 0.4.38+, and [Equinox](https://github.com/patrick-kidger/equinox) 0.11.10+.
 
 ## Documentation
 
