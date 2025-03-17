@@ -109,3 +109,9 @@ class Triangular(AbstractLinearSolver[_TriangularState], strict=True):
 
     def allow_dependent_rows(self, operator):
         return False
+
+
+Triangular.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""
