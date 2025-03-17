@@ -115,3 +115,9 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
 
     def allow_dependent_rows(self, operator):
         return False
+
+
+Tridiagonal.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""

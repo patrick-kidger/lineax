@@ -117,3 +117,9 @@ class QR(AbstractLinearSolver, strict=True):
         rows = operator.out_size()
         columns = operator.in_size()
         return rows > columns
+
+
+QR.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""

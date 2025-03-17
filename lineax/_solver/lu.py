@@ -90,3 +90,9 @@ class LU(AbstractLinearSolver[_LUState], strict=True):
 
     def allow_dependent_rows(self, operator):
         return False
+
+
+LU.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""

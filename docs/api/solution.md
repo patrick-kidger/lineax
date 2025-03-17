@@ -1,13 +1,11 @@
 # Solution
 
 ::: lineax.Solution
-    selection:
-        members:
-            false
+    options:
+        members: []
 
 ---
 
 ::: lineax.RESULTS
-    selection:
-        members:
-            false
+    options:
+        members: []

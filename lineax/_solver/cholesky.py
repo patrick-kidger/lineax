@@ -91,3 +91,9 @@ class Cholesky(AbstractLinearSolver[_CholeskyState], strict=True):
 
     def allow_dependent_rows(self, operator):
         return False
+
+
+Cholesky.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""

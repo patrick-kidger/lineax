@@ -3,7 +3,7 @@ name = "lineax"
 version = "0.0.7"
 description = "Linear solvers in JAX and Equinox."
 readme = "README.md"
-requires-python ="~=3.9"
+requires-python ="~=3.10"
 license = {file = "LICENSE"}
 authors = [
   {name = "Jason Rader", email = "raderjason@outlook.com"},
@@ -25,6 +25,17 @@ classifiers = [
 ]
 urls = {repository = "https://github.com/google/lineax" }
 dependencies = ["jax>=0.4.26", "jaxtyping>=0.2.20", "equinox>=0.11.5", "typing_extensions>=4.5.0"]
+
+[project.optional-dependencies]
+docs = [
+  "hippogriffe==0.1.1",
+  "mkdocs==1.6.1",
+  "mkdocs-include-exclude-files==0.1.0",
+  "mkdocs-ipynb==0.1.0",
+  "mkdocs-material==9.6.7",
+  "mkdocstrings[python]==0.28.3",
+  "pymdown-extensions==10.14.3",
+]
 
 [build-system]
 requires = ["hatchling"]
