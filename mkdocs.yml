@@ -62,9 +62,6 @@ markdown_extensions:
         permalink: "¤"  # Adds a clickable permalink to each section heading
         toc_depth: 4
 
-hooks:
-    - mkdocs_hook.py
-
 plugins:
     - search  # default search plugin; needs manually re-enabling when using any other plugins
     - include_exclude_files:
@@ -75,10 +72,8 @@ plugins:
             - "examples/.ipynb_checkpoints/"
     - ipynb
     - hippogriffe:
-        extra_public_modules:
-            - numpy
-            - jax
-            - jaxlib
+        extra_public_objects:
+            - jax.ShapeDtypeStruct
     - mkdocstrings:
         handlers:
             python:
