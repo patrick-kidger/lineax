@@ -29,6 +29,7 @@ lower_triangular_tag = _HasRepr("lower_triangular_tag")
 upper_triangular_tag = _HasRepr("upper_triangular_tag")
 positive_semidefinite_tag = _HasRepr("positive_semidefinite_tag")
 negative_semidefinite_tag = _HasRepr("negative_semidefinite_tag")
+strictly_diagonally_dominant_tag = _HasRepr("strictly_diagonally_dominant_tag")
 
 
 transpose_tags_rules = []
@@ -41,6 +42,7 @@ for tag in (
     positive_semidefinite_tag,
     negative_semidefinite_tag,
     tridiagonal_tag,
+    strictly_diagonally_dominant_tag,
 ):
 
     @transpose_tags_rules.append
