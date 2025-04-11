@@ -57,6 +57,7 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
         options,
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
+        unroll = options.get("unroll", 32)
         del state, options
         vector = ravel_vector(vector, packed_structures)
 
@@ -91,8 +92,8 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
         init_thomas = (0, 0, 0)
         init_backsub = (0, 0)
         diag_vec = (diagonal, vector)
-        _, cd_p = lax.scan(thomas_scan, init_thomas, diag_vec, unroll=32)
-        _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=32)
+        _, cd_p = lax.scan(thomas_scan, init_thomas, diag_vec, unroll=unroll)
+        _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=unroll)
 
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
