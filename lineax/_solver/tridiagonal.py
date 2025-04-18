@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from functools import partial
 from typing import Any
 from typing_extensions import TypeAlias
 
 import jax.lax as lax
 import jax.numpy as jnp
+from jax._src.interpreters import mlir
+from jax.core import ShapedArray
+from jax.extend import core
 from jaxtyping import Array, PyTree
 
 from .._operator import AbstractLinearOperator, is_tridiagonal, tridiagonal
@@ -50,6 +54,12 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
             )
         return tridiagonal(operator), pack_structures(operator)
 
+    @classmethod
+    def abstract_eval(
+        cls, diagonal, lower_diagonal, upper_diagonal, vector, batch_unroll_gpu
+    ):
+        return ShapedArray(vector.shape, vector.dtype)
+
     def compute(
         self,
         state: _TridiagonalState,
@@ -57,45 +67,16 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
         options,
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
-        unroll = options.get("unroll", 32)
+        batch_unroll_gpu = options.get("unroll", 32)
         del state, options
         vector = ravel_vector(vector, packed_structures)
 
-        #
-        # notation from: https://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
-        # _p indicates prime, ie. `d_p` is the variable name for d' on wikipedia
-        #
-
-        size = len(diagonal)
-
-        def thomas_scan(prev_cd_carry, bd):
-            c_p, d_p, step = prev_cd_carry
-            # the index of `a` doesn't matter at step 0 as
-            # we won't use it at all. Same for `c` at final step
-            a_index = jnp.where(step > 0, step - 1, 0)
-            c_index = jnp.where(step < size, step, 0)
-
-            b, d = bd
-            a, c = lower_diagonal[a_index], upper_diagonal[c_index]
-            denom = b - a * c_p
-            new_d_p = (d - a * d_p) / denom
-            new_c_p = c / denom
-            return (new_c_p, new_d_p, step + 1), (new_c_p, new_d_p)
-
-        def backsub(prev_x_carry, cd_p):
-            x_prev, step = prev_x_carry
-            c_p, d_p = cd_p
-            x_new = d_p - c_p * x_prev
-            return (x_new, step + 1), x_new
-
-        # not a dummy init! 0 is the proper value for all of these
-        init_thomas = (0, 0, 0)
-        init_backsub = (0, 0)
-        diag_vec = (diagonal, vector)
-        _, cd_p = lax.scan(thomas_scan, init_thomas, diag_vec, unroll=unroll)
-        _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=unroll)
+        solution = _tridiagonal_solve_p.bind(
+            diagonal, lower_diagonal, upper_diagonal, vector, batch_unroll_gpu
+        )
 
         solution = unravel_solution(solution, packed_structures)
+
         return solution, RESULTS.successful, {}
 
     def transpose(self, state: _TridiagonalState, options: dict[str, Any]):
@@ -117,6 +98,83 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
     def allow_dependent_rows(self, operator):
         return False
 
+
+@partial(mlir.lower_fun, multiple_results=False)
+def _tridiagonal_solve_gpu_unbatched_lowering(
+    diagonal, lower_diagonal, upper_diagonal, vector, _
+):
+    return lax.linalg.tridiagonal_solve(
+        jnp.append(0.0, lower_diagonal),
+        diagonal,
+        jnp.append(upper_diagonal, 0.0),
+        vector[:, None],
+    ).flatten()
+
+
+@partial(mlir.lower_fun, multiple_results=False)
+def _tridiagonal_solve_cpu_lowering(
+    diagonal, lower_diagonal, upper_diagonal, vector, _
+):
+    return _tridiagonal_solve_lineax(
+        diagonal, lower_diagonal, upper_diagonal, vector, 1
+    )
+
+
+def _tridiagonal_solve_lineax(diagonal, lower_diagonal, upper_diagonal, vector, unroll):
+    #
+    # notation from: https://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
+    # _p indicates prime, ie. `d_p` is the variable name for d' on wikipedia
+    #
+
+    size = len(diagonal)
+
+    def thomas_scan(prev_cd_carry, bd):
+        c_p, d_p, step = prev_cd_carry
+        # the index of `a` doesn't matter at step 0 as
+        # we won't use it at all. Same for `c` at final step
+        a_index = jnp.where(step > 0, step - 1, 0)
+        c_index = jnp.where(step < size, step, 0)
+
+        b, d = bd
+        a, c = lower_diagonal[a_index], upper_diagonal[c_index]
+        denom = b - a * c_p
+        new_d_p = (d - a * d_p) / denom
+        new_c_p = c / denom
+        return (new_c_p, new_d_p, step + 1), (new_c_p, new_d_p)
+
+    def backsub(prev_x_carry, cd_p):
+        x_prev, step = prev_x_carry
+        c_p, d_p = cd_p
+        x_new = d_p - c_p * x_prev
+        return (x_new, step + 1), x_new
+
+    # not a dummy init! 0 is the proper value for all of these
+    init_thomas = (0, 0, 0)
+    init_backsub = (0, 0)
+    diag_vec = (diagonal, vector)
+    _, cd_p = lax.scan(thomas_scan, init_thomas, diag_vec, unroll=unroll)
+    _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=unroll)
+
+    return solution
+
+
+_tridiagonal_solve_p = core.Primitive("_tridiagonal_solve_lineax")
+_tridiagonal_solve_p.def_impl(_tridiagonal_solve_lineax)
+_tridiagonal_solve_p.def_abstract_eval(Tridiagonal.abstract_eval)
+
+mlir.register_lowering(
+    _tridiagonal_solve_p, _tridiagonal_solve_cpu_lowering, platform="cpu"
+)
+mlir.register_lowering(
+    _tridiagonal_solve_p, _tridiagonal_solve_gpu_unbatched_lowering, platform="cuda"
+)
+mlir.register_lowering(
+    _tridiagonal_solve_p, _tridiagonal_solve_gpu_unbatched_lowering, platform="rocm"
+)
+mlir.register_lowering(
+    _tridiagonal_solve_p,
+    mlir.lower_fun(_tridiagonal_solve_lineax, multiple_results=False),
+)
 
 Tridiagonal.__init__.__doc__ = """**Arguments:**
 
