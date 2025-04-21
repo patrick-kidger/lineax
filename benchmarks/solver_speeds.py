@@ -17,6 +17,7 @@ import sys
 import timeit
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -25,12 +26,14 @@ import lineax as lx
 
 
 sys.path.append("../tests")
-from helpers import (  # pyright: ignore
-    construct_matrix,
-    getkey,
-    has_tag,
-    shaped_allclose,
-)
+from helpers import construct_matrix, has_tag  # pyright: ignore[reportMissingImports]
+
+
+getkey = eqxi.GetKey()
+
+
+def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
+    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
 jax.config.update("jax_enable_x64", True)
@@ -171,7 +174,7 @@ def test_solvers(vmap_size, mat_size):
             batch_msg = f"batch of {vmap_size} problems"
 
         lx_soln = bench_lx()
-        if shaped_allclose(lx_soln, true_x, atol=1e-4, rtol=1e-4):
+        if tree_allclose(lx_soln, true_x, atol=1e-4, rtol=1e-4):
             lx_solve_time = timeit.timeit(bench_lx, number=1)
 
             print(
@@ -192,7 +195,7 @@ def test_solvers(vmap_size, mat_size):
             jax_solver = jax.jit(jax_solver)
             bench_jax = ft.partial(jax_solver, matrix, b)
             jax_soln = bench_jax()
-            if shaped_allclose(jax_soln, true_x, atol=1e-4, rtol=1e-4):
+            if tree_allclose(jax_soln, true_x, atol=1e-4, rtol=1e-4):
                 jax_solve_time = timeit.timeit(bench_jax, number=1)
                 print(
                     f"JAX's {jax_name} solved {batch_msg} of "
