@@ -86,6 +86,13 @@ def jax_cholesky(matrix, vector):
     return jsp.linalg.cho_solve(jsp.linalg.cho_factor(matrix), vector)
 
 
+def jax_tridiagonal(matrix, vector):
+    dl = jnp.append(0.0, matrix.diagonal(-1))
+    d = matrix.diagonal(0)
+    du = jnp.append(matrix.diagonal(1), 0.0)
+    return jax.lax.linalg.tridiagonal_solve(dl, d, du, vector[:, None])[:, 0]
+
+
 named_solvers = [
     ("LU", "LU", lx.LU(), jax_lu, ()),
     ("QR", "SVD", lx.QR(), jax_svd, ()),
@@ -98,7 +105,13 @@ named_solvers = [
         lx.positive_semidefinite_tag,
     ),
     ("Diagonal", "None", lx.Diagonal(), None, lx.diagonal_tag),
-    ("Tridiagonal", "None", lx.Tridiagonal(), None, lx.tridiagonal_tag),
+    (
+        "Tridiagonal",
+        "Tridiagonal",
+        lx.Tridiagonal(),
+        jax_tridiagonal,
+        lx.tridiagonal_tag,
+    ),
     (
         "CG",
         "CG",
@@ -206,7 +219,7 @@ def test_solvers(vmap_size, mat_size):
                 err = jnp.abs(jax_soln - true_x).max()
                 print(
                     f"JAX's {jax_name} failed to solve {batch_msg} of "
-                    f"size {mat_size} with error {err} in {fail_time} seconds"
+                    f"size {mat_size} with error {err} in {fail_time} seconds. \n"
                 )
 
 
