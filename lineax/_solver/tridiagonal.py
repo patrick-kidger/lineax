@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import partial
+import functools as ft
 from typing import Any
 from typing_extensions import TypeAlias
 
+import jax.extend as jex
+import jax.interpreters.mlir as mlir
 import jax.lax as lax
 import jax.numpy as jnp
-from jax._src.interpreters import mlir
 from jax.core import ShapedArray
-from jax.extend import core
 from jaxtyping import Array, PyTree
 
 from .._operator import AbstractLinearOperator, is_tridiagonal, tridiagonal
@@ -53,12 +53,6 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
                 "matrices"
             )
         return tridiagonal(operator), pack_structures(operator)
-
-    @classmethod
-    def abstract_eval(
-        cls, diagonal, lower_diagonal, upper_diagonal, vector, batch_unroll_gpu
-    ):
-        return ShapedArray(vector.shape, vector.dtype)
 
     def compute(
         self,
@@ -99,7 +93,13 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
         return False
 
 
-@partial(mlir.lower_fun, multiple_results=False)
+def _tridiagonal_solve_abstract_eval(
+    diagonal, lower_diagonal, upper_diagonal, vector, batch_unroll_gpu
+):
+    return ShapedArray(vector.shape, vector.dtype)
+
+
+@ft.partial(mlir.lower_fun, multiple_results=False)
 def _tridiagonal_solve_gpu_unbatched_lowering(
     diagonal, lower_diagonal, upper_diagonal, vector, _
 ):
@@ -111,7 +111,7 @@ def _tridiagonal_solve_gpu_unbatched_lowering(
     ).flatten()
 
 
-@partial(mlir.lower_fun, multiple_results=False)
+@ft.partial(mlir.lower_fun, multiple_results=False)
 def _tridiagonal_solve_cpu_lowering(
     diagonal, lower_diagonal, upper_diagonal, vector, _
 ):
@@ -158,9 +158,9 @@ def _tridiagonal_solve_lineax(diagonal, lower_diagonal, upper_diagonal, vector, 
     return solution
 
 
-_tridiagonal_solve_p = core.Primitive("_tridiagonal_solve_lineax")
+_tridiagonal_solve_p = jex.core.Primitive("_tridiagonal_solve_lineax")
 _tridiagonal_solve_p.def_impl(_tridiagonal_solve_lineax)
-_tridiagonal_solve_p.def_abstract_eval(Tridiagonal.abstract_eval)
+_tridiagonal_solve_p.def_abstract_eval(_tridiagonal_solve_abstract_eval)
 
 mlir.register_lowering(
     _tridiagonal_solve_p, _tridiagonal_solve_cpu_lowering, platform="cpu"
