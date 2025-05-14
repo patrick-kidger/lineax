@@ -35,7 +35,11 @@ _TridiagonalState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructure
 
 
 class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
-    """Tridiagonal solver for linear systems, using the Thomas algorithm."""
+    """Tridiagonal solver for linear systems, using the LAPACK/cusparse implementation
+    of Gaussian elimination with partial pivotting. This is typically slightly slower
+    on CPU than the Thomas algorithm, but is unconditionally stable and still exhibits
+    linear scaling with the size of the system.
+    ."""
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
@@ -49,6 +53,58 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
                 "matrices"
             )
         return tridiagonal(operator), pack_structures(operator)
+
+    def compute(
+        self,
+        state: _TridiagonalState,
+        vector,
+        options,
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
+        (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
+        del state, options
+        vector = ravel_vector(vector, packed_structures)
+
+        solution = lax.linalg.tridiagonal_solve(
+            jnp.append(0.0, lower_diagonal),
+            diagonal,
+            jnp.append(upper_diagonal, 0.0),
+            vector[:, None],
+        ).flatten()
+
+        solution = unravel_solution(solution, packed_structures)
+        return solution, RESULTS.successful, {}
+
+    def transpose(self, state: _TridiagonalState, options: dict[str, Any]):
+        (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
+        transposed_packed_structures = transpose_packed_structures(packed_structures)
+        transpose_diagonals = (diagonal, upper_diagonal, lower_diagonal)
+        transpose_state = (transpose_diagonals, transposed_packed_structures)
+        return transpose_state, options
+
+    def conj(self, state: _TridiagonalState, options: dict[str, Any]):
+        (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
+        conj_diagonals = (diagonal.conj(), lower_diagonal.conj(), upper_diagonal.conj())
+        conj_state = (conj_diagonals, packed_structures)
+        return conj_state, options
+
+    def allow_dependent_columns(self, operator):
+        return False
+
+    def allow_dependent_rows(self, operator):
+        return False
+
+
+class Thomas(Tridiagonal):
+    """Thomas algorithm for tridiagonal linear systems. This is typically faster on
+    CPU than the more stable LAPACK/cusparse implementation of Gaussian elimination
+    with partial pivotting used in `Tridiagonal`. It will currently be much slower
+    on GPU until we can lower to cuThomas. The slighly quicker runtime of `Thomas`
+    can be useful for symmetric or diagonally dominant tridiagonal matrices where
+    the Thomas algorithm is more stable.
+    """
+
+    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
+        return super().init(operator, options)
 
     def compute(
         self,
@@ -91,33 +147,19 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
         init_thomas = (0, 0, 0)
         init_backsub = (0, 0)
         diag_vec = (diagonal, vector)
-        _, cd_p = lax.scan(thomas_scan, init_thomas, diag_vec, unroll=32)
-        _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=32)
+        _, cd_p = lax.scan(thomas_scan, init_thomas, diag_vec, unroll=1)
+        _, solution = lax.scan(backsub, init_backsub, cd_p, reverse=True, unroll=1)
 
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
-    def transpose(self, state: _TridiagonalState, options: dict[str, Any]):
-        (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
-        transposed_packed_structures = transpose_packed_structures(packed_structures)
-        transpose_diagonals = (diagonal, upper_diagonal, lower_diagonal)
-        transpose_state = (transpose_diagonals, transposed_packed_structures)
-        return transpose_state, options
-
-    def conj(self, state: _TridiagonalState, options: dict[str, Any]):
-        (diagonal, lower_diagonal, upper_diagonal), packed_structures = state
-        conj_diagonals = (diagonal.conj(), lower_diagonal.conj(), upper_diagonal.conj())
-        conj_state = (conj_diagonals, packed_structures)
-        return conj_state, options
-
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
-
 
 Tridiagonal.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""
+
+Thomas.__init__.__doc__ = """**Arguments:**
 
 Nothing.
 """
