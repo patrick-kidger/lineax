@@ -104,6 +104,7 @@ solvers_tags_pseudoinverse = [
     (lx.Diagonal(), lx.diagonal_tag, False),
     (lx.Diagonal(), (lx.diagonal_tag, lx.unit_diagonal_tag), False),
     (lx.Tridiagonal(), lx.tridiagonal_tag, False),
+    (lx.Thomas(), lx.tridiagonal_tag, False),
     (lx.LU(), (), False),
     (lx.QR(), (), False),
     (lx.SVD(), (), True),
