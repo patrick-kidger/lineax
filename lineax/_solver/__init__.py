@@ -21,4 +21,4 @@ from .lu import LU as LU
 from .qr import QR as QR
 from .svd import SVD as SVD
 from .triangular import Triangular as Triangular
-from .tridiagonal import Tridiagonal as Tridiagonal
+from .tridiagonal import Thomas as Thomas, Tridiagonal as Tridiagonal
