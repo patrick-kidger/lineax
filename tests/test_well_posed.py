@@ -57,7 +57,6 @@ def test_pytree_wellposed(solver, getkey, dtype):
             lx.Diagonal,
             lx.Triangular,
             lx.Tridiagonal,
-            lx.Thomas,
             lx.Cholesky,
             lx.CG,
             lx.NormalCG,
