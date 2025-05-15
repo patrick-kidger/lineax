@@ -76,13 +76,6 @@ These require special structure in the operator. (And will throw an error if pas
         members:
             - __init__
 
----
-
-::: lineax.Thomas
-    options:
-        members:
-            - __init__
-
 !!! info
 
     In addition to these, [`lineax.CG`][] also requires special structure (positive or negative definiteness).
