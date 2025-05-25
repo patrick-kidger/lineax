@@ -281,6 +281,26 @@ def test_is_tridiagonal(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_strictly_diagonally_dominant(dtype, getkey):
+    matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+    not_strictly_diagonally_dominant = _setup(getkey, matrix)
+
+    for operator in not_strictly_diagonally_dominant:
+        assert not lx.is_strictly_diagonally_dominant(operator)
+
+    row_sum = (jnp.sum(jnp.abs(matrix), axis=0) + 0.1).astype(dtype)
+    strictly_diagonally_dominant = _setup(
+        getkey, matrix + jnp.diag(row_sum), lx.strictly_diagonally_dominant_tag
+    )
+
+    _assert_except_diag(
+        lx.is_strictly_diagonally_dominant,
+        strictly_diagonally_dominant,
+        flip_cond=False,
+    )
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_tangent_as_matrix(dtype, getkey):
     def _list_setup(matrix):
         return list(_setup(getkey, matrix))
