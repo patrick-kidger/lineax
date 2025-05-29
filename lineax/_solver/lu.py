@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.numpy as jnp
 import jax.scipy as jsp

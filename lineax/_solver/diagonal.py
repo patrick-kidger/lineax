@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
@@ -31,7 +30,7 @@ from .misc import (
 )
 
 
-_DiagonalState: TypeAlias = tuple[Optional[Array], PackedStructures]
+_DiagonalState: TypeAlias = tuple[Array | None, PackedStructures]
 
 
 class Diagonal(AbstractLinearSolver[_DiagonalState], strict=True):
@@ -44,7 +43,7 @@ class Diagonal(AbstractLinearSolver[_DiagonalState], strict=True):
     """
 
     well_posed: bool = False
-    rcond: Optional[float] = None
+    rcond: float | None = None
 
     def init(
         self, operator: AbstractLinearOperator, options: dict[str, Any]

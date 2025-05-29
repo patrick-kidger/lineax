@@ -27,7 +27,7 @@ import numpy as np
 from equinox.internal import ω
 
 
-@ft.lru_cache(maxsize=None)
+@ft.cache
 def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
     del i  # used to break the cache
     while True:

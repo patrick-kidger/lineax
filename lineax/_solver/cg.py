@@ -13,8 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, ClassVar, Optional
-from typing_extensions import TYPE_CHECKING, TypeAlias
+from typing import Any, ClassVar, TYPE_CHECKING, TypeAlias
 
 import equinox.internal as eqxi
 import jax
@@ -55,8 +54,8 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
-    stabilise_every: Optional[int] = 10
-    max_steps: Optional[int] = None
+    stabilise_every: int | None = 10
+    max_steps: int | None = None
 
     _normal: AbstractClassVar[bool]
 
