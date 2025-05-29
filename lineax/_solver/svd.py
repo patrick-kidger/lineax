@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.lax as lax
 import jax.numpy as jnp
@@ -45,7 +44,7 @@ class SVD(AbstractLinearSolver[_SVDState], strict=True):
     Equivalent to `scipy.linalg.lstsq`.
     """
 
-    rcond: Optional[float] = None
+    rcond: float | None = None
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options

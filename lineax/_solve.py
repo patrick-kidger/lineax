@@ -14,8 +14,7 @@
 
 import abc
 import functools as ft
-from typing import Any, Generic, Optional, TypeVar
-from typing_extensions import TypeAlias
+from typing import Any, Generic, TypeAlias, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -571,7 +570,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True
     handle ill-posed systems as long as it is not computationally expensive to do so.
     """
 
-    well_posed: Optional[bool]
+    well_posed: bool | None
 
     def _select_solver(self, operator: AbstractLinearOperator):
         if self.well_posed is True:
@@ -685,7 +684,7 @@ def linear_solve(
     vector: PyTree[ArrayLike],
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     state: PyTree[Any] = sentinel,
     throw: bool = True,
 ) -> Solution:

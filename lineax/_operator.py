@@ -16,8 +16,8 @@ import abc
 import functools as ft
 import math
 import warnings
-from collections.abc import Callable
-from typing import Any, Iterable, Literal, NoReturn, Optional, TypeVar, Union
+from collections.abc import Callable, Iterable
+from typing import Any, Literal, NoReturn, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -58,7 +58,7 @@ from ._tags import (
 )
 
 
-def _frozenset(x: Union[object, Iterable[object]]) -> frozenset[object]:
+def _frozenset(x: object | Iterable[object]) -> frozenset[object]:
     try:
         iter_x = iter(x)  # pyright: ignore
     except TypeError:
@@ -239,7 +239,7 @@ class MatrixLinearOperator(AbstractLinearOperator, strict=True):
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
-        self, matrix: Shaped[Array, "a b"], tags: Union[object, frozenset[object]] = ()
+        self, matrix: Shaped[Array, "a b"], tags: object | frozenset[object] = ()
     ):
         """**Arguments:**
 
@@ -367,7 +367,7 @@ class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
         self,
         pytree: PyTree[ArrayLike],
         output_structure: PyTree[jax.ShapeDtypeStruct],
-        tags: Union[object, frozenset[object]] = (),
+        tags: object | frozenset[object] = (),
     ):
         """**Arguments:**
 
@@ -558,7 +558,7 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
     x: PyTree[Inexact[Array, "..."]]
     args: PyTree[Any]
     tags: frozenset[object] = eqx.field(static=True)
-    jac: Optional[Literal["fwd", "bwd"]]
+    jac: Literal["fwd", "bwd"] | None
 
     @eqxi.doc_remove_args("closure_convert", "_has_aux")
     def __init__(
@@ -566,10 +566,10 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
         fn: Callable,
         x: PyTree[ArrayLike],
         args: PyTree[Any] = None,
-        tags: Union[object, Iterable[object]] = (),
+        tags: object | Iterable[object] = (),
         closure_convert: bool = True,
         _has_aux: bool = False,  # TODO(kidger): remove, no longer used
-        jac: Optional[Literal["fwd", "bwd"]] = None,
+        jac: Literal["fwd", "bwd"] | None = None,
     ):
         """**Arguments:**
 
@@ -659,7 +659,7 @@ class FunctionLinearOperator(AbstractLinearOperator, strict=True):
         self,
         fn: Callable[[PyTree[Inexact[Array, "..."]]], PyTree[Inexact[Array, "..."]]],
         input_structure: PyTree[jax.ShapeDtypeStruct],
-        tags: Union[object, Iterable[object]] = (),
+        tags: object | Iterable[object] = (),
         closure_convert: bool = True,
     ):
         """**Arguments:**
@@ -892,7 +892,7 @@ class TaggedLinearOperator(AbstractLinearOperator, strict=True):
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
-        self, operator: AbstractLinearOperator, tags: Union[object, Iterable[object]]
+        self, operator: AbstractLinearOperator, tags: object | Iterable[object]
     ):
         """**Arguments:**
 
