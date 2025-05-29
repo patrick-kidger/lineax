@@ -50,7 +50,7 @@ _CGState: TypeAlias = tuple[AbstractLinearOperator, bool]
 # - CG evaluates `operator.mv` three times.
 # - Normal CG evaluates `operator.mv` seven (!) times.
 # Possibly this can be cheapened a bit somehow?
-class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
+class _AbstractCG(AbstractLinearSolver[_CGState]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
@@ -247,7 +247,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState], strict=True):
         return conj_state, conj_options
 
 
-class CG(_AbstractCG, strict=True):
+class CG(_AbstractCG):
     """Conjugate gradient solver for linear systems.
 
     The operator should be positive or negative definite.
@@ -277,7 +277,7 @@ class CG(_AbstractCG, strict=True):
         return False
 
 
-class NormalCG(_AbstractCG, strict=True):
+class NormalCG(_AbstractCG):
     """Conjugate gradient applied to the normal equations:
 
     `A^T A = A^T b`

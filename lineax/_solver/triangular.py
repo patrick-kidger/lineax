@@ -37,7 +37,7 @@ from .misc import (
 _TriangularState: TypeAlias = tuple[Array, bool, bool, PackedStructures, bool]
 
 
-class Triangular(AbstractLinearSolver[_TriangularState], strict=True):
+class Triangular(AbstractLinearSolver[_TriangularState]):
     """Triangular solver for linear systems.
 
     The operator should either be lower triangular or upper triangular.

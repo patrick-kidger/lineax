@@ -33,7 +33,7 @@ from .misc import (
 _DiagonalState: TypeAlias = tuple[Array | None, PackedStructures]
 
 
-class Diagonal(AbstractLinearSolver[_DiagonalState], strict=True):
+class Diagonal(AbstractLinearSolver[_DiagonalState]):
     """Diagonal solver for linear systems.
 
     Requires that the operator be diagonal. Then $Ax = b$, with $A = diag[a]$, is

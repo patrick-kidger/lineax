@@ -30,7 +30,7 @@ from .._solve import AbstractLinearSolver
 _CholeskyState: TypeAlias = tuple[Array, bool]
 
 
-class Cholesky(AbstractLinearSolver[_CholeskyState], strict=True):
+class Cholesky(AbstractLinearSolver[_CholeskyState]):
     """Cholesky solver for linear systems. This is generally the preferred solver for
     positive or negative definite systems.
 
