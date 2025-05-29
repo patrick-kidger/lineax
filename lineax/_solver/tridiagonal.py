@@ -33,7 +33,7 @@ from .misc import (
 _TridiagonalState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
 
 
-class Tridiagonal(AbstractLinearSolver[_TridiagonalState], strict=True):
+class Tridiagonal(AbstractLinearSolver[_TridiagonalState]):
     """Tridiagonal solver for linear systems, uses the LAPACK/cusparse implementation
     of Gaussian elimination with partial pivotting (which increases stability).
     ."""

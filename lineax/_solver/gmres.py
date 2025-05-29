@@ -40,7 +40,7 @@ from .qr import QR
 _GMRESState: TypeAlias = AbstractLinearOperator
 
 
-class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
+class GMRES(AbstractLinearSolver[_GMRESState]):
     """GMRES solver for linear systems.
 
     The operator should be square.

@@ -327,7 +327,7 @@ eqxi.register_impl_finalisation(linear_solve_p)
 _SolverState = TypeVar("_SolverState")
 
 
-class AbstractLinearSolver(eqx.Module, Generic[_SolverState], strict=True):
+class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
     """Abstract base class for all linear solvers."""
 
     @abc.abstractmethod
@@ -535,7 +535,7 @@ def _lookup(token) -> AbstractLinearSolver:
 _AutoLinearSolverState: TypeAlias = tuple[Any, Any]
 
 
-class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True):
+class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     """Automatically determines a good linear solver based on the structure of the
     operator.
 
