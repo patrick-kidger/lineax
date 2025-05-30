@@ -101,7 +101,8 @@ def test_gmres_stagnation_or_breakdown(getkey, dtype):
 
 
 @pytest.mark.parametrize(
-    "solver", (lx.AutoLinearSolver(well_posed=None), lx.QR(), lx.SVD())
+    "solver",
+    (lx.AutoLinearSolver(well_posed=None), lx.QR(), lx.SVD(), lx.NormalCholesky()),
 )
 def test_nonsquare_pytree_operator1(solver):
     x = [[1, 5.0, jnp.array(-1.0)], [jnp.array(-2), jnp.array(-2.0), 3.0]]
@@ -116,7 +117,8 @@ def test_nonsquare_pytree_operator1(solver):
 
 
 @pytest.mark.parametrize(
-    "solver", (lx.AutoLinearSolver(well_posed=None), lx.QR(), lx.SVD())
+    "solver",
+    (lx.AutoLinearSolver(well_posed=None), lx.QR(), lx.SVD(), lx.NormalCholesky()),
 )
 def test_nonsquare_pytree_operator2(solver):
     x = [[1, jnp.array(-2)], [5.0, jnp.array(-2.0)], [jnp.array(-1.0), 3.0]]
