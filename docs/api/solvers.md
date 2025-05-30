@@ -42,6 +42,13 @@ These are capable of solving ill-posed linear problems.
         members:
             - __init__
 
+---
+
+::: lineax.NormalCholesky
+    options:
+        members:
+            - __init__
+
 !!! info
 
     In addition to these, `lineax.Diagonal(well_posed=False)` and [`lineax.NormalCG`][] (below) also support ill-posed problems.

@@ -20,6 +20,7 @@ from jaxtyping import Array, PyTree
 
 from .._operator import (
     AbstractLinearOperator,
+    conj,
     is_negative_semidefinite,
     is_positive_semidefinite,
 )
@@ -57,7 +58,7 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         if is_nsd:
             matrix = -matrix
         factor, lower = jsp.linalg.cho_factor(matrix)
-        # Fix lower triangular for simplicity.
+        # Fix upper triangular for simplicity.
         assert lower is False
         return factor, is_nsd
 
@@ -93,6 +94,78 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
 
 
 Cholesky.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""
+
+_NormalCholeskyState: TypeAlias = tuple[
+    tuple[Array, bool], bool, AbstractLinearOperator
+]
+
+
+class NormalCholesky(AbstractLinearSolver):
+    """Cholesky solver for linear systems $Ax = b$ applied to the normal equations
+
+    $A^* A x = A^* b$
+
+    if $m \\ge n$, and otherwise
+
+    $A A^* y = b$,
+
+    where $x = A^* y$.
+
+    Here, the operator $A$ may be non-square, but must have full rank.
+    """
+
+    def init(self, operator, options):
+        del options
+        tall = operator.out_size() >= operator.in_size()
+        if tall:
+            matrix = (conj(operator.transpose()) @ operator).as_matrix()
+        else:
+            matrix = (operator @ conj(operator.transpose())).as_matrix()
+        factorization = jsp.linalg.cho_factor(matrix)
+        return factorization, tall, operator
+
+    def compute(
+        self,
+        state: _NormalCholeskyState,
+        vector: PyTree[Array],
+        options: dict[str, Any],
+    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
+        factorization, tall, operator = state
+        del state, options
+        if tall:
+            vector = conj(operator.transpose()).mv(vector)
+        vector, unflatten = jfu.ravel_pytree(vector)
+        solution = jsp.linalg.cho_solve(factorization, vector)
+        solution = unflatten(solution)
+        if not tall:
+            solution = conj(operator.transpose()).mv(solution)
+        return solution, RESULTS.successful, {}
+
+    def transpose(self, state: _NormalCholeskyState, options: dict[str, Any]):
+        (factor, lower), tall, operator = state
+        state_transpose = ((factor.conj(), lower), not tall, operator.transpose())
+        return state_transpose, options
+
+    def conj(self, state: _NormalCholeskyState, options: dict[str, Any]):
+        (factor, lower), tall, operator = state
+        state_conj = ((factor.conj(), lower), tall, conj(operator))
+        return state_conj, options
+
+    def allow_dependent_columns(self, operator):
+        rows = operator.out_size()
+        columns = operator.in_size()
+        return columns > rows
+
+    def allow_dependent_rows(self, operator):
+        rows = operator.out_size()
+        columns = operator.in_size()
+        return rows > columns
+
+
+NormalCholesky.__init__.__doc__ = """**Arguments:**
 
 Nothing.
 """

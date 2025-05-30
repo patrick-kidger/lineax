@@ -14,7 +14,7 @@
 
 from .bicgstab import BiCGStab as BiCGStab
 from .cg import CG as CG, NormalCG as NormalCG
-from .cholesky import Cholesky as Cholesky
+from .cholesky import Cholesky as Cholesky, NormalCholesky as NormalCholesky
 from .diagonal import Diagonal as Diagonal
 from .gmres import GMRES as GMRES
 from .lu import LU as LU

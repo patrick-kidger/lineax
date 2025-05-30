@@ -109,7 +109,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
             # If a downstream user wants to avoid this then they can call
             # ```
             # linear_solve(
-            #     conj(operator.T) @ operator, operator.mv(b), solver=CG()
+            #     conj(operator.T) @ operator, conj(operator.T).mv(b), solver=CG()
             # )
             # ```
             # directly.
@@ -280,7 +280,7 @@ class CG(_AbstractCG):
 class NormalCG(_AbstractCG):
     """Conjugate gradient applied to the normal equations:
 
-    `A^T A = A^T b`
+    `A^T A x = A^T b`
 
     of a system of linear equations. Note that this squares the condition
     number, so it is not recommended. This is a fast but potentially inaccurate
