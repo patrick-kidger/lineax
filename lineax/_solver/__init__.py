@@ -19,6 +19,7 @@ from .diagonal import Diagonal as Diagonal
 from .gmres import GMRES as GMRES
 from .lsmr import LSMR as LSMR
 from .lu import LU as LU
+from .normal import Normal as Normal
 from .qr import QR as QR
 from .svd import SVD as SVD
 from .triangular import Triangular as Triangular
