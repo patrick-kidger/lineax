@@ -57,7 +57,7 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         if is_nsd:
             matrix = -matrix
         factor, lower = jsp.linalg.cho_factor(matrix)
-        # Fix lower triangular for simplicity.
+        # Fix upper triangular for simplicity.
         assert lower is False
         return factor, is_nsd
 
