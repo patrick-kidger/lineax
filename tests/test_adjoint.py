@@ -84,7 +84,7 @@ else:
         # complicated, see gh #160
         lx.GMRES(tol, tol, max_steps=4, restart=1),
         lx.BiCGStab(tol, tol, max_steps=3),
-        lx.NormalCG(tol, tol, max_steps=4),
+        lx.Normal(lx.CG(tol, tol, max_steps=4)),
         lx.CG(tol, tol, max_steps=3),
     ],
 )

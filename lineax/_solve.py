@@ -400,6 +400,9 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         If `True` then a more expensive backward pass is needed, to account for the
         extra generality.
 
+        The value `True` does not guarantee that the solver will produce correct
+        or non-NaN values for operators with linearly dependent columns.
+
         If you do not need to autodifferentiate through a custom linear solver then you
         simply define this method as
         ```python
@@ -424,6 +427,9 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
         If `True` then a more expensive backward pass is needed, to account for the
         extra generality.
+
+        The value `True` does not guarantee that the solver will produce correct
+        or non-NaN values for operators with linearly dependent rows.
 
         If you do not need to autodifferentiate through a custom linear solver then you
         simply define this method as
