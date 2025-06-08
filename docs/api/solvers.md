@@ -9,9 +9,9 @@ If you're not sure what to use, then pick [`lineax.AutoLinearSolver`][] and it w
             members:
                 - init
                 - compute
-                - allow_dependent_columns
-                - allow_dependent_rows
                 - transpose
+                - conj
+                - assume_full_rank
 
 ::: lineax.AutoLinearSolver
     options:

@@ -100,22 +100,8 @@ class QR(AbstractLinearSolver):
         conj_options = {}
         return conj_state, conj_options
 
-    def allow_dependent_columns(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        # We're able to pull an efficiency trick here.
-        #
-        # As we don't use a rank-revealing implementation, then we always require that
-        # the operator have full rank.
-        #
-        # So if we have columns <= rows, then we know that all our columns are linearly
-        # independent. We can return `False` and get a computationally cheaper jvp rule.
-        return columns > rows
-
-    def allow_dependent_rows(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return rows > columns
+    def assume_full_rank(self):
+        return True
 
 
 QR.__init__.__doc__ = """**Arguments:**

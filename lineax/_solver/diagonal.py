@@ -101,11 +101,8 @@ class Diagonal(AbstractLinearSolver[_DiagonalState]):
         conj_state = conj_diag, packed_structures
         return conj_state, conj_options
 
-    def allow_dependent_columns(self, operator):
-        return not self.well_posed
-
-    def allow_dependent_rows(self, operator):
-        return not self.well_posed
+    def assume_full_rank(self):
+        return self.well_posed
 
 
 Diagonal.__init__.__doc__ = """**Arguments**:
