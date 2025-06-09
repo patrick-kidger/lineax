@@ -85,11 +85,8 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         factor, is_nsd = state
         return (factor.conj(), is_nsd), options
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 Cholesky.__init__.__doc__ = """**Arguments:**

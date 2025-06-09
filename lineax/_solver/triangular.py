@@ -103,11 +103,8 @@ class Triangular(AbstractLinearSolver[_TriangularState]):
         conj_options = {}
         return conj_state, conj_options
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 Triangular.__init__.__doc__ = """**Arguments:**

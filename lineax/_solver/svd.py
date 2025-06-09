@@ -92,11 +92,8 @@ class SVD(AbstractLinearSolver[_SVDState]):
         conj_options = {}
         return conj_state, conj_options
 
-    def allow_dependent_columns(self, operator):
-        return True
-
-    def allow_dependent_rows(self, operator):
-        return True
+    def assume_full_rank(self):
+        return False
 
 
 SVD.__init__.__doc__ = """**Arguments**:
