@@ -26,15 +26,13 @@ from .._tags import positive_semidefinite_tag
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")
-# _NormalState: TypeAlias = tuple[_InnerSolverState, bool, AbstractLinearOperator]
 
 
 class Normal(
-    # AbstractLinearSolver[_NormalState]
     AbstractLinearSolver[tuple[_InnerSolverState, bool, AbstractLinearOperator]]
 ):
     """Wrapper for an inner solver of positive (semi)definite systems. The
-    wrapped solver handles possible nonsquare systems $Ax = b$ by applying the
+    wrapped solver handles possibly nonsquare systems $Ax = b$ by applying the
     inner solver to the normal equations
 
     $A^* A x = A^* b$

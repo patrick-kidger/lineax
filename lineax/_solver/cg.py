@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, TYPE_CHECKING, TypeAlias
+from typing import Any, TypeAlias
 
 import equinox.internal as eqxi
 import jax
@@ -22,12 +22,6 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
-
-
-if TYPE_CHECKING:
-    pass
-else:
-    pass
 
 from .._misc import resolve_rcond, structure_equal, tree_where
 from .._norm import max_norm, tree_dot

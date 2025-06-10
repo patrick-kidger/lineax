@@ -455,7 +455,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         """Does this solver assume that all operators are full rank?
 
         When `False`, a more expensive backward pass is needed to account for
-        the extra generality. In a custom linear solver, it is always safe to
+        the extra generality. In a custom linear solver it is always safe to
         return False.
 
         **Arguments:**
