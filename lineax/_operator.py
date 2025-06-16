@@ -16,8 +16,8 @@ import abc
 import functools as ft
 import math
 import warnings
-from collections.abc import Callable
-from typing import Any, Iterable, Literal, NoReturn, Optional, TypeVar, Union
+from collections.abc import Callable, Iterable
+from typing import Any, Literal, NoReturn, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -58,7 +58,7 @@ from ._tags import (
 )
 
 
-def _frozenset(x: Union[object, Iterable[object]]) -> frozenset[object]:
+def _frozenset(x: object | Iterable[object]) -> frozenset[object]:
     try:
         iter_x = iter(x)  # pyright: ignore
     except TypeError:
@@ -67,7 +67,7 @@ def _frozenset(x: Union[object, Iterable[object]]) -> frozenset[object]:
         return frozenset(iter_x)
 
 
-class AbstractLinearOperator(eqx.Module, strict=True):
+class AbstractLinearOperator(eqx.Module):
     """Abstract base class for all linear operators.
 
     Linear operators can act between PyTrees. Each `AbstractLinearOperator` is thought
@@ -227,7 +227,7 @@ class AbstractLinearOperator(eqx.Module, strict=True):
         return NegLinearOperator(self)
 
 
-class MatrixLinearOperator(AbstractLinearOperator, strict=True):
+class MatrixLinearOperator(AbstractLinearOperator):
     """Wraps a 2-dimensional JAX array into a linear operator.
 
     If the matrix has shape `(a, b)` then matrix-vector multiplication (`self.mv`) is
@@ -239,7 +239,7 @@ class MatrixLinearOperator(AbstractLinearOperator, strict=True):
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
-        self, matrix: Shaped[Array, "a b"], tags: Union[object, frozenset[object]] = ()
+        self, matrix: Shaped[Array, "a b"], tags: object | frozenset[object] = ()
     ):
         """**Arguments:**
 
@@ -327,7 +327,7 @@ class _Leaf:  # not a pytree
 
 # The `{input,output}_structure`s have to be static because otherwise abstract
 # evaluation rules will promote them to ShapedArrays.
-class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
+class PyTreeLinearOperator(AbstractLinearOperator):
     """Represents a PyTree of floating-point JAX arrays as a linear operator.
 
     This is basically a generalisation of [`lineax.MatrixLinearOperator`][], from
@@ -367,7 +367,7 @@ class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
         self,
         pytree: PyTree[ArrayLike],
         output_structure: PyTree[jax.ShapeDtypeStruct],
-        tags: Union[object, frozenset[object]] = (),
+        tags: object | frozenset[object] = (),
     ):
         """**Arguments:**
 
@@ -474,7 +474,7 @@ class PyTreeLinearOperator(AbstractLinearOperator, strict=True):
         return jtu.tree_unflatten(treedef, leaves)
 
 
-class DiagonalLinearOperator(AbstractLinearOperator, strict=True):
+class DiagonalLinearOperator(AbstractLinearOperator):
     """A diagonal linear operator, e.g. for a diagonal matrix. Only the diagonal is
     stored (for memory efficiency). Matrix-vector products are computed by doing a
     pointwise diagonal * vector, rather than a full matrix @ vector (for speed).
@@ -533,7 +533,7 @@ class _Unwrap(eqx.Module):
         return f
 
 
-class JacobianLinearOperator(AbstractLinearOperator, strict=True):
+class JacobianLinearOperator(AbstractLinearOperator):
     """Given a function `fn: X -> Y`, and a point `x in X`, then this defines the
     linear operator (also a function `X -> Y`) given by the Jacobian `(d(fn)/dx)(x)`.
 
@@ -558,7 +558,7 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
     x: PyTree[Inexact[Array, "..."]]
     args: PyTree[Any]
     tags: frozenset[object] = eqx.field(static=True)
-    jac: Optional[Literal["fwd", "bwd"]]
+    jac: Literal["fwd", "bwd"] | None
 
     @eqxi.doc_remove_args("closure_convert", "_has_aux")
     def __init__(
@@ -566,10 +566,10 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
         fn: Callable,
         x: PyTree[ArrayLike],
         args: PyTree[Any] = None,
-        tags: Union[object, Iterable[object]] = (),
+        tags: object | Iterable[object] = (),
         closure_convert: bool = True,
         _has_aux: bool = False,  # TODO(kidger): remove, no longer used
-        jac: Optional[Literal["fwd", "bwd"]] = None,
+        jac: Literal["fwd", "bwd"] | None = None,
     ):
         """**Arguments:**
 
@@ -642,7 +642,7 @@ class JacobianLinearOperator(AbstractLinearOperator, strict=True):
 
 
 # `input_structure` must be static as with `JacobianLinearOperator`
-class FunctionLinearOperator(AbstractLinearOperator, strict=True):
+class FunctionLinearOperator(AbstractLinearOperator):
     """Wraps a *linear* function `fn: X -> Y` into a linear operator. (So that
     `self.mv(x)` is defined by `self.mv(x) == fn(x)`.)
 
@@ -659,7 +659,7 @@ class FunctionLinearOperator(AbstractLinearOperator, strict=True):
         self,
         fn: Callable[[PyTree[Inexact[Array, "..."]]], PyTree[Inexact[Array, "..."]]],
         input_structure: PyTree[jax.ShapeDtypeStruct],
-        tags: Union[object, Iterable[object]] = (),
+        tags: object | Iterable[object] = (),
         closure_convert: bool = True,
     ):
         """**Arguments:**
@@ -714,7 +714,7 @@ class FunctionLinearOperator(AbstractLinearOperator, strict=True):
 
 
 # `structure` must be static as with `JacobianLinearOperator`
-class IdentityLinearOperator(AbstractLinearOperator, strict=True):
+class IdentityLinearOperator(AbstractLinearOperator):
     """Represents the identity transformation `X -> X`, where each `x in X` is some
     PyTree of floating-point JAX arrays.
     """
@@ -804,7 +804,7 @@ class IdentityLinearOperator(AbstractLinearOperator, strict=True):
         return frozenset()
 
 
-class TridiagonalLinearOperator(AbstractLinearOperator, strict=True):
+class TridiagonalLinearOperator(AbstractLinearOperator):
     """As [`lineax.MatrixLinearOperator`][], but for specifically a tridiagonal
     matrix.
     """
@@ -868,7 +868,7 @@ class TridiagonalLinearOperator(AbstractLinearOperator, strict=True):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
-class TaggedLinearOperator(AbstractLinearOperator, strict=True):
+class TaggedLinearOperator(AbstractLinearOperator):
     """Wraps another linear operator and specifies that it has certain tags, e.g.
     representing symmetry.
 
@@ -892,7 +892,7 @@ class TaggedLinearOperator(AbstractLinearOperator, strict=True):
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
-        self, operator: AbstractLinearOperator, tags: Union[object, Iterable[object]]
+        self, operator: AbstractLinearOperator, tags: object | Iterable[object]
     ):
         """**Arguments:**
 
@@ -932,7 +932,7 @@ def _is_none(x):
     return x is None
 
 
-class TangentLinearOperator(AbstractLinearOperator, strict=True):
+class TangentLinearOperator(AbstractLinearOperator):
     """Internal to lineax. Used to represent the tangent (jvp) computation with
     respect to the linear operator in a linear solve.
     """
@@ -967,7 +967,7 @@ class TangentLinearOperator(AbstractLinearOperator, strict=True):
         return self.primal.out_structure()
 
 
-class AddLinearOperator(AbstractLinearOperator, strict=True):
+class AddLinearOperator(AbstractLinearOperator):
     """A linear operator formed by adding two other linear operators together.
 
     !!! Example
@@ -1006,7 +1006,7 @@ class AddLinearOperator(AbstractLinearOperator, strict=True):
         return self.operator1.out_structure()
 
 
-class MulLinearOperator(AbstractLinearOperator, strict=True):
+class MulLinearOperator(AbstractLinearOperator):
     """A linear operator formed by multiplying a linear operator by a scalar.
 
     !!! Example
@@ -1039,7 +1039,7 @@ class MulLinearOperator(AbstractLinearOperator, strict=True):
 
 # Not just `MulLinearOperator(..., -1)` for compatibility with
 # `jax_numpy_dtype_promotion=strict`.
-class NegLinearOperator(AbstractLinearOperator, strict=True):
+class NegLinearOperator(AbstractLinearOperator):
     """A linear operator formed by computing the negative of a linear operator.
 
     !!! Example
@@ -1068,7 +1068,7 @@ class NegLinearOperator(AbstractLinearOperator, strict=True):
         return self.operator.out_structure()
 
 
-class DivLinearOperator(AbstractLinearOperator, strict=True):
+class DivLinearOperator(AbstractLinearOperator):
     """A linear operator formed by dividing a linear operator by a scalar.
 
     !!! Example
@@ -1100,7 +1100,7 @@ class DivLinearOperator(AbstractLinearOperator, strict=True):
         return self.operator.out_structure()
 
 
-class ComposedLinearOperator(AbstractLinearOperator, strict=True):
+class ComposedLinearOperator(AbstractLinearOperator):
     """A linear operator formed by composing (matrix-multiplying) two other linear
     operators together.
 
@@ -1142,7 +1142,7 @@ class ComposedLinearOperator(AbstractLinearOperator, strict=True):
         return self.operator1.out_structure()
 
 
-class AuxLinearOperator(AbstractLinearOperator, strict=True):
+class AuxLinearOperator(AbstractLinearOperator):
     """Internal to lineax. Used to represent a linear operator with additional
     metadata attached.
     """

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import cast, Union
+from typing import cast
 
 import equinox as eqx
 import jax
@@ -104,7 +104,7 @@ def test_structures_vector(make_operator, getkey):
     assert tree_allclose(out_structure, operator.out_structure())
 
 
-def _setup(getkey, matrix, tag: Union[object, frozenset[object]] = frozenset()):
+def _setup(getkey, matrix, tag: object | frozenset[object] = frozenset()):
     for make_operator in make_operators:
         if make_operator is make_trivial_diagonal_operator and tag != lx.diagonal_tag:
             continue

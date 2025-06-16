@@ -14,8 +14,7 @@
 
 import abc
 import functools as ft
-from typing import Any, Generic, Optional, TypeVar
-from typing_extensions import TypeAlias
+from typing import Any, Generic, TypeAlias, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -328,7 +327,7 @@ eqxi.register_impl_finalisation(linear_solve_p)
 _SolverState = TypeVar("_SolverState")
 
 
-class AbstractLinearSolver(eqx.Module, Generic[_SolverState], strict=True):
+class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
     """Abstract base class for all linear solvers."""
 
     @abc.abstractmethod
@@ -536,7 +535,7 @@ def _lookup(token) -> AbstractLinearSolver:
 _AutoLinearSolverState: TypeAlias = tuple[Any, Any]
 
 
-class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True):
+class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     """Automatically determines a good linear solver based on the structure of the
     operator.
 
@@ -571,7 +570,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState], strict=True
     handle ill-posed systems as long as it is not computationally expensive to do so.
     """
 
-    well_posed: Optional[bool]
+    well_posed: bool | None
 
     def _select_solver(self, operator: AbstractLinearOperator):
         if self.well_posed is True:
@@ -685,7 +684,7 @@ def linear_solve(
     vector: PyTree[ArrayLike],
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     state: PyTree[Any] = sentinel,
     throw: bool = True,
 ) -> Solution:

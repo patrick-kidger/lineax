@@ -67,7 +67,7 @@ class RESULTS(eqxi.Enumeration):
     nonfinite_input = _nonfinite_msg
 
 
-class Solution(eqx.Module, strict=True):
+class Solution(eqx.Module):
     """The solution to a linear solve.
 
     **Attributes:**
