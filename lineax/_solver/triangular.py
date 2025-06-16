@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
@@ -38,7 +37,7 @@ from .misc import (
 _TriangularState: TypeAlias = tuple[Array, bool, bool, PackedStructures, bool]
 
 
-class Triangular(AbstractLinearSolver[_TriangularState], strict=True):
+class Triangular(AbstractLinearSolver[_TriangularState]):
     """Triangular solver for linear systems.
 
     The operator should either be lower triangular or upper triangular.

@@ -13,8 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Optional
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax
 import jax.lax as lax
@@ -33,7 +32,7 @@ from .misc import preconditioner_and_y0
 _BiCGStabState: TypeAlias = AbstractLinearOperator
 
 
-class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
+class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
     """Biconjugate gradient stabilised method for linear systems.
 
     The operator should be square.
@@ -53,7 +52,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState], strict=True):
     rtol: float
     atol: float
     norm: Callable = max_norm
-    max_steps: Optional[int] = None
+    max_steps: int | None = None
 
     def __check_init__(self):
         if isinstance(self.rtol, (int, float)) and self.rtol < 0:

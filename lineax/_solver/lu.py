@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -34,7 +33,7 @@ from .misc import (
 _LUState: TypeAlias = tuple[tuple[Array, Array], PackedStructures, bool]
 
 
-class LU(AbstractLinearSolver[_LUState], strict=True):
+class LU(AbstractLinearSolver[_LUState]):
     """LU solver for linear systems.
 
     This solver can only handle square nonsingular operators.

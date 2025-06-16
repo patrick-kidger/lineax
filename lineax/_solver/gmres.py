@@ -14,8 +14,7 @@
 
 import functools as ft
 from collections.abc import Callable
-from typing import Any, cast, Optional
-from typing_extensions import TypeAlias
+from typing import Any, cast, TypeAlias
 
 import equinox.internal as eqxi
 import jax
@@ -41,7 +40,7 @@ from .qr import QR
 _GMRESState: TypeAlias = AbstractLinearOperator
 
 
-class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
+class GMRES(AbstractLinearSolver[_GMRESState]):
     """GMRES solver for linear systems.
 
     The operator should be square.
@@ -61,7 +60,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
     rtol: float
     atol: float
     norm: Callable = max_norm
-    max_steps: Optional[int] = None
+    max_steps: int | None = None
     restart: int = 20
     stagnation_iters: int = 20
 
@@ -401,7 +400,7 @@ class GMRES(AbstractLinearSolver[_GMRESState], strict=True):
         return basis_new, coeff_mat_new, breakdown
 
     def _normalise(
-        self, x: PyTree[Array], eps: Optional[Float[ArrayLike, ""]]
+        self, x: PyTree[Array], eps: Float[ArrayLike, ""] | None
     ) -> tuple[PyTree[Array], Inexact[Array, ""], Bool[ArrayLike, ""]]:
         norm = two_norm(x)
         if eps is None:
