@@ -1363,7 +1363,6 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
 @diagonal.register(MatrixLinearOperator)
 @diagonal.register(PyTreeLinearOperator)
-@diagonal.register(FunctionLinearOperator)
 def _(operator):
     return jnp.diag(operator.as_matrix())
 
