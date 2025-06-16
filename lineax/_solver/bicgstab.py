@@ -42,9 +42,9 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
     This supports the following `options` (as passed to
     `lx.linear_solve(..., options=...)`).
 
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
+    - `preconditioner`: A [`lineax.AbstractLinearOperator`][]
         to be used as a preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
+        [`lineax.IdentityLinearOperator`][]. This method uses right preconditioning.
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
     """
@@ -205,15 +205,17 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
         return solution, result, stats
 
     def transpose(self, state: _BiCGStabState, options: dict[str, Any]):
-        del options
-        operator = state
         transpose_options = {}
+        if "preconditioner" in options:
+            transpose_options["preconditioner"] = options["preconditioner"].transpose()
+        operator = state
         return operator.transpose(), transpose_options
 
     def conj(self, state: _BiCGStabState, options: dict[str, Any]):
-        del options
-        operator = state
         conj_options = {}
+        if "preconditioner" in options:
+            conj_options["preconditioner"] = conj(options["preconditioner"])
+        operator = state
         return conj(operator), conj_options
 
     def allow_dependent_columns(self, operator):

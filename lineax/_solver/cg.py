@@ -78,7 +78,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         if not self._normal:
             if not structure_equal(operator.in_structure(), operator.out_structure()):
                 raise ValueError(
-                    "`CG()` may only be used for linear solves with " "square matrices."
+                    "`CG()` may only be used for linear solves with square matrices."
                 )
             if not (is_positive_semidefinite(operator) | is_nsd):
                 raise ValueError(
@@ -102,6 +102,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
+        preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         if self._normal:
             # Linearise if JacobianLinearOperator, to avoid computing the forward
             # pass separately for mv and transpose_mv.
@@ -114,17 +115,26 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
             # ```
             # directly.
             operator = linearise(operator)
+            preconditioner = linearise(preconditioner)
 
             _mv = operator.mv
             _transpose_mv = conj(operator.transpose()).mv
+            _pmv = preconditioner.mv
+            _transpose_pmv = conj(preconditioner.transpose()).mv
 
             def mv(vector: PyTree) -> PyTree:
                 return _transpose_mv(_mv(vector))
 
+            def psolve(vector: PyTree) -> PyTree:
+                return _pmv(_transpose_pmv(vector))
+
             vector = _transpose_mv(vector)
         else:
+            if not is_positive_semidefinite(preconditioner):
+                raise ValueError("The preconditioner must be positive definite.")
             mv = operator.mv
-        preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
+            psolve = preconditioner.mv
+
         leaves, _ = jtu.tree_flatten(vector)
         size = sum(leaf.size for leaf in leaves)
         if self.max_steps is None:
@@ -132,7 +142,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         else:
             max_steps = self.max_steps
         r0 = (vector**ω - mv(y0) ** ω).ω
-        p0 = preconditioner.mv(r0)
+        p0 = psolve(r0)
         gamma0 = tree_dot(p0, r0)
         rcond = resolve_rcond(None, size, size, jnp.result_type(*leaves))
         initial_value = (
@@ -203,7 +213,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
                 stable_step = eqxi.nonbatchable(stable_step)
                 r = lax.cond(stable_step, stable_r, cheap_r)
 
-            z = preconditioner.mv(r)
+            z = psolve(r)
             gamma_prev = gamma
             gamma = tree_dot(z, r)
             beta = gamma / gamma_prev
@@ -233,17 +243,19 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         return solution, result, stats
 
     def transpose(self, state: _CGState, options: dict[str, Any]):
-        del options
+        transpose_options = {}
+        if "preconditioner" in options:
+            transpose_options["preconditioner"] = options["preconditioner"].transpose()
         psd_op, is_nsd = state
         transpose_state = psd_op.transpose(), is_nsd
-        transpose_options = {}
         return transpose_state, transpose_options
 
     def conj(self, state: _CGState, options: dict[str, Any]):
-        del options
+        conj_options = {}
+        if "preconditioner" in options:
+            conj_options["preconditioner"] = conj(options["preconditioner"])
         psd_op, is_nsd = state
         conj_state = conj(psd_op), is_nsd
-        conj_options = {}
         return conj_state, conj_options
 
 
@@ -259,7 +271,9 @@ class CG(_AbstractCG):
 
     - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
         to be used as preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
+        [`lineax.IdentityLinearOperator`][]. This method uses left preconditioning,
+        so it is the preconditioned residual that is minimized, though the actual
+        termination criteria uses the un-preconditioned residual.
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
 
@@ -291,9 +305,12 @@ class NormalCG(_AbstractCG):
     This supports the following `options` (as passed to
     `lx.linear_solve(..., options=...)`).
 
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
-        to be used as preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
+    - `preconditioner`: A [`lineax.AbstractLinearOperator`][] to be used as
+        preconditioner. Defaults to [`lineax.IdentityLinearOperator`][]. Note that
+        the preconditioner should approximate the inverse of `A`, not the inverse of
+        `A^T A`. This method uses left preconditioning, so it is the preconditioned
+        residual that is minimized, though the actual termination criteria uses
+        the un-preconditioned residual.
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
 
