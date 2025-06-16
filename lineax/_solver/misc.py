@@ -27,7 +27,6 @@ from .._misc import strip_weak_dtype, structure_equal
 from .._operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
-    is_positive_semidefinite,
 )
 
 
@@ -52,8 +51,6 @@ def preconditioner_and_y0(
                 "The preconditioner must have `out_structure` that matches the "
                 "operator's `in_structure`."
             )
-        if not is_positive_semidefinite(preconditioner):
-            raise ValueError("The preconditioner must be positive definite.")
     try:
         y0 = options["y0"]
     except KeyError:

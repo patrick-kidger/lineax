@@ -50,9 +50,11 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
     This supports the following `options` (as passed to
     `lx.linear_solve(..., options=...)`).
 
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
+    - `preconditioner`: A [`lineax.AbstractLinearOperator`][]
         to be used as preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
+        [`lineax.IdentityLinearOperator`][]. This method uses left preconditioning,
+        so it is the preconditioned residual that is minimized, though the actual
+        termination criteria uses the un-preconditioned residual.
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
     """
@@ -414,15 +416,17 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         return x_normalised, norm, breakdown
 
     def transpose(self, state: _GMRESState, options: dict[str, Any]):
-        del options
-        operator = state
         transpose_options = {}
+        if "preconditioner" in options:
+            transpose_options["preconditioner"] = options["preconditioner"].transpose()
+        operator = state
         return operator.transpose(), transpose_options
 
     def conj(self, state: _GMRESState, options: dict[str, Any]):
-        del options
-        operator = state
         conj_options = {}
+        if "preconditioner" in options:
+            conj_options["preconditioner"] = conj(options["preconditioner"])
+        operator = state
         return conj(operator), conj_options
 
     def allow_dependent_columns(self, operator):
