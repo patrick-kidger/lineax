@@ -1363,10 +1363,42 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
 @diagonal.register(MatrixLinearOperator)
 @diagonal.register(PyTreeLinearOperator)
-@diagonal.register(JacobianLinearOperator)
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
     return jnp.diag(operator.as_matrix())
+
+
+@diagonal.register(JacobianLinearOperator)
+def _(operator):
+    fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
+
+    if operator.jac is None:
+        # Diagonal matrices are square therefore fwd should be more effiicient
+        jac_fwd = True
+    elif operator.jac == "fwd":
+        jac_fwd = True
+    elif operator.jac == "bwd":
+        jac_fwd = False
+    else:
+        raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
+
+    if jac_fwd:
+        _, diag_as_pytree = jax.jvp(
+            fn, (operator.x,), (jax.tree.map(lambda x: jnp.ones_like(x), operator.x),)
+        )
+    else:
+        _, vjp_fun = jax.vjp(fn, operator.x)
+        diag_as_pytree = vjp_fun(jax.tree.map(lambda x: jnp.ones_like(x), operator.x))
+
+    return jfu.ravel_pytree(diag_as_pytree)[0]
+
+
+@diagonal.register(FunctionLinearOperator)
+def _(operator):
+    diag_as_pytree = operator.fn(
+        jax.tree.map(lambda x: jnp.ones(x.shape, x.dtype), operator.in_structure())
+    )
+    return jfu.ravel_pytree(diag_as_pytree)[0]
 
 
 @diagonal.register(DiagonalLinearOperator)
