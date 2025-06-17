@@ -268,6 +268,26 @@ def test_is_negative_semidefinite(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_tridiagonal(dtype, getkey):
+    matrix = jr.normal(getkey(), (5, 5), dtype=dtype)
+    matrix_diag = jnp.diag(matrix)
+    matrix_lower_diag = jnp.diag(matrix, k=-1)
+    matrix_upper_diag = jnp.diag(matrix, k=1)
+    tridiag_matrix = (
+        jnp.diag(matrix_diag)
+        + jnp.diag(matrix_lower_diag, k=-1)
+        + jnp.diag(matrix_upper_diag, k=1)
+    )
+    print(tridiag_matrix)
+    operators = _setup(getkey, tridiag_matrix)
+    for operator in operators:
+        diag, lower_diag, upper_diag = lx.tridiagonal(operator)
+        assert jnp.allclose(diag, matrix_diag)
+        assert jnp.allclose(lower_diag, matrix_lower_diag)
+        assert jnp.allclose(upper_diag, matrix_upper_diag)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_tridiagonal(dtype, getkey):
     diag1 = jr.normal(getkey(), (5,), dtype=dtype)
     diag2 = jr.normal(getkey(), (4,), dtype=dtype)

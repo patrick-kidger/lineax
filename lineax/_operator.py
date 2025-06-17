@@ -1422,8 +1422,6 @@ def tridiagonal(
 
 @tridiagonal.register(MatrixLinearOperator)
 @tridiagonal.register(PyTreeLinearOperator)
-@tridiagonal.register(JacobianLinearOperator)
-@tridiagonal.register(FunctionLinearOperator)
 def _(operator):
     matrix = operator.as_matrix()
     assert matrix.ndim == 2
@@ -1431,6 +1429,65 @@ def _(operator):
     upper_diagonal = jnp.diagonal(matrix, offset=1)
     lower_diagonal = jnp.diagonal(matrix, offset=-1)
     return diagonal, lower_diagonal, upper_diagonal
+
+
+@tridiagonal.register(JacobianLinearOperator)
+def _(operator):
+    flat, unravel = strip_weak_dtype(
+        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    )
+
+    eye_squashed = jnp.zeros((3, flat.size), dtype=flat.dtype)
+    for i in range(3):
+        eye_squashed = eye_squashed.at[i, i::3].set(1.0)
+
+    if operator.jac == "fwd" or operator.jac is None:
+        colors_as_pytrees = jax.vmap(lambda x: operator.mv(unravel(x)))(eye_squashed)
+    elif operator.jac == "bwd":
+        fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
+        _, vjp_fun = jax.vjp(fn, operator.x)
+        colors_as_pytrees = jax.vmap(lambda x: vjp_fun(unravel(x)))(eye_squashed)
+    else:
+        raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
+
+    colors_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(colors_as_pytrees)
+
+    diag = jnp.zeros(flat.size, dtype=flat.dtype)
+    lower_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
+    upper_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
+
+    for i in range(3):
+        diag = diag.at[i::3].set(colors_flat[i, i::3])
+        lower_diag = lower_diag.at[i::3].set(colors_flat[i, i + 1 :: 3])
+        upper_diag = upper_diag.at[i::3].set(colors_flat[(i + 1) % 3, i:-1:3])
+
+    return diag, lower_diag, upper_diag
+
+
+@tridiagonal.register(FunctionLinearOperator)
+def _(operator):
+    flat, unravel = strip_weak_dtype(
+        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    )
+
+    eye_squashed = jnp.zeros((3, flat.size), dtype=flat.dtype)
+    for i in range(3):
+        eye_squashed = eye_squashed.at[i, i::3].set(1.0)
+
+    colors_as_pytrees = jax.vmap(lambda x: operator.fn(unravel(x)))(eye_squashed)
+
+    colors_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(colors_as_pytrees)
+
+    diag = jnp.zeros(flat.size, dtype=flat.dtype)
+    lower_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
+    upper_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
+
+    for i in range(3):
+        diag = diag.at[i::3].set(colors_flat[i, i::3])
+        lower_diag = lower_diag.at[i::3].set(colors_flat[i, i + 1 :: 3])
+        upper_diag = upper_diag.at[i::3].set(colors_flat[(i + 1) % 3, i:-1:3])
+
+    return diag, lower_diag, upper_diag
 
 
 @tridiagonal.register(DiagonalLinearOperator)
