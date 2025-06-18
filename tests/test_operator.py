@@ -23,6 +23,7 @@ import pytest
 
 from .helpers import (
     make_identity_operator,
+    make_jacrev_operator,
     make_operators,
     make_tridiagonal_operator,
     make_trivial_diagonal_operator,
@@ -45,6 +46,10 @@ def test_ops(make_operator, getkey, dtype):
     else:
         matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
         tags = ()
+    if make_operator is make_jacrev_operator and dtype is jnp.complex128:
+        pytest.skip(
+            'JacobianLinearOperator does not support complex dtypes when jac="bwd"'
+        )
     matrix1 = make_operator(getkey, matrix, tags)
     matrix2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3), dtype=dtype))
     scalar = jr.normal(getkey(), (), dtype=dtype)
@@ -278,7 +283,6 @@ def test_tridiagonal(dtype, getkey):
         + jnp.diag(matrix_lower_diag, k=-1)
         + jnp.diag(matrix_upper_diag, k=1)
     )
-    print(tridiag_matrix)
     operators = _setup(getkey, tridiag_matrix)
     for operator in operators:
         diag, lower_diag, upper_diag = lx.tridiagonal(operator)
