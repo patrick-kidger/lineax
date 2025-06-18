@@ -1433,59 +1433,57 @@ def _(operator):
 
 @tridiagonal.register(JacobianLinearOperator)
 def _(operator):
-    flat, unravel = strip_weak_dtype(
-        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-    )
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
 
-    eye_squashed = jnp.zeros((3, flat.size), dtype=flat.dtype)
-    for i in range(3):
-        eye_squashed = eye_squashed.at[i, i::3].set(1.0)
+        coloring = jnp.arange(flat.size) % 3
+
+        basis = jnp.zeros((3, flat.size), dtype=flat.dtype)
+        for i in range(3):
+            basis = basis.at[i, i::3].set(1.0)
 
     if operator.jac == "fwd" or operator.jac is None:
-        colors_as_pytrees = jax.vmap(lambda x: operator.mv(unravel(x)))(eye_squashed)
+        compressed_jac = jax.vmap(lambda x: operator.mv(unravel(x)))(basis)
+        compressed_jac_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(compressed_jac)
+        lower_diag = compressed_jac_flat[(coloring[:-1], jnp.arange(1, flat.size))]
+        upper_diag = compressed_jac_flat[(coloring[1:], jnp.arange(flat.size - 1))]
     elif operator.jac == "bwd":
         fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
         _, vjp_fun = jax.vjp(fn, operator.x)
-        colors_as_pytrees = jax.vmap(lambda x: vjp_fun(unravel(x)))(eye_squashed)
+        compressed_jac = jax.vmap(lambda x: vjp_fun(unravel(x)))(basis)
+        compressed_jac_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(compressed_jac)
+        upper_diag = compressed_jac_flat[(coloring[:-1], jnp.arange(1, flat.size))]
+        lower_diag = compressed_jac_flat[(coloring[1:], jnp.arange(flat.size - 1))]
     else:
         raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
 
-    colors_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(colors_as_pytrees)
-
-    diag = jnp.zeros(flat.size, dtype=flat.dtype)
-    lower_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
-    upper_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
-
-    for i in range(3):
-        diag = diag.at[i::3].set(colors_flat[i, i::3])
-        lower_diag = lower_diag.at[i::3].set(colors_flat[i, i + 1 :: 3])
-        upper_diag = upper_diag.at[i::3].set(colors_flat[(i + 1) % 3, i:-1:3])
+    diag = compressed_jac_flat[(coloring, jnp.arange(flat.size))]
 
     return diag, lower_diag, upper_diag
 
 
 @tridiagonal.register(FunctionLinearOperator)
 def _(operator):
-    flat, unravel = strip_weak_dtype(
-        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-    )
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
 
-    eye_squashed = jnp.zeros((3, flat.size), dtype=flat.dtype)
-    for i in range(3):
-        eye_squashed = eye_squashed.at[i, i::3].set(1.0)
+        coloring = jnp.arange(flat.size) % 3
 
-    colors_as_pytrees = jax.vmap(lambda x: operator.fn(unravel(x)))(eye_squashed)
+        basis = jnp.zeros((3, flat.size), dtype=flat.dtype)
+        for i in range(3):
+            basis = basis.at[i, i::3].set(1.0)
 
-    colors_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(colors_as_pytrees)
+    compressed_jac = jax.vmap(lambda x: operator.fn(unravel(x)))(basis)
 
-    diag = jnp.zeros(flat.size, dtype=flat.dtype)
-    lower_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
-    upper_diag = jnp.zeros(flat.size - 1, dtype=flat.dtype)
+    compressed_jac_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(compressed_jac)
 
-    for i in range(3):
-        diag = diag.at[i::3].set(colors_flat[i, i::3])
-        lower_diag = lower_diag.at[i::3].set(colors_flat[i, i + 1 :: 3])
-        upper_diag = upper_diag.at[i::3].set(colors_flat[(i + 1) % 3, i:-1:3])
+    diag = compressed_jac_flat[(coloring, jnp.arange(flat.size))]
+    lower_diag = compressed_jac_flat[(coloring[:-1], jnp.arange(1, flat.size))]
+    upper_diag = compressed_jac_flat[(coloring[1:], jnp.arange(flat.size - 1))]
 
     return diag, lower_diag, upper_diag
 
