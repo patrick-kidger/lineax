@@ -1369,14 +1369,18 @@ def _(operator):
 
 @diagonal.register(JacobianLinearOperator)
 def _(operator):
-    if operator.jac == "fwd" or operator.jac is None:
-        diag_as_pytree = operator.mv(
-            jax.tree.map(lambda x: jnp.ones_like(x), operator.x)
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
         )
+        basis = jnp.ones(flat.size, dtype=flat.dtype)
+
+    if operator.jac == "fwd" or operator.jac is None:
+        diag_as_pytree = operator.mv(unravel(basis))
     elif operator.jac == "bwd":
         fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
         _, vjp_fun = jax.vjp(fn, operator.x)
-        diag_as_pytree = vjp_fun(jax.tree.map(lambda x: jnp.ones_like(x), operator.x))
+        diag_as_pytree = vjp_fun(unravel(basis))
     else:
         raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
 
@@ -1385,9 +1389,13 @@ def _(operator):
 
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
-    diag_as_pytree = operator.fn(
-        jax.tree.map(lambda x: jnp.ones(x.shape, x.dtype), operator.in_structure())
-    )
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
+        basis = jnp.ones(flat.size, dtype=flat.dtype)
+
+    diag_as_pytree = operator.fn(unravel(basis))
     return jfu.ravel_pytree(diag_as_pytree)[0]
 
 
