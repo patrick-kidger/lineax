@@ -27,17 +27,18 @@ theme:
     custom_dir: "docs/_overrides"  # Overriding part of the HTML
 
     # These additions are my own custom ones, having overridden a partial.
-    twitter_name: "@PatrickKidger"
+    twitter_bluesky_name: "@PatrickKidger"
     twitter_url: "https://twitter.com/PatrickKidger"
+    bluesky_url: "https://PatrickKidger.bsky.social"
 
 site_name: lineax
 site_description: The documentation for the Lineax software library.
 site_author: Patrick Kidger
 site_url: https://docs.kidger.site/lineax
 
-repo_url: https://github.com/google/lineax
-repo_name: google/lineax
-edit_uri: ""  # No edit button, as some of our pages are in /docs and some in /examples via symlink, so it's impossible for them all to be accurate
+repo_url: https://github.com/patrick-kidger/lineax
+repo_name: patrick-kidger/lineax
+edit_uri: ""
 
 strict: true  # Don't allow warnings during the build process
 
@@ -62,33 +63,34 @@ markdown_extensions:
         toc_depth: 4
 
 plugins:
-    - search  # default search plugin; needs manually re-enabling when using any other plugins
-    - autorefs  # Cross-links to headings
+    - search:
+        separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
     - include_exclude_files:
         include:
             - ".htaccess"
         exclude:
             - "_overrides"
-    - mknotebooks  # Jupyter notebooks
+            - "examples/.ipynb_checkpoints/"
+    - ipynb
+    - hippogriffe:
+        extra_public_objects:
+            - jax.ShapeDtypeStruct
     - mkdocstrings:
         handlers:
             python:
-                setup_commands:
-                    - import pytkdocs_tweaks
-                    - pytkdocs_tweaks.main()
-                    - import jax
-                    - jax.ShapeDtypeStruct.__module__ = "jax"
-
-                selection:
-                    inherited_members: true  # Allow looking up inherited methods
-                rendering:
-                    show_root_heading: true  # actually display anything at all...
-                    show_root_full_path: true  # display "diffrax.asdf" not just "asdf"
-                    show_if_no_docstring: true
-                    show_signature_annotations: true
-                    show_source: false  # don't include source code
-                    members_order: source  # order methods according to their order of definition in the source code, not alphabetical order
+                options:
+                    force_inspection: true
                     heading_level: 4
+                    inherited_members: true
+                    members_order: source
+                    show_bases: false
+                    show_if_no_docstring: true
+                    show_overloads: false
+                    show_root_heading: true
+                    show_signature_annotations: true
+                    show_source: false
+                    show_symbol_type_heading: true
+                    show_symbol_type_toc: true
 
 nav:
     - 'index.md'

@@ -13,8 +13,9 @@
 # limitations under the License.
 
 import math
+import typing
 import warnings
-from typing import Any, NewType
+from typing import Any, NewType, TYPE_CHECKING
 
 import equinox.internal as eqxi
 import jax.numpy as jnp
@@ -65,7 +66,11 @@ def preconditioner_and_y0(
     return preconditioner, y0
 
 
-PackedStructures = NewType("PackedStructures", eqxi.Static)
+# This seems to introduce some spurious failure at docgen time.
+if hasattr(typing, "GENERATING_DOCUMENTATION") and not TYPE_CHECKING:
+    PackedStructures = lambda x: x
+else:
+    PackedStructures = NewType("PackedStructures", eqxi.Static)
 
 
 def pack_structures(operator: AbstractLinearOperator) -> PackedStructures:

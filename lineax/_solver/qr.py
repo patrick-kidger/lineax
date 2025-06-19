@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -33,7 +32,7 @@ from .misc import (
 _QRState: TypeAlias = tuple[tuple[Array, Array], bool, PackedStructures]
 
 
-class QR(AbstractLinearSolver, strict=True):
+class QR(AbstractLinearSolver):
     """QR solver for linear systems.
 
     This solver can handle non-square operators.
@@ -117,3 +116,9 @@ class QR(AbstractLinearSolver, strict=True):
         rows = operator.out_size()
         columns = operator.in_size()
         return rows > columns
+
+
+QR.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""

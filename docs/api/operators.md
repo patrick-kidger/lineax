@@ -11,7 +11,7 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
 ??? abstract "`lineax.AbstractLinearOperator`"
 
     ::: lineax.AbstractLinearOperator
-        selection:
+        options:
             members:
                 - mv
                 - as_matrix
@@ -22,55 +22,55 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
                 - out_size
 
 ::: lineax.MatrixLinearOperator
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.DiagonalLinearOperator
-    selection:
-        members:
+    options: 
+        members: 
             - __init__
 
 ---
 
 ::: lineax.TridiagonalLinearOperator
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.PyTreeLinearOperator
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.JacobianLinearOperator
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.FunctionLinearOperator
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.IdentityLinearOperator
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.TaggedLinearOperator
-    selection:
+    options:
         members:
             - __init__

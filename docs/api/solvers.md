@@ -5,7 +5,7 @@ If you're not sure what to use, then pick [`lineax.AutoLinearSolver`][] and it w
 ??? abstract "`lineax.AbstractLinearSolver`"
 
     ::: lineax.AbstractLinearSolver
-        selection:
+        options:
             members:
                 - init
                 - compute
@@ -14,7 +14,7 @@ If you're not sure what to use, then pick [`lineax.AutoLinearSolver`][] and it w
                 - transpose
 
 ::: lineax.AutoLinearSolver
-    selection:
+    options:
         members:
             - __init__
             - select_solver
@@ -22,23 +22,23 @@ If you're not sure what to use, then pick [`lineax.AutoLinearSolver`][] and it w
 ---
 
 ::: lineax.LU
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ## Least squares solvers
 
 These are capable of solving ill-posed linear problems.
 
 ::: lineax.QR
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ---
 
 ::: lineax.SVD
-    selection:
+    options:
         members:
             - __init__
 
@@ -51,30 +51,30 @@ These are capable of solving ill-posed linear problems.
 These require special structure in the operator. (And will throw an error if passed an operator without that structure.) In return, they are able to solve the linear problem much more efficiently.
 
 ::: lineax.Cholesky
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ---
 
 ::: lineax.Diagonal
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.Triangular
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ---
 
 ::: lineax.Tridiagonal
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 !!! info
 
@@ -89,27 +89,27 @@ These solvers use only matrix-vector products, and do not require instantiating 
     Note that [`lineax.BiCGStab`][] and [`lineax.GMRES`][] may fail to converge on some (typically non-sparse) problems.
 
 ::: lineax.CG
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.NormalCG
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.BiCGStab
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: lineax.GMRES
-    selection:
+    options:
         members:
             - __init__

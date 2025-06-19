@@ -20,8 +20,8 @@ from jaxtyping import Array, ArrayLike, PyTree
 
 
 _singular_msg = """
-The linear solver returned non-finite (NaN or inf) output. This usually means that the
-operator was not well-posed, and that the solver does not support this.
+A linear solver returned non-finite (NaN or inf) output. This usually means that an
+operator was not well-posed, and that its solver does not support this.
 
 If you are trying solve a linear least-squares problem then you should pass
 `solver=AutoLinearSolver(well_posed=False)`. By default `lineax.linear_solve`
@@ -40,6 +40,15 @@ If you *were* expecting this solver to work with this operator, then it may be b
 """.strip()
 
 
+_nonfinite_msg = """
+A linear solver received non-finite (NaN or inf) input and cannot determine a
+solution.
+
+This means that you have a bug upstream of Lineax and should check the inputs to
+`lineax.linear_solve` for non-finite values.
+""".strip()
+
+
 class RESULTS(eqxi.Enumeration):
     successful = ""
     max_steps_reached = (
@@ -47,7 +56,7 @@ class RESULTS(eqxi.Enumeration):
     )
     singular = _singular_msg
     breakdown = (
-        "A form of iterative breakdown has occured in the linear solve. "
+        "A form of iterative breakdown has occured in a linear solve. "
         "Try using a different solver for this problem or increase `restart` "
         "if using GMRES."
     )
@@ -56,9 +65,10 @@ class RESULTS(eqxi.Enumeration):
         "`stagnation_iters` or `restart`."
     )
     conlim = "Condition number of A seems to be larger than `conlim`."
+    nonfinite_input = _nonfinite_msg
 
 
-class Solution(eqx.Module, strict=True):
+class Solution(eqx.Module):
     """The solution to a linear solve.
 
     **Attributes:**

@@ -13,8 +13,9 @@
 # limitations under the License.
 
 import functools as ft
-import sys
 
+import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -22,8 +23,11 @@ import jax.scipy as jsp
 import lineax as lx
 
 
-sys.path.append("../tests")
-from helpers import getkey, shaped_allclose  # pyright: ignore
+getkey = eqxi.GetKey()
+
+
+def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
+    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
 jax.config.update("jax_enable_x64", True)
@@ -48,7 +52,7 @@ def benchmark_jax(mat_size: int, *, key):
 
     # info == 0.0 implies that the solve has succeeded.
     returned_failed = jnp.all(info != 0.0)
-    actually_failed = not shaped_allclose(jax_soln, true_x, atol=1e-4, rtol=1e-4)
+    actually_failed = not tree_allclose(jax_soln, true_x, atol=1e-4, rtol=1e-4)
 
     assert actually_failed
 
@@ -62,7 +66,7 @@ def benchmark_lx(mat_size: int, *, key):
     lx_soln = lx.linear_solve(op, b, lx.GMRES(atol=1e-5, rtol=1e-5), throw=False)
 
     returned_failed = jnp.all(lx_soln.result != lx.RESULTS.successful)
-    actually_failed = not shaped_allclose(lx_soln.value, true_x, atol=1e-4, rtol=1e-4)
+    actually_failed = not tree_allclose(lx_soln.value, true_x, atol=1e-4, rtol=1e-4)
 
     assert actually_failed
 

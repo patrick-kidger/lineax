@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.flatten_util as jfu
 import jax.scipy as jsp
@@ -31,7 +30,7 @@ from .._solve import AbstractLinearSolver
 _CholeskyState: TypeAlias = tuple[Array, bool]
 
 
-class Cholesky(AbstractLinearSolver[_CholeskyState], strict=True):
+class Cholesky(AbstractLinearSolver[_CholeskyState]):
     """Cholesky solver for linear systems. This is generally the preferred solver for
     positive or negative definite systems.
 
@@ -91,3 +90,9 @@ class Cholesky(AbstractLinearSolver[_CholeskyState], strict=True):
 
     def allow_dependent_rows(self, operator):
         return False
+
+
+Cholesky.__init__.__doc__ = """**Arguments:**
+
+Nothing.
+"""
