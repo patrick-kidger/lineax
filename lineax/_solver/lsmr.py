@@ -186,7 +186,6 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             normA2=alpha**2,
             maxrbar=0.0,
             minrbar=1e100,
-            normA=jnp.abs(alpha),
             condA=1.0,
             # variables for use in stopping rules
             istop=0,
@@ -296,7 +295,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
 
             # Estimate ||A||.
             st["normA2"] = st["normA2"] + st["beta"] ** 2
-            st["normA"] = jnp.sqrt(st["normA2"])
+            normA = jnp.sqrt(st["normA2"])
             st["normA2"] = st["normA2"] + st["alpha"] ** 2
 
             # Estimate cond(A).
@@ -312,8 +311,8 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             st["normAr"] = jnp.abs(st["zetabar"])
             normx = self.norm(st["x"])
 
-            well_posed_tol = self.atol + self.rtol * (st["normA"] * normx + normb)
-            least_squares_tol = self.atol + self.rtol * (st["normA"] * st["normr"])
+            well_posed_tol = self.atol + self.rtol * (normA * normx + normb)
+            least_squares_tol = self.atol + self.rtol * (normA * st["normr"])
             # x is a solution to A@x = b, according to atol and rtol.
             st["istop"] = lax.select(st["normr"] < well_posed_tol, 1, st["istop"])
             # x solves the least-squares problem according to atol and rtol.
@@ -331,7 +330,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             "istop": loop_state["istop"],
             "norm_r": loop_state["normr"],
             "norm_Ar": loop_state["normAr"],
-            "norm_A": loop_state["normA"],
+            "norm_A": jnp.sqrt(loop_state["normA2"]),
             "cond_A": loop_state["condA"],
             "norm_x": self.norm(loop_state["x"]),
         }
