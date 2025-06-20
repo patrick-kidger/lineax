@@ -67,7 +67,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
     - `damp`: Damping factor for regularized least-squares. LSMR solves the regularized
         least-squares problem:
 
-            min ||A y - b||_2 + damp*||y||_2
+            min ||A y - b||_2^2 + damp*||y||_2^2
 
         where damp is a scalar. If damp is None or 0, the system is solved without
         regularization. Default is 0.
