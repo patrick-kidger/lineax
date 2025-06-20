@@ -313,14 +313,14 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
 
             well_posed_tol = self.atol + self.rtol * (normA * normx + normb)
             least_squares_tol = self.atol + self.rtol * (normA * st["normr"])
-            # x is a solution to A@x = b, according to atol and rtol.
-            st["istop"] = lax.select(st["normr"] < well_posed_tol, 1, st["istop"])
-            # x solves the least-squares problem according to atol and rtol.
-            st["istop"] = lax.select(st["normAr"] < least_squares_tol, 2, st["istop"])
-            # cond(A) seems to be greater than conlim
-            st["istop"] = lax.select(st["condA"] > self.conlim, 3, st["istop"])
             # maxiter exceeded
             st["istop"] = lax.select(st["itn"] >= max_steps, 4, st["istop"])
+            # cond(A) seems to be greater than conlim
+            st["istop"] = lax.select(st["condA"] > self.conlim, 3, st["istop"])
+            # x solves the least-squares problem according to atol and rtol.
+            st["istop"] = lax.select(st["normAr"] < least_squares_tol, 2, st["istop"])
+            # x is a solution to A@x = b, according to atol and rtol.
+            st["istop"] = lax.select(st["normr"] < well_posed_tol, 1, st["istop"])
             return st
 
         loop_state = lax.while_loop(condfun, bodyfun, loop_state)
