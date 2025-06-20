@@ -34,8 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 from collections.abc import Callable
-from typing import Any, Optional
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias
 
 import jax.lax as lax
 import jax.numpy as jnp
@@ -52,7 +51,7 @@ from .._solve import AbstractLinearSolver
 _LSMRState: TypeAlias = AbstractLinearOperator
 
 
-class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
+class LSMR(AbstractLinearSolver[_LSMRState]):
     """LSMR solver for linear systems.
 
     This solver can handle any operator, even nonsquare or singular ones. In these
@@ -77,7 +76,7 @@ class LSMR(AbstractLinearSolver[_LSMRState], strict=True):
     rtol: float
     atol: float
     norm: Callable = two_norm
-    max_steps: Optional[int] = None
+    max_steps: int | None = None
     conlim: float = 1e8
 
     def __check_init__(self):
