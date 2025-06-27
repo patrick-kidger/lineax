@@ -588,6 +588,11 @@ class JacobianLinearOperator(AbstractLinearOperator):
            `jax.jacrev`. Otherwise, if not specified it will be chosen
            by default according to input and output shape.
         """
+        assert jac in [
+            None,
+            "fwd",
+            "bwd",
+        ], f"jac argument of JacobianLinearOperator must be fwd, bwd or None, got {jac}"
         if not _has_aux:
             fn = NoneAux(fn)
         # Flush out any closed-over values, so that we can safely pass `self`
