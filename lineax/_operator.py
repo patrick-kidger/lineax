@@ -588,6 +588,11 @@ class JacobianLinearOperator(AbstractLinearOperator):
            `jax.jacrev`. Otherwise, if not specified it will be chosen
            by default according to input and output shape.
         """
+        if jac not in [None, "fwd", "bwd"]:
+            raise ValueError(
+                "`jac` argument of `JacobianLinearOperator` should be either "
+                "`'fwd'`, `'bwd'`, or `None`."
+            )
         if not _has_aux:
             fn = NoneAux(fn)
         # Flush out any closed-over values, so that we can safely pass `self`
