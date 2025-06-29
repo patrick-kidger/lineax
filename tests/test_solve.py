@@ -178,6 +178,8 @@ def test_grad_vmap_symbolic_cotangent():
         lx.NormalCG(0.0, 0.0, max_steps=2),
         lx.BiCGStab(0.0, 0.0, max_steps=2),
         lx.GMRES(0.0, 0.0, max_steps=2),
+        lx.Jacobi(0.0, 0.0, max_steps=2),
+        lx.GaussSeidel(0.0, 0.0, max_steps=2),
     ),
 )
 def test_iterative_solver_max_steps_only(solver):
