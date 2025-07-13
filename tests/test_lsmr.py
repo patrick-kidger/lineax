@@ -1,6 +1,7 @@
 import equinox as ex
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 
 solver = lx.LSMR(1e-10, 1e-10)
@@ -15,6 +16,7 @@ def test_ill_conditioned():
         assert "Condition number" in str(e)
 
 
+@pytest.mark.skip("Damp support is disabled.")
 def test_damp_regularizes():
     solution_ill = lx.linear_solve(Aill, jnp.ones(5), solver=solver, options={})
     assert solution_ill.stats["istop"] == 1
@@ -27,6 +29,7 @@ def test_damp_regularizes():
     assert solution_damped.stats["num_steps"] < solution_ill.stats["num_steps"]
 
 
+@pytest.mark.skip("Damp support is disabled.")
 def test_damp():
     solution_damped = lx.linear_solve(
         Awell, jnp.ones(5), solver=solver, options={"damp": 1.0}

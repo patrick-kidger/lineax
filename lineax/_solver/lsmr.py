@@ -64,13 +64,6 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
 
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
-    - `damp`: Damping factor for regularized least-squares. LSMR solves the regularized
-        least-squares problem:
-
-            min ||A y - b||_2^2 + damp*||y||_2^2
-
-        where damp is a scalar. If damp is None or 0, the system is solved without
-        regularization. Default is 0.
     """
 
     rtol: float
@@ -107,7 +100,9 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator = state
         x = options.get("y0", None)
-        damp = options.get("damp", 0.0)
+        # damp is not supported at this time.
+        #  damp = options.get("damp", 0.0)
+        damp = 0.0
         has_scale = not (
             isinstance(self.atol, (int, float))
             and isinstance(self.rtol, (int, float))
