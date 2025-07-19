@@ -26,7 +26,7 @@ from .helpers import (
 )
 
 
-# Workaround for https://github.com/patrick-kidger/equinox/issues/972
+# Workaround for https://github.com/jax-ml/jax/issues/27201
 @pytest.fixture(autouse=True)
 def _clear_cache():
     eqx.clear_caches()

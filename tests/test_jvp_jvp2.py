@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import equinox as eqx
 import jax.numpy as jnp
 import pytest
 
@@ -23,6 +24,12 @@ from .helpers import (
     make_matrix_operator,
     solvers_tags_pseudoinverse,
 )
+
+
+# Workaround for https://github.com/jax-ml/jax/issues/27201
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    eqx.clear_caches()
 
 
 @pytest.mark.parametrize("solver, tags, pseudoinverse", solvers_tags_pseudoinverse)
