@@ -41,10 +41,10 @@ If you *were* expecting this solver to work with this operator, then it may be b
 
 
 _nonfinite_msg = """
-A linear solver received non-finite (NaN or inf) input and cannot determine a 
-solution. 
+A linear solver received non-finite (NaN or inf) input and cannot determine a
+solution.
 
-This means that you have a bug upstream of Lineax and should check the inputs to 
+This means that you have a bug upstream of Lineax and should check the inputs to
 `lineax.linear_solve` for non-finite values.
 """.strip()
 
@@ -64,6 +64,7 @@ class RESULTS(eqxi.Enumeration):
         "A stagnation in an iterative linear solve has occurred. Try increasing "
         "`stagnation_iters` or `restart`."
     )
+    conlim = "Condition number of A seems to be larger than `conlim`."
     nonfinite_input = _nonfinite_msg
 
 
