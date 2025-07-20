@@ -86,8 +86,6 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
                     "Must specify `atol`, `rtol`, or `max_steps` (or some combination "
                     "of all three)."
                 )
-        if self.conlim is None:
-            self.conlim = 1e8
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         return operator
