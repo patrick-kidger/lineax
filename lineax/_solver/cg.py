@@ -284,11 +284,8 @@ class CG(_AbstractCG):
 
     _normal: ClassVar[bool] = False
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 class NormalCG(_AbstractCG):
@@ -321,15 +318,8 @@ class NormalCG(_AbstractCG):
 
     _normal: ClassVar[bool] = True
 
-    def allow_dependent_columns(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return columns > rows
-
-    def allow_dependent_rows(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return rows > columns
+    def assume_full_rank(self):
+        return True
 
 
 CG.__init__.__doc__ = r"""**Arguments:**

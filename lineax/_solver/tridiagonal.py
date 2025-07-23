@@ -84,11 +84,8 @@ class Tridiagonal(AbstractLinearSolver[_TridiagonalState]):
         conj_state = (conj_diagonals, packed_structures)
         return conj_state, options
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 Tridiagonal.__init__.__doc__ = """**Arguments:**

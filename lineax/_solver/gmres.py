@@ -429,11 +429,8 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         operator = state
         return conj(operator), conj_options
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 GMRES.__init__.__doc__ = r"""**Arguments:**
