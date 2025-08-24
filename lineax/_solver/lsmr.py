@@ -327,19 +327,19 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             "cond_A": loop_state["condA"],
             "norm_x": self.norm(loop_state["x"]),
         }
-        if (self.max_steps is None) or (max_steps < self.max_steps):
+
+        if self.max_steps is None:
+            result = RESULTS.where(
+                loop_state["itn"] == max_steps, RESULTS.singular, RESULTS.successful
+            )
+        elif has_scale:
             result = RESULTS.where(
                 loop_state["itn"] == max_steps,
-                RESULTS.singular,
+                RESULTS.max_steps_reached,
                 RESULTS.successful,
             )
         else:
-            result = RESULTS.where(
-                loop_state["itn"] == max_steps,
-                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
-                RESULTS.successful,
-            )
-
+            result = RESULTS.successful
         result = RESULTS.where(loop_state["istop"] < 3, RESULTS.successful, result)
         result = RESULTS.where(loop_state["istop"] == 3, RESULTS.conlim, result)
 

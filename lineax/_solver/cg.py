@@ -226,18 +226,16 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
             cond_fun, body_fun, initial_value
         )
 
-        if (self.max_steps is None) or (max_steps < self.max_steps):
+        if self.max_steps is None:
             result = RESULTS.where(
-                num_steps == max_steps,
-                RESULTS.singular,
-                RESULTS.successful,
+                num_steps == max_steps, RESULTS.singular, RESULTS.successful
+            )
+        elif has_scale:
+            result = RESULTS.where(
+                num_steps == max_steps, RESULTS.max_steps_reached, RESULTS.successful
             )
         else:
-            result = RESULTS.where(
-                num_steps == max_steps,
-                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
-                RESULTS.successful,
-            )
+            result = RESULTS.successful
 
         if is_nsd and not self._normal:
             solution = -(solution**ω).ω
