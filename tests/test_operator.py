@@ -162,8 +162,6 @@ def test_diagonal(dtype, getkey):
     matrix_diag = jnp.diag(matrix)
     operators = _setup(getkey, jnp.diag(matrix_diag))
     for operator in operators:
-        print(operator)
-        print(lx.diagonal(operator))
         assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
 
