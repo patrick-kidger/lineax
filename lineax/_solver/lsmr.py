@@ -178,7 +178,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             # variables for estimation of ||A|| and cond(A)
             normA2=alpha**2,
             maxrbar=0.0,
-            minrbar=1e100,
+            minrbar=1.0e38,
             condA=1.0,
             # variables for use in stopping rules
             istop=0,
