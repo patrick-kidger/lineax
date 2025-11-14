@@ -22,6 +22,7 @@ from typing import Any, Literal, NoReturn, TypeVar
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
+import jax.experimental.sparse as jsp
 import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
@@ -873,6 +874,79 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
+# TODO(jhaffner): Currently assumes that the operator is a 2D matrix, since this is
+# what JAX also supports.
+class COOLinearOperator(AbstractLinearOperator):
+    """Sparse linear operator in COO format.
+
+    Note that the `as_matrix` method will materialise the operator densely.
+    """
+
+    operator: jsp.COO
+    tags: frozenset[object] = eqx.field(static=True)
+
+    def __init__(self, operator: jsp.COO, tags: object | Iterable[object] = ()):
+        self.operator = operator
+        self.tags = _frozenset(tags)
+
+    def mv(self, vector):
+        return self.operator @ vector
+
+    def as_matrix(self):
+        return self.operator.todense()
+
+    def transpose(self):
+        return COOLinearOperator(self.operator.transpose(), transpose_tags(self.tags))
+
+    def in_structure(self):
+        _, in_size = self.operator.shape
+        return jax.ShapeDtypeStruct(shape=(in_size,), dtype=self.operator.data.dtype)
+
+    def out_structure(self):
+        out_size, _ = self.operator.shape
+        return jax.ShapeDtypeStruct(shape=(out_size,), dtype=self.operator.data.dtype)
+
+
+# TODO(jhaffner): Currently assumes that the operator is a 2D matrix, since this is what
+# JAX supports too.
+class CSLinearOperator(AbstractLinearOperator):
+    """Sparse linear operator in Compressed Sparse Row (CSR) or Compressed Sparse
+    Column (CSC) format.
+    The CSR format epresents a sparse matrix with an array of values, an array of
+    their respective column indices, and an array of offsets, which indicate the first
+    and last elements of the values to put in a given row. The CSC format corresponds to
+    its transpose, with rows indicated by indices and columns indicated with offsets.
+
+    Note that the `as_matrix` method will materialise the operator densely.
+    """
+
+    operator: jsp.CSR | jsp.CSC
+    tags: frozenset[object] = eqx.field(static=True)
+
+    def __init__(
+        self, operator: jsp.CSR | jsp.CSC, tags: object | Iterable[object] = ()
+    ):
+        self.operator = operator
+        self.tags = _frozenset(tags)
+
+    def mv(self, vector):
+        return self.operator @ vector
+
+    def as_matrix(self):
+        return self.operator.todense()
+
+    def transpose(self):
+        return CSLinearOperator(self.operator.transpose(), transpose_tags(self.tags))
+
+    def in_structure(self):
+        _, in_size = self.operator.shape
+        return jax.ShapeDtypeStruct(shape=(in_size,), dtype=self.operator.data.dtype)
+
+    def out_structure(self):
+        out_size, _ = self.operator.shape
+        return jax.ShapeDtypeStruct(shape=(out_size,), dtype=self.operator.data.dtype)
+
+
 class TaggedLinearOperator(AbstractLinearOperator):
     """Wraps another linear operator and specifies that it has certain tags, e.g.
     representing symmetry.
@@ -1229,6 +1303,8 @@ def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @linearise.register(IdentityLinearOperator)
 @linearise.register(DiagonalLinearOperator)
 @linearise.register(TridiagonalLinearOperator)
+@linearise.register(COOLinearOperator)
+@linearise.register(CSLinearOperator)
 def _(operator):
     return operator
 
@@ -1305,6 +1381,8 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @materialise.register(IdentityLinearOperator)
 @materialise.register(DiagonalLinearOperator)
 @materialise.register(TridiagonalLinearOperator)
+@materialise.register(COOLinearOperator)
+@materialise.register(CSLinearOperator)
 def _(operator):
     return operator
 
@@ -1390,6 +1468,13 @@ def _(operator):
     return operator.diagonal
 
 
+@diagonal.register(COOLinearOperator)
+@diagonal.register(CSLinearOperator)
+def _(operator):
+    # TODO(jhaffner): Inefficient materialised method
+    return jnp.diag(operator.as_matrix())
+
+
 # tridiagonal
 
 
@@ -1429,6 +1514,8 @@ def tridiagonal(
 @tridiagonal.register(PyTreeLinearOperator)
 @tridiagonal.register(JacobianLinearOperator)
 @tridiagonal.register(FunctionLinearOperator)
+@tridiagonal.register(COOLinearOperator)
+@tridiagonal.register(CSLinearOperator)
 def _(operator):
     matrix = operator.as_matrix()
     assert matrix.ndim == 2
@@ -1484,6 +1571,8 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
 @is_symmetric.register(PyTreeLinearOperator)
 @is_symmetric.register(JacobianLinearOperator)
 @is_symmetric.register(FunctionLinearOperator)
+@is_symmetric.register(COOLinearOperator)
+@is_symmetric.register(CSLinearOperator)
 def _(operator):
     return any(
         tag in operator.tags
@@ -1536,6 +1625,8 @@ def is_diagonal(operator: AbstractLinearOperator) -> bool:
 @is_diagonal.register(PyTreeLinearOperator)
 @is_diagonal.register(JacobianLinearOperator)
 @is_diagonal.register(FunctionLinearOperator)
+@is_diagonal.register(COOLinearOperator)
+@is_diagonal.register(CSLinearOperator)
 def _(operator):
     return diagonal_tag in operator.tags or (
         operator.in_size() == 1 and operator.out_size() == 1
@@ -1578,6 +1669,8 @@ def is_tridiagonal(operator: AbstractLinearOperator) -> bool:
 @is_tridiagonal.register(PyTreeLinearOperator)
 @is_tridiagonal.register(JacobianLinearOperator)
 @is_tridiagonal.register(FunctionLinearOperator)
+@is_tridiagonal.register(COOLinearOperator)
+@is_tridiagonal.register(CSLinearOperator)
 def _(operator):
     return tridiagonal_tag in operator.tags or diagonal_tag in operator.tags
 
@@ -1614,6 +1707,8 @@ def has_unit_diagonal(operator: AbstractLinearOperator) -> bool:
 @has_unit_diagonal.register(PyTreeLinearOperator)
 @has_unit_diagonal.register(JacobianLinearOperator)
 @has_unit_diagonal.register(FunctionLinearOperator)
+@has_unit_diagonal.register(COOLinearOperator)
+@has_unit_diagonal.register(CSLinearOperator)
 def _(operator):
     return unit_diagonal_tag in operator.tags
 
@@ -1655,6 +1750,8 @@ def is_lower_triangular(operator: AbstractLinearOperator) -> bool:
 @is_lower_triangular.register(PyTreeLinearOperator)
 @is_lower_triangular.register(JacobianLinearOperator)
 @is_lower_triangular.register(FunctionLinearOperator)
+@is_lower_triangular.register(COOLinearOperator)
+@is_lower_triangular.register(CSLinearOperator)
 def _(operator):
     return lower_triangular_tag in operator.tags
 
@@ -1695,6 +1792,8 @@ def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
 @is_upper_triangular.register(PyTreeLinearOperator)
 @is_upper_triangular.register(JacobianLinearOperator)
 @is_upper_triangular.register(FunctionLinearOperator)
+@is_upper_triangular.register(COOLinearOperator)
+@is_upper_triangular.register(CSLinearOperator)
 def _(operator):
     return upper_triangular_tag in operator.tags
 
@@ -1735,6 +1834,8 @@ def is_positive_semidefinite(operator: AbstractLinearOperator) -> bool:
 @is_positive_semidefinite.register(PyTreeLinearOperator)
 @is_positive_semidefinite.register(JacobianLinearOperator)
 @is_positive_semidefinite.register(FunctionLinearOperator)
+@is_positive_semidefinite.register(COOLinearOperator)
+@is_positive_semidefinite.register(CSLinearOperator)
 def _(operator):
     return positive_semidefinite_tag in operator.tags
 
@@ -1776,6 +1877,8 @@ def is_negative_semidefinite(operator: AbstractLinearOperator) -> bool:
 @is_negative_semidefinite.register(PyTreeLinearOperator)
 @is_negative_semidefinite.register(JacobianLinearOperator)
 @is_negative_semidefinite.register(FunctionLinearOperator)
+@is_negative_semidefinite.register(COOLinearOperator)
+@is_negative_semidefinite.register(CSLinearOperator)
 def _(operator):
     return negative_semidefinite_tag in operator.tags
 
@@ -2094,6 +2197,35 @@ def _(operator):
         operator.lower_diagonal.conj(),
         operator.upper_diagonal.conj(),
     )
+
+
+@conj.register(COOLinearOperator)
+def _(operator):
+    conj_data = jnp.conj(operator.operator.data)
+    conj_coo = jsp.COO(
+        (conj_data, operator.operator.row, operator.operator.col),
+        shape=operator.operator.shape,
+    )
+    return COOLinearOperator(conj_coo)
+
+
+@conj.register(CSLinearOperator)
+def _(operator):
+    conj_data = jnp.conj(operator.operator.data)
+    if isinstance(operator.operator, jsp.CSR):
+        conj_csr = jsp.CSR(
+            (conj_data, operator.operator.indices, operator.operator.indptr),
+            shape=operator.operator.shape,
+        )
+        return CSLinearOperator(conj_csr)
+    elif isinstance(operator.operator, jsp.CSC):
+        conj_csc = jsp.CSC(
+            (conj_data, operator.operator.indices, operator.operator.indptr),
+            shape=operator.operator.shape,
+        )
+        return CSLinearOperator(conj_csc)
+    else:
+        assert False
 
 
 @conj.register(TaggedLinearOperator)

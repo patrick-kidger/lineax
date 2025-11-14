@@ -242,6 +242,18 @@ def make_tridiagonal_operator(getkey, matrix, tags):
 
 
 @_operators_append
+def make_coo_operator(getkey, matrix, tags):
+    # The experimental module is not recognised as a known module of JAX by pyright
+    return lx.COOLinearOperator(jax.experimental.sparse.COO.fromdense(matrix), tags)  # pyright: ignore[reportGeneralTypeIssues]
+
+
+@_operators_append
+def make_cs_operator(getkey, matrix, tags):
+    # Start with CSR - we get CSC operators once we have transposed
+    return lx.CSLinearOperator(jax.experimental.sparse.CSR.fromdense(matrix), tags)  # pyright: ignore[reportGeneralTypeIssues]
+
+
+@_operators_append
 def make_add_operator(getkey, matrix, tags):
     matrix1 = 0.7 * matrix
     matrix2 = 0.3 * matrix

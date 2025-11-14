@@ -15,6 +15,7 @@
 import functools as ft
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -30,6 +31,13 @@ from .helpers import (
     solvers_tags_pseudoinverse,
     tree_allclose,
 )
+
+
+# Workaround for https://github.com/jax-ml/jax/issues/27201
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    eqx.clear_caches()
+    jax.clear_caches()
 
 
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))

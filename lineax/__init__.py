@@ -21,6 +21,8 @@ from ._operator import (
     AuxLinearOperator as AuxLinearOperator,
     ComposedLinearOperator as ComposedLinearOperator,
     conj as conj,
+    COOLinearOperator as COOLinearOperator,
+    CSLinearOperator as CSLinearOperator,
     diagonal as diagonal,
     DiagonalLinearOperator as DiagonalLinearOperator,
     DivLinearOperator as DivLinearOperator,
