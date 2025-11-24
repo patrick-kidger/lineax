@@ -874,10 +874,11 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
-# TODO(jhaffner): Currently assumes that the operator is a 2D matrix, since this is
-# what JAX also supports.
 class COOLinearOperator(AbstractLinearOperator):
-    """Sparse linear operator in COO format.
+    """Sparse linear operator in COO format, which stores a sparse representation of
+    a linear operator with values and their associated row and column indices.
+    Slightly less memory efficient than the compressed sparse row and compressed
+    sparse column formats wrapped in [`lineax.CSLinearOperator`][].
 
     Note that the `as_matrix` method will materialise the operator densely.
     """
@@ -907,17 +908,18 @@ class COOLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(out_size,), dtype=self.operator.data.dtype)
 
 
-# TODO(jhaffner): Currently assumes that the operator is a 2D matrix, since this is what
-# JAX supports too.
 class CSLinearOperator(AbstractLinearOperator):
     """Sparse linear operator in Compressed Sparse Row (CSR) or Compressed Sparse
-    Column (CSC) format.
+    Column (CSC) format. Wraps `CSR` and `CSC` from `jax.experimental.sparse`.
+
     The CSR format epresents a sparse matrix with an array of values, an array of
     their respective column indices, and an array of offsets, which indicate the first
     and last elements of the values to put in a given row. The CSC format corresponds to
     its transpose, with rows indicated by indices and columns indicated with offsets.
 
-    Note that the `as_matrix` method will materialise the operator densely.
+    This operator only supports sparse representations of 2D matrices.
+
+    Note that the `as_matrix` method will materialise the dense operator.
     """
 
     operator: jsp.CSR | jsp.CSC
@@ -1922,7 +1924,7 @@ for transform in (linearise, materialise, diagonal):
 
     @transform.register(AddLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
-        return transform(operator.operator1) + transform(operator.operator2)
+        return transform(operator.operator1) + transform(operator.operator2)  # pyright: ignore[reportGeneralTypeIssues]
 
     @transform.register(MulLinearOperator)
     def _(operator, transform=transform):

@@ -75,6 +75,9 @@ plugins:
     - hippogriffe:
         extra_public_objects:
             - jax.ShapeDtypeStruct
+            - jax.experimental.sparse.csr.CSR
+            - jax.experimental.sparse.csr.CSC
+            - jax.experimental.sparse.COO
     - mkdocstrings:
         handlers:
             python:

@@ -74,3 +74,42 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
     options:
         members:
             - __init__
+
+---
+
+## Sparse Linear Operators
+
+Lineax supports two flavours of sparse representations of linear operators by wrapping implementations from the `jax.experimental.sparse` module. Representations of sparse operators can be created from a dense matrix, or directly from values and row and column indices in a given format. In either case, Lineax only ever sees the existing JAX representation of the sparse operator.
+Note that the API of `jax.experimental.sparse` is still subject to change, and the API offered here may therefore change as well.
+
+!!! Example
+    
+    ```python
+    import lineax as lx
+    from jax.experimental.sparse import CSR
+
+    matrix = ...  # Some 2D matrix
+    operator = lx.CSLinearOperator(CSR.from_dense(matrix))
+
+    # Or directly create it with values, indices and offsets
+    values = ...
+    indices = ...
+    offsets = ...
+    shape = ...
+
+    operator2 = lx.CSLinearOperator(CSR((values, indices, offsets), shape=shape))
+    ```
+
+
+
+::: lineax.CSLinearOperator
+    options:
+        members:
+            - __init__
+
+---
+
+::: lineax.COOLinearOperator
+    options:
+        members:
+            - __init__
