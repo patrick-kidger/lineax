@@ -56,7 +56,7 @@ Make your changes. You can then build the documentation by doing
 pip install -e '.[docs]'
 mkdocs serve
 ```
-You can then see your local copy of the documentation in a web browser.
+You can then see your local copy of the documentation by navigating to `localhost:8000` in a web browser.
 
 ## Contributor License Agreement
 
