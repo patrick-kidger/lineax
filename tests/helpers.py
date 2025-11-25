@@ -57,8 +57,10 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
 
 
 def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
-    if isinstance(solver, lx.NormalCG | lx.LSMR | lx.GMRES):
+    if isinstance(solver, lx.NormalCG):
         cond_cutoff = math.sqrt(1000)
+    elif isinstance(solver, lx.GMRES | lx.LSMR):
+        cond_cutoff = 900
     else:
         cond_cutoff = 1000
     return tuple(
