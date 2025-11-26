@@ -112,7 +112,11 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
         # number of singular values
         min_dim = min([m, n])
         if self.max_steps is None:
-            max_steps = min_dim * 10  # for consistency with other iterative solvers
+            int_dtype = jnp.dtype(f"int{operator.in_structure().dtype.itemsize * 8}")
+            if min_dim > (jnp.iinfo(int_dtype).max / 10):
+                max_steps = jnp.iinfo(int_dtype).max
+            else:
+                max_steps = min_dim * 10  # for consistency with other iterative solvers
         else:
             max_steps = self.max_steps
 
