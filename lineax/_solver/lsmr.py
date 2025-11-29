@@ -108,11 +108,24 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             and self.rtol == 0
         )
 
+        dtype = jnp.result_type(
+            *jtu.tree_leaves(vector),
+            *jtu.tree_leaves(x),
+            *jtu.tree_leaves(operator.in_structure()),
+        )
+
         m, n = operator.out_size(), operator.in_size()
         # number of singular values
         min_dim = min([m, n])
         if self.max_steps is None:
-            int_dtype = jnp.dtype(f"int{operator.in_structure().dtype.itemsize * 8}")
+            # Set max_steps based on the minimum dimension + avoid numerical overflows
+            # https://github.com/patrick-kidger/lineax/issues/175
+            # https://github.com/patrick-kidger/lineax/issues/177
+            if jnp.issubdtype(dtype, jnp.complexfloating):
+                real_dtype = jnp.finfo(dtype).dtype
+            else:
+                real_dtype = dtype
+            int_dtype = jnp.dtype(f"int{real_dtype.itemsize * 8}")
             if min_dim > (jnp.iinfo(int_dtype).max / 10):
                 max_steps = jnp.iinfo(int_dtype).max
             else:
@@ -122,12 +135,6 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
 
         if x is None:
             x = jtu.tree_map(jnp.zeros_like, operator.in_structure())
-
-        dtype = jnp.result_type(
-            *jtu.tree_leaves(vector),
-            *jtu.tree_leaves(x),
-            *jtu.tree_leaves(operator.in_structure()),
-        )
 
         b = vector
         u = (ω(b) - ω(operator.mv(x))).ω
