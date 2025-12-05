@@ -409,7 +409,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             eps = jnp.finfo(norm.dtype).eps
         else:
             eps = jnp.astype(eps, norm.dtype)
-        breakdown = norm < eps
+        breakdown = norm < eps  # pyright: ignore
         safe_norm = jnp.where(breakdown, jnp.inf, norm)
         with jax.numpy_dtype_promotion("standard"):
             x_normalised = (x**ω / safe_norm).ω
