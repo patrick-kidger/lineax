@@ -1819,7 +1819,7 @@ for transform in (linearise, materialise, diagonal):
 
     @transform.register(AddLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
-        return transform(operator.operator1) + transform(operator.operator2)
+        return transform(operator.operator1) + transform(operator.operator2)  # pyright: ignore
 
     @transform.register(MulLinearOperator)
     def _(operator, transform=transform):

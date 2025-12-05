@@ -188,7 +188,9 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
             inner_prod = tree_dot(mat_p, p)
             alpha = gamma / inner_prod
             alpha = tree_where(
-                jnp.abs(inner_prod) > 100 * rcond * jnp.abs(gamma), alpha, jnp.nan
+                jnp.abs(inner_prod) > 100 * rcond * jnp.abs(gamma),  # pyright: ignore
+                alpha,
+                jnp.nan,  # pyright: ignore
             )
             diff = (alpha * p**ω).ω
             y = (y**ω + diff**ω).ω
