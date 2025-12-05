@@ -60,6 +60,7 @@ from ._solver import (
     GMRES as GMRES,
     LSMR as LSMR,
     LU as LU,
+    Normal as Normal,
     NormalCG as NormalCG,
     QR as QR,
     SVD as SVD,
