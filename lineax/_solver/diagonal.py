@@ -77,7 +77,7 @@ class Diagonal(AbstractLinearSolver[_DiagonalState]):
                 (size,) = diag.shape
                 rcond = resolve_rcond(self.rcond, size, size, diag.dtype)
                 abs_diag = jnp.abs(diag)
-                diag = jnp.where(abs_diag > rcond * jnp.max(abs_diag), diag, jnp.inf)
+                diag = jnp.where(abs_diag > rcond * jnp.max(abs_diag), diag, jnp.inf)  # pyright: ignore
             solution = vector / diag
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
