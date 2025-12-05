@@ -407,11 +407,8 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
         conj_options = {}
         return conj(operator), conj_options
 
-    def allow_dependent_rows(self, operator):
-        return True
-
-    def allow_dependent_columns(self, operator):
-        return True
+    def assume_full_rank(self):
+        return False
 
 
 LSMR.__init__.__doc__ = r"""**Arguments:**

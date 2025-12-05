@@ -198,16 +198,17 @@ def _linear_solve_jvp(primals, tangents):
         # -A'x term
         vec = (-(t_operator.mv(solution) ** ω)).ω
         vecs.append(vec)
-        allow_dependent_rows = solver.allow_dependent_rows(operator)
-        allow_dependent_columns = solver.allow_dependent_columns(operator)
-        if allow_dependent_rows or allow_dependent_columns:
+        rows, columns = operator.out_size(), operator.in_size()
+        assume_independent_rows = solver.assume_full_rank() and rows <= columns
+        assume_independent_columns = solver.assume_full_rank() and columns <= rows
+        if not assume_independent_rows or not assume_independent_columns:
             operator_conj_transpose = conj(operator).transpose()
             t_operator_conj_transpose = conj(t_operator).transpose()
             state_conj, options_conj = solver.conj(state, options)
             state_conj_transpose, options_conj_transpose = solver.transpose(
                 state_conj, options_conj
             )
-        if allow_dependent_rows:
+        if not assume_independent_rows:
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
             tmp = t_operator_conj_transpose.mv(lst_sqr_diff)  # pyright: ignore
             tmp, _, _ = eqxi.filter_primitive_bind(
@@ -221,7 +222,7 @@ def _linear_solve_jvp(primals, tangents):
             )
             vecs.append(tmp)
 
-        if allow_dependent_columns:
+        if not assume_independent_columns:
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
                 operator_conj_transpose,  # pyright: ignore
@@ -393,56 +394,6 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         """
 
     @abc.abstractmethod
-    def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
-        """Does this method ever produce non-NaN outputs for operators with linearly
-        dependent columns? (Even if only sometimes.)
-
-        If `True` then a more expensive backward pass is needed, to account for the
-        extra generality.
-
-        If you do not need to autodifferentiate through a custom linear solver then you
-        simply define this method as
-        ```python
-        class MyLinearSolver(AbstractLinearsolver):
-            def allow_dependent_columns(self, operator):
-                raise NotImplementedError
-        ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        Either `True` or `False`.
-        """
-
-    @abc.abstractmethod
-    def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
-        """Does this method ever produce non-NaN outputs for operators with
-        linearly dependent rows? (Even if only sometimes)
-
-        If `True` then a more expensive backward pass is needed, to account for the
-        extra generality.
-
-        If you do not need to autodifferentiate through a custom linear solver then you
-        simply define this method as
-        ```python
-        class MyLinearSolver(AbstractLinearsolver):
-            def allow_dependent_rows(self, operator):
-                raise NotImplementedError
-        ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        Either `True` or `False`.
-        """
-
-    @abc.abstractmethod
     def transpose(
         self, state: _SolverState, options: dict[str, Any]
     ) -> tuple[_SolverState, dict[str, Any]]:
@@ -497,6 +448,23 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
         - The state of the conjugated operator.
         - The options for the conjugated operator.
+        """
+
+    @abc.abstractmethod
+    def assume_full_rank(self) -> bool:
+        """Does this solver assume that all operators are full rank?
+
+        When `False`, a more expensive backward pass is needed to account for
+        the extra generality. In a custom linear solver, it is always safe to
+        return False.
+
+        **Arguments:**
+
+        Nothing.
+
+        **Returns:**
+
+        Either `True` or `False`.
         """
 
 
@@ -661,13 +629,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         conj_state = (token, conj_state)
         return conj_state, conj_options
 
-    def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
-        token = self._select_solver(operator)
-        return _lookup(token).allow_dependent_columns(operator)
-
-    def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
-        token = self._select_solver(operator)
-        return _lookup(token).allow_dependent_rows(operator)
+    def assume_full_rank(self):
+        return self.well_posed is not False
 
 
 AutoLinearSolver.__init__.__doc__ = """**Arguments:**
