@@ -57,7 +57,7 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
 
 
 def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
-    if isinstance(solver, lx.NormalCG):
+    if isinstance(solver, lx.Normal):
         cond_cutoff = math.sqrt(1000)
     # Comment (johannahaffner):  Some of our iterative solvers do struggle with high
     # condition numbers (as they are expected to do). The way this plays out can depend
