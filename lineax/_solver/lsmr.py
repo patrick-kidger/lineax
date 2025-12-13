@@ -42,6 +42,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
+from .._misc import complex_to_real_dtype
 from .._norm import two_norm
 from .._operator import AbstractLinearOperator, conj
 from .._solution import RESULTS
@@ -121,11 +122,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             # Set max_steps based on the minimum dimension + avoid numerical overflows
             # https://github.com/patrick-kidger/lineax/issues/175
             # https://github.com/patrick-kidger/lineax/issues/177
-            if jnp.issubdtype(dtype, jnp.complexfloating):
-                real_dtype = jnp.finfo(dtype).dtype
-            else:
-                real_dtype = dtype
-            int_dtype = jnp.dtype(f"int{real_dtype.itemsize * 8}")
+            int_dtype = jnp.dtype(f"int{complex_to_real_dtype(dtype).itemsize * 8}")
             if min_dim > (jnp.iinfo(int_dtype).max / 10):
                 max_steps = jnp.iinfo(int_dtype).max
             else:
