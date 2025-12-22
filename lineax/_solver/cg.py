@@ -38,7 +38,7 @@ from .misc import preconditioner_and_y0
 from .normal import Normal
 
 
-_CGState: TypeAlias = tuple[AbstractLinearOperator, bool]
+_CGState: TypeAlias = tuple[AbstractLinearOperator, eqxi.Static]
 
 
 # TODO(kidger): this is pretty slow to compile.
@@ -99,7 +99,7 @@ class CG(AbstractLinearSolver[_CGState]):
         if is_nsd:
             operator = -operator
         operator = linearise(operator)
-        return operator, is_nsd
+        return operator, eqxi.Static(is_nsd)
 
     # This differs from jax.scipy.sparse.linalg.cg in:
     # 1. Every few steps we calculate the residual directly, rather than by cheaply
@@ -114,6 +114,7 @@ class CG(AbstractLinearSolver[_CGState]):
         self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
+        is_nsd = is_nsd.value
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         if not is_positive_semidefinite(preconditioner):
             raise ValueError("The preconditioner must be positive definite.")
@@ -224,7 +225,9 @@ class CG(AbstractLinearSolver[_CGState]):
         stats = {"num_steps": num_steps, "max_steps": self.max_steps}
         return solution, result, stats
 
-    def transpose(self, state: _CGState, options: dict[str, Any]):
+    def transpose(
+        self, state: _CGState, options: dict[str, Any]
+    ) -> tuple[_CGState, dict[str, Any]]:
         transpose_options = {}
         if "preconditioner" in options:
             transpose_options["preconditioner"] = options["preconditioner"].transpose()
@@ -232,7 +235,9 @@ class CG(AbstractLinearSolver[_CGState]):
         transpose_state = psd_op.transpose(), is_nsd
         return transpose_state, transpose_options
 
-    def conj(self, state: _CGState, options: dict[str, Any]):
+    def conj(
+        self, state: _CGState, options: dict[str, Any]
+    ) -> tuple[_CGState, dict[str, Any]]:
         conj_options = {}
         if "preconditioner" in options:
             conj_options["preconditioner"] = conj(options["preconditioner"])

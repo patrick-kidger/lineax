@@ -14,6 +14,7 @@
 
 from typing import Any, TypeAlias
 
+import equinox.internal as eqxi
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
@@ -34,7 +35,9 @@ from .misc import (
 )
 
 
-_TriangularState: TypeAlias = tuple[Array, bool, bool, PackedStructures, bool]
+_TriangularState: TypeAlias = tuple[
+    Array, eqxi.Static, eqxi.Static, PackedStructures, eqxi.Static
+]
 
 
 class Triangular(AbstractLinearSolver[_TriangularState]):
@@ -56,16 +59,19 @@ class Triangular(AbstractLinearSolver[_TriangularState]):
             )
         return (
             operator.as_matrix(),
-            is_lower_triangular(operator),
-            has_unit_diagonal(operator),
+            eqxi.Static(is_lower_triangular(operator)),
+            eqxi.Static(has_unit_diagonal(operator)),
             pack_structures(operator),
-            False,  # transposed
+            eqxi.Static(False),  # transposed
         )
 
     def compute(
         self, state: _TriangularState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         matrix, lower, unit_diagonal, packed_structures, transpose = state
+        lower = lower.value
+        unit_diagonal = unit_diagonal.value
+        transpose = transpose.value
         del state, options
         vector = ravel_vector(vector, packed_structures)
         if transpose:
@@ -79,6 +85,7 @@ class Triangular(AbstractLinearSolver[_TriangularState]):
         return solution, RESULTS.successful, {}
 
     def transpose(self, state: _TriangularState, options: dict[str, Any]):
+        del options
         matrix, lower, unit_diagonal, packed_structures, transpose = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
         transpose_state = (
@@ -86,12 +93,13 @@ class Triangular(AbstractLinearSolver[_TriangularState]):
             lower,
             unit_diagonal,
             transposed_packed_structures,
-            not transpose,
+            eqxi.Static(not transpose.value),
         )
         transpose_options = {}
         return transpose_state, transpose_options
 
     def conj(self, state: _TriangularState, options: dict[str, Any]):
+        del options
         matrix, lower, unit_diagonal, packed_structures, transpose = state
         conj_state = (
             matrix.conj(),
