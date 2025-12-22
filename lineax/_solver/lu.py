@@ -14,6 +14,7 @@
 
 from typing import Any, TypeAlias
 
+import equinox.internal as eqxi
 import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
@@ -30,7 +31,7 @@ from .misc import (
 )
 
 
-_LUState: TypeAlias = tuple[tuple[Array, Array], PackedStructures, bool]
+_LUState: TypeAlias = tuple[tuple[Array, Array], PackedStructures, eqxi.Static]
 
 
 class LU(AbstractLinearSolver[_LUState]):
@@ -50,13 +51,14 @@ class LU(AbstractLinearSolver[_LUState]):
             lu = operator.as_matrix(), jnp.arange(operator.in_size(), dtype=jnp.int32)
         else:
             lu = jsp.linalg.lu_factor(operator.as_matrix())
-        return lu, packed_structures, False
+        return lu, packed_structures, eqxi.Static(False)
 
     def compute(
         self, state: _LUState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         del options
         lu_and_piv, packed_structures, transpose = state
+        transpose = transpose.value
         trans = 1 if transpose else 0
         vector = ravel_vector(vector, packed_structures)
         solution = jsp.linalg.lu_solve(lu_and_piv, vector, trans=trans)
@@ -70,7 +72,11 @@ class LU(AbstractLinearSolver[_LUState]):
     ):
         lu_and_piv, packed_structures, transpose = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
-        transpose_state = lu_and_piv, transposed_packed_structures, not transpose
+        transpose_state = (
+            lu_and_piv,
+            transposed_packed_structures,
+            eqxi.Static(not transpose.value),
+        )
         transpose_options = {}
         return transpose_state, transpose_options
 
@@ -80,7 +86,11 @@ class LU(AbstractLinearSolver[_LUState]):
         options: dict[str, Any],
     ):
         (lu, piv), packed_structures, transpose = state
-        conj_state = (lu.conj(), piv), packed_structures, not transpose
+        conj_state = (
+            (lu.conj(), piv),
+            packed_structures,
+            eqxi.Static(not transpose.value),
+        )
         conj_options = {}
         return conj_state, conj_options
 

@@ -15,6 +15,7 @@
 from copy import copy
 from typing import Any, TypeVar
 
+import equinox.internal as eqxi
 from jaxtyping import Array, PyTree
 
 from .._operator import (
@@ -52,7 +53,7 @@ def normal_preconditioner_and_y0(options: dict[str, Any], tall: bool):
 
 class Normal(
     AbstractLinearSolver[
-        tuple[_InnerSolverState, bool, AbstractLinearOperator, dict[str, Any]]
+        tuple[_InnerSolverState, eqxi.Static, AbstractLinearOperator, dict[str, Any]]
     ]
 ):
     """Wrapper for an inner solver of positive (semi)definite systems. The
@@ -112,15 +113,18 @@ class Normal(
         inner_options = normal_preconditioner_and_y0(options, tall)
         inner_state = self.inner_solver.init(inner_operator, inner_options)
         operator_conj_transpose = conj(operator.transpose())
-        return inner_state, tall, operator_conj_transpose, inner_options
+        return inner_state, eqxi.Static(tall), operator_conj_transpose, inner_options
 
     def compute(
         self,
-        state: tuple[_InnerSolverState, bool, AbstractLinearOperator, dict[str, Any]],
+        state: tuple[
+            _InnerSolverState, eqxi.Static, AbstractLinearOperator, dict[str, Any]
+        ],
         vector: PyTree[Array],
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         inner_state, tall, operator_conj_transpose, inner_options = state
+        tall = tall.value
         del state, options
         if tall:
             vector = operator_conj_transpose.mv(vector)
@@ -133,7 +137,9 @@ class Normal(
 
     def transpose(
         self,
-        state: tuple[_InnerSolverState, bool, AbstractLinearOperator, dict[str, Any]],
+        state: tuple[
+            _InnerSolverState, eqxi.Static, AbstractLinearOperator, dict[str, Any]
+        ],
         options: dict[str, Any],
     ):
         inner_state, tall, operator_conj_transpose, inner_options = state
@@ -142,7 +148,7 @@ class Normal(
         )
         state_transpose = (
             inner_state_conj,
-            not tall,
+            eqxi.Static(not tall.value),
             operator_conj_transpose.transpose(),
             inner_options,
         )
@@ -150,7 +156,9 @@ class Normal(
 
     def conj(
         self,
-        state: tuple[_InnerSolverState, bool, AbstractLinearOperator, dict[str, Any]],
+        state: tuple[
+            _InnerSolverState, eqxi.Static, AbstractLinearOperator, dict[str, Any]
+        ],
         options: dict[str, Any],
     ):
         inner_state, tall, operator_conj_transpose, inner_options = state
