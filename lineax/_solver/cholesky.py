@@ -14,6 +14,7 @@
 
 from typing import Any, TypeAlias
 
+import equinox.internal as eqxi
 import jax.flatten_util as jfu
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
@@ -27,7 +28,7 @@ from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 
 
-_CholeskyState: TypeAlias = tuple[Array, bool]
+_CholeskyState: TypeAlias = tuple[Array, eqxi.Static]
 
 
 class Cholesky(AbstractLinearSolver[_CholeskyState]):
@@ -59,12 +60,13 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         factor, lower = jsp.linalg.cho_factor(matrix)
         # Fix upper triangular for simplicity.
         assert lower is False
-        return factor, is_nsd
+        return factor, eqxi.Static(is_nsd)
 
     def compute(
         self, state: _CholeskyState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         factor, is_nsd = state
+        is_nsd = is_nsd.value
         del options
         # Cholesky => PSD => symmetric => (in_structure == out_structure) =>
         # we don't need to use packed structures.
@@ -75,12 +77,16 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         solution = unflatten(solution)
         return solution, RESULTS.successful, {}
 
-    def transpose(self, state: _CholeskyState, options: dict[str, Any]):
+    def transpose(
+        self, state: _CholeskyState, options: dict[str, Any]
+    ) -> tuple[_CholeskyState, dict[str, Any]]:
         # Matrix is self-adjoint
         factor, is_nsd = state
         return (factor.conj(), is_nsd), options
 
-    def conj(self, state: _CholeskyState, options: dict[str, Any]):
+    def conj(
+        self, state: _CholeskyState, options: dict[str, Any]
+    ) -> tuple[_CholeskyState, dict[str, Any]]:
         # Matrix is self-adjoint
         factor, is_nsd = state
         return (factor.conj(), is_nsd), options

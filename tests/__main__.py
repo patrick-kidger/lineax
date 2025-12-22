@@ -26,4 +26,6 @@ for file in here.iterdir():
     if file.is_file() and file.name.startswith("test"):
         out = subprocess.run(f"pytest {file}", shell=True).returncode
         running_out = max(running_out, out)
+        if out != 0:
+            break
 sys.exit(running_out)

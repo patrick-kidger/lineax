@@ -67,18 +67,18 @@ addopts = "--jaxtyping-packages=lineax,beartype.beartype(conf=beartype.BeartypeC
 extend-include = ["*.ipynb"]
 src = []
 
-[tool.ruff.isort]
-combine-as-imports = true
-extra-standard-library = ["typing_extensions"]
-lines-after-imports = 2
-order-by-type = false
-
 [tool.ruff.lint]
 fixable = ["I001", "F401", "UP"]
-ignore = ["E402", "E721", "E731", "E741", "F722", "UP038"]
+ignore = ["E402", "E721", "E731", "E741", "F722"]
 select = ["E", "F", "I001", "UP"]
 
 [tool.ruff.lint.flake8-import-conventions.extend-aliases]
 "collections" = "co"
 "functools" = "ft"
 "itertools" = "it"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+extra-standard-library = ["typing_extensions"]
+lines-after-imports = 2
+order-by-type = false
