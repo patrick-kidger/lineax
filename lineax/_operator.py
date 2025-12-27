@@ -255,7 +255,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
             raise ValueError(
                 "`MatrixLinearOperator(matrix=...)` should be 2-dimensional."
             )
-        if not jnp.issubdtype(matrix, jnp.inexact):
+        if not jnp.issubdtype(matrix.dtype, jnp.inexact):
             matrix = matrix.astype(jnp.float32)
         self.matrix = matrix
         self.tags = _frozenset(tags)
