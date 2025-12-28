@@ -397,7 +397,9 @@ class PyTreeLinearOperator(AbstractLinearOperator):
                     raise ValueError(
                         "`pytree` and `output_structure` are not consistent"
                     )
-                return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=leaf.dtype)
+                return jax.ShapeDtypeStruct(
+                    shape=shape[ndim:], dtype=jnp.result_type(leaf)
+                )
 
             return _Leaf(jtu.tree_map(sub_get_structure, subpytree))
 
@@ -1819,7 +1821,7 @@ for transform in (linearise, materialise, diagonal):
 
     @transform.register(AddLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
-        return transform(operator.operator1) + transform(operator.operator2)
+        return transform(operator.operator1) + transform(operator.operator2)  # pyright: ignore
 
     @transform.register(MulLinearOperator)
     def _(operator, transform=transform):

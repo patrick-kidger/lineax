@@ -175,7 +175,7 @@ def test_grad_vmap_symbolic_cotangent():
     "solver",
     (
         lx.CG(0.0, 0.0, max_steps=2),
-        lx.NormalCG(0.0, 0.0, max_steps=2),
+        lx.Normal(lx.CG(0.0, 0.0, max_steps=2)),
         lx.BiCGStab(0.0, 0.0, max_steps=2),
         lx.GMRES(0.0, 0.0, max_steps=2),
         lx.LSMR(0.0, 0.0, max_steps=2),

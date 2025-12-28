@@ -220,14 +220,15 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
 
         if self.max_steps is None:
             result = RESULTS.where(
-                (num_steps == max_steps), RESULTS.singular, RESULTS.successful
+                num_steps == max_steps, RESULTS.singular, RESULTS.successful
+            )
+        elif has_scale:
+            result = RESULTS.where(
+                num_steps == max_steps, RESULTS.max_steps_reached, RESULTS.successful
             )
         else:
-            result = RESULTS.where(
-                (num_steps == self.max_steps),
-                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
-                RESULTS.successful,
-            )
+            result = RESULTS.successful
+
         result = RESULTS.where(
             stagnation_counter >= self.stagnation_iters, RESULTS.stagnation, result
         )
@@ -409,7 +410,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             eps = jnp.finfo(norm.dtype).eps
         else:
             eps = jnp.astype(eps, norm.dtype)
-        breakdown = norm < eps
+        breakdown = norm < eps  # pyright: ignore
         safe_norm = jnp.where(breakdown, jnp.inf, norm)
         with jax.numpy_dtype_promotion("standard"):
             x_normalised = (x**ω / safe_norm).ω
@@ -429,11 +430,8 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         operator = state
         return conj(operator), conj_options
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 GMRES.__init__.__doc__ = r"""**Arguments:**

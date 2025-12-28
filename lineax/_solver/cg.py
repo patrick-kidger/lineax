@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, ClassVar, TYPE_CHECKING, TypeAlias
+from typing import Any, TypeAlias
 
 import equinox.internal as eqxi
 import jax
@@ -22,12 +22,6 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
-
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractClassVar
-else:
-    from equinox.internal import AbstractClassVar
 
 from .._misc import resolve_rcond, structure_equal, tree_where
 from .._norm import max_norm, tree_dot
@@ -41,23 +35,41 @@ from .._operator import (
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import preconditioner_and_y0
+from .normal import Normal
 
 
-_CGState: TypeAlias = tuple[AbstractLinearOperator, bool]
+_CGState: TypeAlias = tuple[AbstractLinearOperator, eqxi.Static]
 
 
 # TODO(kidger): this is pretty slow to compile.
 # - CG evaluates `operator.mv` three times.
-# - Normal CG evaluates `operator.mv` seven (!) times.
 # Possibly this can be cheapened a bit somehow?
-class _AbstractCG(AbstractLinearSolver[_CGState]):
+class CG(AbstractLinearSolver[_CGState]):
+    """Conjugate gradient solver for linear systems.
+
+    The operator should be positive or negative definite.
+
+    Equivalent to `scipy.sparse.linalg.cg`.
+
+    This supports the following `options` (as passed to
+    `lx.linear_solve(..., options=...)`).
+
+    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
+        to be used as preconditioner. Defaults to
+        [`lineax.IdentityLinearOperator`][]. This method uses left preconditioning,
+        so it is the preconditioned residual that is minimized, though the actual
+        termination criteria uses the un-preconditioned residual.
+
+    - `y0`: The initial estimate of the solution to the linear system. Defaults to all
+        zeros.
+
+    """
+
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
     stabilise_every: int | None = 10
     max_steps: int | None = None
-
-    _normal: AbstractClassVar[bool]
 
     def __check_init__(self):
         if isinstance(self.rtol, (int, float)) and self.rtol < 0:
@@ -75,19 +87,19 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
         is_nsd = is_negative_semidefinite(operator)
-        if not self._normal:
-            if not structure_equal(operator.in_structure(), operator.out_structure()):
-                raise ValueError(
-                    "`CG()` may only be used for linear solves with square matrices."
-                )
-            if not (is_positive_semidefinite(operator) | is_nsd):
-                raise ValueError(
-                    "`CG()` may only be used for positive "
-                    "or negative definite linear operators"
-                )
-            if is_nsd:
-                operator = -operator
-        return operator, is_nsd
+        if not structure_equal(operator.in_structure(), operator.out_structure()):
+            raise ValueError(
+                "`CG()` may only be used for linear solves with square matrices."
+            )
+        if not (is_positive_semidefinite(operator) | is_nsd):
+            raise ValueError(
+                "`CG()` may only be used for positive "
+                "or negative definite linear operators"
+            )
+        if is_nsd:
+            operator = -operator
+        operator = linearise(operator)
+        return operator, eqxi.Static(is_nsd)
 
     # This differs from jax.scipy.sparse.linalg.cg in:
     # 1. Every few steps we calculate the residual directly, rather than by cheaply
@@ -102,47 +114,18 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
+        is_nsd = is_nsd.value
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
-        if self._normal:
-            # Linearise if JacobianLinearOperator, to avoid computing the forward
-            # pass separately for mv and transpose_mv.
-            # This choice is "fast by default", even at the expense of memory.
-            # If a downstream user wants to avoid this then they can call
-            # ```
-            # linear_solve(
-            #     conj(operator.T) @ operator, operator.mv(b), solver=CG()
-            # )
-            # ```
-            # directly.
-            operator = linearise(operator)
-            preconditioner = linearise(preconditioner)
-
-            _mv = operator.mv
-            _transpose_mv = conj(operator.transpose()).mv
-            _pmv = preconditioner.mv
-            _transpose_pmv = conj(preconditioner.transpose()).mv
-
-            def mv(vector: PyTree) -> PyTree:
-                return _transpose_mv(_mv(vector))
-
-            def psolve(vector: PyTree) -> PyTree:
-                return _pmv(_transpose_pmv(vector))
-
-            vector = _transpose_mv(vector)
-        else:
-            if not is_positive_semidefinite(preconditioner):
-                raise ValueError("The preconditioner must be positive definite.")
-            mv = operator.mv
-            psolve = preconditioner.mv
-
+        if not is_positive_semidefinite(preconditioner):
+            raise ValueError("The preconditioner must be positive definite.")
         leaves, _ = jtu.tree_flatten(vector)
         size = sum(leaf.size for leaf in leaves)
         if self.max_steps is None:
             max_steps = 10 * size  # Copied from SciPy!
         else:
             max_steps = self.max_steps
-        r0 = (vector**ω - mv(y0) ** ω).ω
-        p0 = psolve(r0)
+        r0 = (vector**ω - operator.mv(y0) ** ω).ω
+        p0 = preconditioner.mv(r0)
         gamma0 = tree_dot(p0, r0)
         rcond = resolve_rcond(None, size, size, jnp.result_type(*leaves))
         initial_value = (
@@ -184,11 +167,13 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
 
         def body_fun(value):
             _, y, r, p, gamma, step = value
-            mat_p = mv(p)
+            mat_p = operator.mv(p)
             inner_prod = tree_dot(mat_p, p)
             alpha = gamma / inner_prod
             alpha = tree_where(
-                jnp.abs(inner_prod) > 100 * rcond * jnp.abs(gamma), alpha, jnp.nan
+                jnp.abs(inner_prod) > 100 * rcond * jnp.abs(gamma),  # pyright: ignore
+                alpha,
+                jnp.nan,  # pyright: ignore
             )
             diff = (alpha * p**ω).ω
             y = (y**ω + diff**ω).ω
@@ -199,7 +184,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
             # We compute the residual the "expensive" way every now and again, so as to
             # correct numerical rounding errors.
             def stable_r():
-                return (vector**ω - mv(y) ** ω).ω
+                return (vector**ω - operator.mv(y) ** ω).ω
 
             def cheap_r():
                 return (r**ω - alpha * mat_p**ω).ω
@@ -213,7 +198,7 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
                 stable_step = eqxi.nonbatchable(stable_step)
                 r = lax.cond(stable_step, stable_r, cheap_r)
 
-            z = psolve(r)
+            z = preconditioner.mv(r)
             gamma_prev = gamma
             gamma = tree_dot(z, r)
             beta = gamma / gamma_prev
@@ -224,25 +209,25 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
             cond_fun, body_fun, initial_value
         )
 
-        if (self.max_steps is None) or (max_steps < self.max_steps):
+        if self.max_steps is None:
             result = RESULTS.where(
-                num_steps == max_steps,
-                RESULTS.singular,
-                RESULTS.successful,
+                num_steps == max_steps, RESULTS.singular, RESULTS.successful
+            )
+        elif has_scale:
+            result = RESULTS.where(
+                num_steps == max_steps, RESULTS.max_steps_reached, RESULTS.successful
             )
         else:
-            result = RESULTS.where(
-                num_steps == max_steps,
-                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
-                RESULTS.successful,
-            )
+            result = RESULTS.successful
 
-        if is_nsd and not self._normal:
+        if is_nsd:
             solution = -(solution**ω).ω
         stats = {"num_steps": num_steps, "max_steps": self.max_steps}
         return solution, result, stats
 
-    def transpose(self, state: _CGState, options: dict[str, Any]):
+    def transpose(
+        self, state: _CGState, options: dict[str, Any]
+    ) -> tuple[_CGState, dict[str, Any]]:
         transpose_options = {}
         if "preconditioner" in options:
             transpose_options["preconditioner"] = options["preconditioner"].transpose()
@@ -250,7 +235,9 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         transpose_state = psd_op.transpose(), is_nsd
         return transpose_state, transpose_options
 
-    def conj(self, state: _CGState, options: dict[str, Any]):
+    def conj(
+        self, state: _CGState, options: dict[str, Any]
+    ) -> tuple[_CGState, dict[str, Any]]:
         conj_options = {}
         if "preconditioner" in options:
             conj_options["preconditioner"] = conj(options["preconditioner"])
@@ -258,78 +245,8 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         conj_state = conj(psd_op), is_nsd
         return conj_state, conj_options
 
-
-class CG(_AbstractCG):
-    """Conjugate gradient solver for linear systems.
-
-    The operator should be positive or negative definite.
-
-    Equivalent to `scipy.sparse.linalg.cg`.
-
-    This supports the following `options` (as passed to
-    `lx.linear_solve(..., options=...)`).
-
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
-        to be used as preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][]. This method uses left preconditioning,
-        so it is the preconditioned residual that is minimized, though the actual
-        termination criteria uses the un-preconditioned residual.
-    - `y0`: The initial estimate of the solution to the linear system. Defaults to all
-        zeros.
-
-    !!! info
-
-
-    """
-
-    _normal: ClassVar[bool] = False
-
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
-
-
-class NormalCG(_AbstractCG):
-    """Conjugate gradient applied to the normal equations:
-
-    `A^T A = A^T b`
-
-    of a system of linear equations. Note that this squares the condition
-    number, so it is not recommended. This is a fast but potentially inaccurate
-    method, especially in 32 bit floating point precision.
-
-    This can handle nonsquare operators provided they are full-rank.
-
-    This supports the following `options` (as passed to
-    `lx.linear_solve(..., options=...)`).
-
-    - `preconditioner`: A [`lineax.AbstractLinearOperator`][] to be used as
-        preconditioner. Defaults to [`lineax.IdentityLinearOperator`][]. Note that
-        the preconditioner should approximate the inverse of `A`, not the inverse of
-        `A^T A`. This method uses left preconditioning, so it is the preconditioned
-        residual that is minimized, though the actual termination criteria uses
-        the un-preconditioned residual.
-    - `y0`: The initial estimate of the solution to the linear system. Defaults to all
-        zeros.
-
-    !!! info
-
-
-    """
-
-    _normal: ClassVar[bool] = True
-
-    def allow_dependent_columns(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return columns > rows
-
-    def allow_dependent_rows(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return rows > columns
+    def assume_full_rank(self):
+        return True
 
 
 CG.__init__.__doc__ = r"""**Arguments:**
@@ -349,19 +266,6 @@ CG.__init__.__doc__ = r"""**Arguments:**
     than this are required, then the solve is halted with a failure.
 """
 
-NormalCG.__init__.__doc__ = r"""**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
-- `norm`: The norm to use when computing whether the error falls within the tolerance.
-    Defaults to the max norm.
-- `stabilise_every`: The conjugate gradient is an iterative method that produces
-    candidate solutions $x_1, x_2, \ldots$, and terminates once $r_i = \| Ax_i - b \|$
-    is small enough. For computational efficiency, the values $r_i$ are computed using
-    other internal quantities, and not by directly evaluating the formula above.
-    However, this computation of $r_i$ is susceptible to drift due to limited
-    floating-point precision. Every `stabilise_every` steps, then $r_i$ is computed
-    directly using the formula above, in order to stabilise the computation.
-- `max_steps`: The maximum number of iterations to run the solver for. If more steps
-    than this are required, then the solve is halted with a failure.
-"""
+def NormalCG(*args):
+    return Normal(CG(*args))
