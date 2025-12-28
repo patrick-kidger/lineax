@@ -397,7 +397,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
                     raise ValueError(
                         "`pytree` and `output_structure` are not consistent"
                     )
-                return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=jnp.dtype(leaf))
+                return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=leaf.dtype)
 
             return _Leaf(jtu.tree_map(sub_get_structure, subpytree))
 
