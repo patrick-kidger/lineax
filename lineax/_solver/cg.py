@@ -102,7 +102,6 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
         self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
-        preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         if self._normal:
             # Linearise if JacobianLinearOperator, to avoid computing the forward
             # pass separately for mv and transpose_mv.
@@ -115,24 +114,28 @@ class _AbstractCG(AbstractLinearSolver[_CGState]):
             # ```
             # directly.
             operator = linearise(operator)
-            preconditioner = linearise(preconditioner)
 
             _mv = operator.mv
             _transpose_mv = conj(operator.transpose()).mv
-            _pmv = preconditioner.mv
-            _transpose_pmv = conj(preconditioner.transpose()).mv
 
             def mv(vector: PyTree) -> PyTree:
                 return _transpose_mv(_mv(vector))
 
+            vector = _transpose_mv(vector)
+        else:
+            mv = operator.mv
+        preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
+        if self._normal:
+            preconditioner = linearise(preconditioner)
+            _pmv = preconditioner.mv
+            _transpose_pmv = conj(preconditioner.transpose()).mv
+
             def psolve(vector: PyTree) -> PyTree:
                 return _pmv(_transpose_pmv(vector))
 
-            vector = _transpose_mv(vector)
         else:
             if not is_positive_semidefinite(preconditioner):
                 raise ValueError("The preconditioner must be positive definite.")
-            mv = operator.mv
             psolve = preconditioner.mv
 
         leaves, _ = jtu.tree_flatten(vector)

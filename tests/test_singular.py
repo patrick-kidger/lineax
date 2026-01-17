@@ -107,6 +107,7 @@ def test_gmres_stagnation_or_breakdown(getkey, dtype):
         lx.QR(),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
+        lx.NormalCG(rtol=tol, atol=tol),
     ),
 )
 def test_nonsquare_pytree_operator1(solver):
@@ -128,6 +129,7 @@ def test_nonsquare_pytree_operator1(solver):
         lx.QR(),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
+        lx.NormalCG(rtol=tol, atol=tol),
     ),
 )
 def test_nonsquare_pytree_operator2(solver):
