@@ -272,12 +272,12 @@ def NormalCG(*args, **kwargs):
     """Deprecated helper function. Use `lx.Normal(lx.CG(...))` instead.
 
     !!! warning "Deprecated"
-        `NormalCG` is deprecated and will be removed in a future version.
-        Use `lx.Normal(lx.CG(...))` instead.
+        `NormalCG(...)` is deprecated in favour of `lx.Normal(lx.CG(...))`.
+        This will be removed in some future version of Lineax.
     """
     warnings.warn(
-        "NormalCG is deprecated and will be removed in a future version. "
-        "Use lx.Normal(lx.CG(...)) instead.",
+        "`NormalCG(...)` is deprecated in favour of `lx.Normal(lx.CG(...))`. "
+        "This will be removed in some future version of Lineax.",
         DeprecationWarning,
         stacklevel=2,
     )
