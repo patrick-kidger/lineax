@@ -14,6 +14,7 @@
 
 from collections.abc import Callable
 from typing import Any, TypeAlias
+import warnings
 
 import equinox.internal as eqxi
 import jax
@@ -267,5 +268,17 @@ CG.__init__.__doc__ = r"""**Arguments:**
 """
 
 
-def NormalCG(*args):
-    return Normal(CG(*args))
+def NormalCG(*args, **kwargs):
+    """Deprecated helper function. Use `lx.Normal(lx.CG(...))` instead.
+
+    !!! warning "Deprecated"
+        `NormalCG` is deprecated and will be removed in a future version.
+        Use `lx.Normal(lx.CG(...))` instead.
+    """
+    warnings.warn(
+        "NormalCG is deprecated and will be removed in a future version. "
+        "Use lx.Normal(lx.CG(...)) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return Normal(CG(*args, **kwargs))
