@@ -14,6 +14,7 @@
 
 from typing import Any, TypeAlias
 
+import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
@@ -57,9 +58,16 @@ class LU(AbstractLinearSolver[_LUState]):
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         del options
         lu_and_piv, packed_structures, transpose = state
-        trans = 1 if transpose else 0
         vector = ravel_vector(vector, packed_structures)
-        solution = jsp.linalg.lu_solve(lu_and_piv, vector, trans=trans)
+
+        # Use lax.cond to handle transpose as a static argument in each branch
+        def solve_transposed(_):
+            return jsp.linalg.lu_solve(lu_and_piv, vector, trans=1)
+
+        def solve_normal(_):
+            return jsp.linalg.lu_solve(lu_and_piv, vector, trans=0)
+
+        solution = lax.cond(transpose, solve_transposed, solve_normal, None)
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
