@@ -28,7 +28,7 @@ name = "lineax"
 readme = "README.md"
 requires-python = "~=3.10"
 urls = {repository = "https://github.com/google/lineax"}
-version = "0.0.8"
+version = "0.1.0"
 
 [project.optional-dependencies]
 dev = [
