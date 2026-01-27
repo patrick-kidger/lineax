@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from collections.abc import Callable
 from typing import Any, TypeAlias
-import warnings
 
 import equinox.internal as eqxi
 import jax
