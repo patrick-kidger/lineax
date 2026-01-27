@@ -325,6 +325,14 @@ class _Leaf:  # not a pytree
         self.value = value
 
 
+def _leaf_from_keypath(pytree: PyTree, keypath) -> Array:
+    """Extract the leaf from a pytree at the given keypath."""
+    for path, leaf in jtu.tree_leaves_with_path(pytree):
+        if path == keypath:
+            return leaf
+    raise ValueError(f"Leaf not found at keypath {keypath}")
+
+
 # The `{input,output}_structure`s have to be static because otherwise abstract
 # evaluation rules will promote them to ShapedArrays.
 class PyTreeLinearOperator(AbstractLinearOperator):
@@ -420,11 +428,22 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         # vector has structure [tree(in), leaf(in)]
         # self.out_structure() has structure [tree(out)]
         # self.pytree has structure [tree(out), tree(in), leaf(out), leaf(in)]
-        # return has struture [tree(out), leaf(out)]
-        def matmul(_, matrix):
-            return _tree_matmul(matrix, vector)
+        # return has structure [tree(out), leaf(out)]
+        if diagonal_tag in self.tags:
+            # Efficient path: diagonal mv is just element-wise multiplication
+            def diag_mv(keypath, struct, subpytree):
+                block = _leaf_from_keypath(subpytree, keypath)
+                vec_leaf = _leaf_from_keypath(vector, keypath)
+                diag = jnp.diag(block.reshape(struct.size, struct.size))
+                return (diag * vec_leaf.reshape(-1)).reshape(struct.shape)
 
-        return jtu.tree_map(matmul, self.out_structure(), self.pytree)
+            return jtu.tree_map_with_path(diag_mv, self.out_structure(), self.pytree)
+        else:
+
+            def matmul(_, matrix):
+                return _tree_matmul(matrix, vector)
+
+            return jtu.tree_map(matmul, self.out_structure(), self.pytree)
 
     def as_matrix(self):
         with jax.numpy_dtype_promotion("standard"):
@@ -1369,9 +1388,24 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
 
 @diagonal.register(MatrixLinearOperator)
-@diagonal.register(PyTreeLinearOperator)
 def _(operator):
     return jnp.diag(operator.as_matrix())
+
+
+@diagonal.register(PyTreeLinearOperator)
+def _(operator):
+    if is_diagonal(operator):
+        # in_structure == out_structure guaranteed for diagonal operators
+        def extract_diag(keypath, struct, subpytree):
+            block = _leaf_from_keypath(subpytree, keypath)
+            return jnp.diag(block.reshape(struct.size, struct.size))
+
+        diags = jtu.tree_map_with_path(
+            extract_diag, operator.out_structure(), operator.pytree
+        )
+        return jnp.concatenate(jtu.tree_leaves(diags))
+    else:
+        return jnp.diag(operator.as_matrix())
 
 
 @diagonal.register(JacobianLinearOperator)
