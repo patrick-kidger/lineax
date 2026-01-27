@@ -50,9 +50,11 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
     This supports the following `options` (as passed to
     `lx.linear_solve(..., options=...)`).
 
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
+    - `preconditioner`: A [`lineax.AbstractLinearOperator`][]
         to be used as preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
+        [`lineax.IdentityLinearOperator`][]. This method uses left preconditioning,
+        so it is the preconditioned residual that is minimized, though the actual
+        termination criteria uses the un-preconditioned residual.
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
     """
@@ -218,14 +220,15 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
 
         if self.max_steps is None:
             result = RESULTS.where(
-                (num_steps == max_steps), RESULTS.singular, RESULTS.successful
+                num_steps == max_steps, RESULTS.singular, RESULTS.successful
+            )
+        elif has_scale:
+            result = RESULTS.where(
+                num_steps == max_steps, RESULTS.max_steps_reached, RESULTS.successful
             )
         else:
-            result = RESULTS.where(
-                (num_steps == self.max_steps),
-                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
-                RESULTS.successful,
-            )
+            result = RESULTS.successful
+
         result = RESULTS.where(
             stagnation_counter >= self.stagnation_iters, RESULTS.stagnation, result
         )
@@ -407,29 +410,28 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             eps = jnp.finfo(norm.dtype).eps
         else:
             eps = jnp.astype(eps, norm.dtype)
-        breakdown = norm < eps
+        breakdown = norm < eps  # pyright: ignore
         safe_norm = jnp.where(breakdown, jnp.inf, norm)
         with jax.numpy_dtype_promotion("standard"):
             x_normalised = (x**ω / safe_norm).ω
         return x_normalised, norm, breakdown
 
     def transpose(self, state: _GMRESState, options: dict[str, Any]):
-        del options
-        operator = state
         transpose_options = {}
+        if "preconditioner" in options:
+            transpose_options["preconditioner"] = options["preconditioner"].transpose()
+        operator = state
         return operator.transpose(), transpose_options
 
     def conj(self, state: _GMRESState, options: dict[str, Any]):
-        del options
-        operator = state
         conj_options = {}
+        if "preconditioner" in options:
+            conj_options["preconditioner"] = conj(options["preconditioner"])
+        operator = state
         return conj(operator), conj_options
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 GMRES.__init__.__doc__ = r"""**Arguments:**

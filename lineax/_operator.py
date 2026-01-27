@@ -255,7 +255,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
             raise ValueError(
                 "`MatrixLinearOperator(matrix=...)` should be 2-dimensional."
             )
-        if not jnp.issubdtype(matrix, jnp.inexact):
+        if not jnp.issubdtype(matrix.dtype, jnp.inexact):
             matrix = matrix.astype(jnp.float32)
         self.matrix = matrix
         self.tags = _frozenset(tags)
@@ -397,7 +397,9 @@ class PyTreeLinearOperator(AbstractLinearOperator):
                     raise ValueError(
                         "`pytree` and `output_structure` are not consistent"
                     )
-                return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=jnp.dtype(leaf))
+                return jax.ShapeDtypeStruct(
+                    shape=shape[ndim:], dtype=jnp.result_type(leaf)
+                )
 
             return _Leaf(jtu.tree_map(sub_get_structure, subpytree))
 
@@ -588,6 +590,11 @@ class JacobianLinearOperator(AbstractLinearOperator):
            `jax.jacrev`. Otherwise, if not specified it will be chosen
            by default according to input and output shape.
         """
+        if jac not in [None, "fwd", "bwd"]:
+            raise ValueError(
+                "`jac` argument of `JacobianLinearOperator` should be either "
+                "`'fwd'`, `'bwd'`, or `None`."
+            )
         if not _has_aux:
             fn = NoneAux(fn)
         # Flush out any closed-over values, so that we can safely pass `self`
@@ -1848,7 +1855,7 @@ for transform in (linearise, materialise, diagonal):
 
     @transform.register(AddLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
-        return transform(operator.operator1) + transform(operator.operator2)
+        return transform(operator.operator1) + transform(operator.operator2)  # pyright: ignore
 
     @transform.register(MulLinearOperator)
     def _(operator, transform=transform):

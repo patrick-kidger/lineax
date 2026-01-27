@@ -57,7 +57,7 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
 
 
 def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
-    if isinstance(solver, lx.NormalCG):
+    if isinstance(solver, lx.Normal):
         cond_cutoff = math.sqrt(1000)
     else:
         cond_cutoff = 1000
@@ -109,12 +109,13 @@ solvers_tags_pseudoinverse = [
     (lx.SVD(), (), True),
     (lx.BiCGStab(rtol=tol, atol=tol), (), False),
     (lx.GMRES(rtol=tol, atol=tol), (), False),
-    (lx.NormalCG(rtol=tol, atol=tol), (), False),
     (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
     (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
-    (lx.NormalCG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
+    (lx.Normal(lx.CG(rtol=tol, atol=tol)), (), False),
+    (lx.LSMR(atol=tol, rtol=tol), (), True),
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
+    (lx.Normal(lx.Cholesky()), (), False),
 ]
 solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
 solvers = [a for a, _, _ in solvers_tags_pseudoinverse]

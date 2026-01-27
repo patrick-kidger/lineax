@@ -9,9 +9,9 @@ If you're not sure what to use, then pick [`lineax.AutoLinearSolver`][] and it w
             members:
                 - init
                 - compute
-                - allow_dependent_columns
-                - allow_dependent_rows
                 - transpose
+                - conj
+                - assume_full_rank
 
 ::: lineax.AutoLinearSolver
     options:
@@ -42,9 +42,16 @@ These are capable of solving ill-posed linear problems.
         members:
             - __init__
 
+---
+
+::: lineax.Normal
+    options:
+        members:
+            - __init__
+
 !!! info
 
-    In addition to these, `lineax.Diagonal(well_posed=False)` and [`lineax.NormalCG`][] (below) also support ill-posed problems.
+    In addition to these, `lineax.Diagonal(well_posed=False)` (below) also supports ill-posed problems.
 
 ## Structure-exploiting solvers
 
@@ -89,13 +96,6 @@ These solvers use only matrix-vector products, and do not require instantiating 
     Note that [`lineax.BiCGStab`][] and [`lineax.GMRES`][] may fail to converge on some (typically non-sparse) problems.
 
 ::: lineax.CG
-    options:
-        members:
-            - __init__
-
----
-
-::: lineax.NormalCG
     options:
         members:
             - __init__

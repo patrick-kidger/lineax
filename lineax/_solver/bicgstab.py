@@ -42,9 +42,9 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
     This supports the following `options` (as passed to
     `lx.linear_solve(..., options=...)`).
 
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
+    - `preconditioner`: A [`lineax.AbstractLinearOperator`][]
         to be used as a preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
+        [`lineax.IdentityLinearOperator`][]. This method uses right preconditioning.
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
     """
@@ -187,14 +187,14 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
 
         if self.max_steps is None:
             result = RESULTS.where(
-                (num_steps == max_steps), RESULTS.singular, RESULTS.successful
+                num_steps == max_steps, RESULTS.singular, RESULTS.successful
+            )
+        elif has_scale:
+            result = RESULTS.where(
+                num_steps == max_steps, RESULTS.max_steps_reached, RESULTS.successful
             )
         else:
-            result = RESULTS.where(
-                (num_steps == self.max_steps),
-                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
-                RESULTS.successful,
-            )
+            result = RESULTS.successful
         # breakdown is only an issue if we did not converge
         breakdown = breakdown_occurred(omega, alpha, rho) & not_converged(
             residual, diff, solution
@@ -205,22 +205,21 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
         return solution, result, stats
 
     def transpose(self, state: _BiCGStabState, options: dict[str, Any]):
-        del options
-        operator = state
         transpose_options = {}
+        if "preconditioner" in options:
+            transpose_options["preconditioner"] = options["preconditioner"].transpose()
+        operator = state
         return operator.transpose(), transpose_options
 
     def conj(self, state: _BiCGStabState, options: dict[str, Any]):
-        del options
-        operator = state
         conj_options = {}
+        if "preconditioner" in options:
+            conj_options["preconditioner"] = conj(options["preconditioner"])
+        operator = state
         return conj(operator), conj_options
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
+    def assume_full_rank(self):
+        return True
 
 
 BiCGStab.__init__.__doc__ = r"""**Arguments:**
