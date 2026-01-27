@@ -325,7 +325,7 @@ class _Leaf:  # not a pytree
         self.value = value
 
 
-def _leaf_from_keypath(pytree: PyTree, keypath) -> Array:
+def _leaf_from_keypath(pytree: PyTree, keypath: jtu.KeyPath) -> Array:
     """Extract the leaf from a pytree at the given keypath."""
     for path, leaf in jtu.tree_leaves_with_path(pytree):
         if path == keypath:
@@ -1420,7 +1420,12 @@ def _(operator):
         if operator.jac == "fwd" or operator.jac is None:
             diag_as_pytree = operator.mv(unravel(basis))
         elif operator.jac == "bwd":
-            diag_as_pytree = operator.T.mv(unravel(basis))
+            # Don't use operator.T.mv here: if the operator is symmetric,
+            # operator.T returns self, and self.mv with jac="bwd" computes
+            # the full Jacobian with jacrev. Direct VJP is more efficient.
+            fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
+            _, vjp_fun = jax.vjp(fn, operator.x)
+            (diag_as_pytree,) = vjp_fun(unravel(basis))
         else:
             raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
 
