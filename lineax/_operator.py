@@ -1379,9 +1379,7 @@ def _(operator):
         if operator.jac == "fwd" or operator.jac is None:
             diag_as_pytree = operator.mv(unravel(basis))
         elif operator.jac == "bwd":
-            fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
-            _, vjp_fun = jax.vjp(fn, operator.x)
-            diag_as_pytree = vjp_fun(unravel(basis))
+            diag_as_pytree = operator.T.mv(unravel(basis))
         else:
             raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
 

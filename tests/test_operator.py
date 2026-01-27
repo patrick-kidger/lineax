@@ -23,6 +23,7 @@ import pytest
 
 from .helpers import (
     make_identity_operator,
+    make_jacrev_operator,
     make_operators,
     make_tridiagonal_operator,
     make_trivial_diagonal_operator,
@@ -45,6 +46,10 @@ def test_ops(make_operator, getkey, dtype):
     else:
         matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
         tags = ()
+    if make_operator is make_jacrev_operator and dtype is jnp.complex128:
+        pytest.skip(
+            'JacobianLinearOperator does not support complex dtypes when jac="bwd"'
+        )
     matrix1 = make_operator(getkey, matrix, tags)
     matrix2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3), dtype=dtype))
     scalar = jr.normal(getkey(), (), dtype=dtype)
@@ -160,9 +165,17 @@ def test_materialise_large(dtype, getkey):
 def test_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     matrix_diag = jnp.diag(matrix)
-    operators = _setup(getkey, jnp.diag(matrix_diag))
+    # test we properly extract diagonal from a dense matrix when not tagged
+    operators = _setup(getkey, matrix)
     for operator in operators:
         assert jnp.allclose(lx.diagonal(operator), matrix_diag)
+    # test we properly extract diagonal from diagonal matrix when tagged
+    operators = _setup(getkey, jnp.diag(matrix_diag), lx.diagonal_tag)
+    for operator in operators:
+        if isinstance(operator, lx.IdentityLinearOperator):
+            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3))
+        else:
+            assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
