@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from collections.abc import Callable
 from typing import Any, TypeAlias
 
@@ -267,5 +268,17 @@ CG.__init__.__doc__ = r"""**Arguments:**
 """
 
 
-def NormalCG(*args):
-    return Normal(CG(*args))
+def NormalCG(*args, **kwargs):
+    """Deprecated helper function. Use `lx.Normal(lx.CG(...))` instead.
+
+    !!! warning "Deprecated"
+        `NormalCG(...)` is deprecated in favour of `lx.Normal(lx.CG(...))`.
+        This will be removed in some future version of Lineax.
+    """
+    warnings.warn(
+        "`NormalCG(...)` is deprecated in favour of `lx.Normal(lx.CG(...))`. "
+        "This will be removed in some future version of Lineax.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return Normal(CG(*args, **kwargs))
