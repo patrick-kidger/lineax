@@ -439,25 +439,31 @@ def test_zero_pytree_as_matrix(dtype):
 
 
 def test_jacrev_operator():
+    # Test that custom_vjp is respected. The custom backward multiplies by 3
+    # instead of the true derivative (which would be 2).
+    # This tests that lineax uses the custom_vjp, not the true derivative.
     @jax.custom_vjp
     def f(x, _):
-        return dict(foo=x["bar"] + 2)
+        return dict(foo=x["bar"] * 2)  # forward: multiply by 2
 
     def f_fwd(x, _):
         return f(x, None), None
 
     def f_bwd(_, g):
-        return dict(bar=g["foo"] + 5), None
+        # Custom backward: multiply by 3 (not the true derivative 2)
+        # This must be linear in g for linear_transpose to work correctly.
+        return dict(bar=g["foo"] * 3), None
 
     f.defvjp(f_fwd, f_bwd)
 
     x = dict(bar=jnp.arange(2.0))
     rev_op = lx.JacobianLinearOperator(f, x, jac="bwd")
-    as_matrix = jnp.array([[6.0, 5.0], [5.0, 6.0]])
+    # Jacobian is 3*I (from custom backward, not 2*I from true derivative)
+    as_matrix = jnp.array([[3.0, 0.0], [0.0, 3.0]])
     assert tree_allclose(rev_op.as_matrix(), as_matrix)
 
-    y = dict(bar=jnp.arange(2.0) + 1)
-    true_out = dict(foo=jnp.array([16.0, 17.0]))
+    y = dict(bar=jnp.arange(2.0) + 1)  # y = [1, 2]
+    true_out = dict(foo=jnp.array([3.0, 6.0]))  # 3*I @ [1, 2] = [3, 6]
     for op in (rev_op, lx.materialise(rev_op)):
         out = op.mv(y)
         assert tree_allclose(out, true_out)
