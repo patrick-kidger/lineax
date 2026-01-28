@@ -1238,10 +1238,33 @@ def _(operator):
 @linearise.register(JacobianLinearOperator)
 def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
-    (_, aux), lin = jax.linearize(fn, operator.x)
-    lin = _NoAuxOut(lin)
-    out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
-    return AuxLinearOperator(out, aux)
+    if operator.jac == "bwd":
+        # For backward mode, use VJP + linear_transpose.
+        # This works with custom_vjp functions that don't support forward-mode.
+        _, vjp_fn, aux = jax.vjp(fn, operator.x, has_aux=True)
+        if symmetric_tag in operator.tags:
+            # For symmetric: J = J.T, so vjp directly gives J @ v
+            out = FunctionLinearOperator(
+                _Unwrap(vjp_fn), operator.in_structure(), operator.tags
+            )
+        else:
+            # Transpose the VJP to get J @ v from J.T @ v
+            transpose_vjp = jax.linear_transpose(
+                lambda g: vjp_fn(g)[0], operator.out_structure()
+            )
+
+            def mv_fn(v):
+                (out,) = transpose_vjp(v)
+                return out
+
+            out = FunctionLinearOperator(mv_fn, operator.in_structure(), operator.tags)
+        return AuxLinearOperator(out, aux)
+    else:
+        # Original implementation for fwd/None
+        (_, aux), lin = jax.linearize(fn, operator.x)
+        lin = _NoAuxOut(lin)
+        out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
+        return AuxLinearOperator(out, aux)
 
 
 # materialise
