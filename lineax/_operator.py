@@ -39,10 +39,13 @@ from jaxtyping import (
 
 from ._custom_types import sentinel
 from ._misc import (
+    complex_to_real_structure,
     default_floating_dtype,
     inexact_asarray,
+    is_complex_structure,
     jacobian,
     NoneAux,
+    real_to_complex_tree,
     strip_weak_dtype,
 )
 from ._tags import (
@@ -1328,11 +1331,26 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
+    if is_complex_structure(operator.in_structure()) and not is_complex_structure(
+        operator.out_structure()
+    ):
+        # We'll use R^2->R representation for C->R function.
+        in_structure = complex_to_real_structure(operator.in_structure())
+
+        map_to_original = lambda x: real_to_complex_tree(
+            x,
+            operator.in_structure(),
+        )
+    else:
+        map_to_original = lambda x: x
+        in_structure = operator.in_structure()
     flat, unravel = strip_weak_dtype(
-        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        eqx.filter_eval_shape(jfu.ravel_pytree, in_structure)
     )
+    fn = lambda x: operator.fn(map_to_original(unravel(x)))
     eye = jnp.eye(flat.size, dtype=flat.dtype)
-    jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
+
+    jac = jax.vmap(fn, out_axes=-1)(eye)
 
     def batch_unravel(x):
         assert x.ndim > 0

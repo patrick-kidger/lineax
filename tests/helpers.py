@@ -269,6 +269,13 @@ def make_composed_operator(getkey, matrix, tags):
     return lx.TaggedLinearOperator(operator1 @ operator2, tags)
 
 
+def make_real_function_operator(getkey, matrix, tags):
+    fn = lambda x: (matrix @ x).real
+    _, in_size = matrix.shape
+    in_struct = jax.ShapeDtypeStruct((in_size,), matrix.dtype)
+    return lx.FunctionLinearOperator(fn, in_struct, tags)
+
+
 # Slightly sketchy approach to finite differences, in that this is pulled out of
 # Numerical Recipes.
 # I also don't know of a handling of the JVP case off the top of my head -- although

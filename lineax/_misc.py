@@ -18,6 +18,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+from jax import ShapeDtypeStruct
 from jaxtyping import Array, ArrayLike, Bool, PyTree  # pyright:ignore
 
 
@@ -109,3 +110,44 @@ def structure_equal(x, y) -> bool:
     x = strip_weak_dtype(jax.eval_shape(lambda: x))
     y = strip_weak_dtype(jax.eval_shape(lambda: y))
     return eqx.tree_equal(x, y) is True
+
+
+def is_complex_structure(structure):
+    with jax.numpy_dtype_promotion("standard"):
+        return jnp.isdtype(
+            jnp.result_type(*(jax.tree.flatten(structure)[0])),
+            "complex floating",
+        )
+
+
+def complex_to_real_structure(in_structure):
+    return jtu.tree_map(
+        lambda x: ShapeDtypeStruct(
+            tuple(x.shape) + (2,), complex_to_real_dtype(x.dtype)
+        )
+        if jnp.isdtype(x.dtype, "complex floating")
+        else x,
+        in_structure,
+    )
+
+
+def complex_to_real_tree(x, in_structure):
+    with jax.numpy_dtype_promotion("standard"):
+        return jtu.tree_map(
+            lambda x, struct: jnp.stack([x.real, x.imag], axis=-1)
+            if jnp.isdtype(struct.dtype, "complex floating")
+            else x,
+            x,
+            in_structure,
+        )
+
+
+def real_to_complex_tree(x, in_structure):
+    with jax.numpy_dtype_promotion("standard"):
+        return jtu.tree_map(
+            lambda x, struct: x[..., 0] + 1.0j * x[..., 1]
+            if jnp.isdtype(struct.dtype, "complex floating")
+            else x,
+            x,
+            in_structure,
+        )

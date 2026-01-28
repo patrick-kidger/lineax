@@ -23,7 +23,14 @@ import jax.tree_util as jtu
 import numpy as np
 from jaxtyping import Array, PyTree, Shaped
 
-from .._misc import strip_weak_dtype, structure_equal
+from .._misc import (
+    complex_to_real_structure,
+    complex_to_real_tree,
+    is_complex_structure,
+    real_to_complex_tree,
+    strip_weak_dtype,
+    structure_equal,
+)
 from .._operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
@@ -83,11 +90,14 @@ def ravel_vector(
     pytree: PyTree[Array], packed_structures: PackedStructures
 ) -> Shaped[Array, " size"]:
     leaves, treedef = packed_structures.value
-    out_structure, _ = jtu.tree_unflatten(treedef, leaves)
+    out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
     # `is` in case `tree_equal` returns a Tracer.
     if not structure_equal(pytree, out_structure):
         raise ValueError("pytree does not match out_structure")
     # not using `ravel_pytree` as that doesn't come with guarantees about order
+
+    if is_complex_structure(out_structure) and not is_complex_structure(in_structure):
+        pytree = complex_to_real_tree(pytree, out_structure)
     leaves = jtu.tree_leaves(pytree)
     dtype = jnp.result_type(*leaves)
     return jnp.concatenate([x.astype(dtype).reshape(-1) for x in leaves])
@@ -97,15 +107,24 @@ def unravel_solution(
     solution: Shaped[Array, " size"], packed_structures: PackedStructures
 ) -> PyTree[Array]:
     leaves, treedef = packed_structures.value
-    _, in_structure = jtu.tree_unflatten(treedef, leaves)
-    leaves, treedef = jtu.tree_flatten(in_structure)
+    out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
+    complex_real = is_complex_structure(in_structure) and not is_complex_structure(
+        out_structure
+    )
+    if complex_real:
+        leaves, treedef = jtu.tree_flatten(complex_to_real_structure(in_structure))
+    else:
+        leaves, treedef = jtu.tree_flatten(in_structure)
     sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
     split = jnp.split(solution, sizes)
     assert len(split) == len(leaves)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # ignore complex-to-real cast warning
         shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
-    return jtu.tree_unflatten(treedef, shaped)
+    if complex_real:
+        return real_to_complex_tree(jtu.tree_unflatten(treedef, shaped), in_structure)
+    else:
+        return jtu.tree_unflatten(treedef, shaped)
 
 
 def transpose_packed_structures(
