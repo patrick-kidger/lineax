@@ -202,11 +202,39 @@ def make_jac_operator(getkey, matrix, tags):
     a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
     b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
     c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
-    fn_tmp = lambda x, _: a + b @ x + c @ x**2
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
     jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
     diff = matrix - jac
     fn = lambda x, _: a + (b + diff) @ x + c @ x**2
     return lx.JacobianLinearOperator(fn, x, None, tags)
+
+
+@_operators_append
+def make_jacfwd_operator(getkey, matrix, tags):
+    out_size, in_size = matrix.shape
+    x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
+    a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
+    b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
+    diff = matrix - jac
+    fn = lambda x, _: a + (b + diff) @ x + c @ x**2
+    return lx.JacobianLinearOperator(fn, x, None, tags, jac="fwd")
+
+
+@_operators_append
+def make_jacrev_operator(getkey, matrix, tags):
+    out_size, in_size = matrix.shape
+    x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
+    a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
+    b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
+    diff = matrix - jac
+    fn = lambda x, _: a + (b + diff) @ x + c @ x**2
+    return lx.JacobianLinearOperator(fn, x, None, tags, jac="bwd")
 
 
 @_operators_append

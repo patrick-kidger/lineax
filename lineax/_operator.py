@@ -1429,8 +1429,6 @@ def tridiagonal(
 
 @tridiagonal.register(MatrixLinearOperator)
 @tridiagonal.register(PyTreeLinearOperator)
-@tridiagonal.register(JacobianLinearOperator)
-@tridiagonal.register(FunctionLinearOperator)
 def _(operator):
     matrix = operator.as_matrix()
     assert matrix.ndim == 2
@@ -1438,6 +1436,63 @@ def _(operator):
     upper_diagonal = jnp.diagonal(matrix, offset=1)
     lower_diagonal = jnp.diagonal(matrix, offset=-1)
     return diagonal, lower_diagonal, upper_diagonal
+
+
+@tridiagonal.register(JacobianLinearOperator)
+def _(operator):
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
+
+        coloring = jnp.arange(flat.size) % 3
+
+        basis = jnp.zeros((3, flat.size), dtype=flat.dtype)
+        for i in range(3):
+            basis = basis.at[i, i::3].set(1.0)
+
+    if operator.jac == "fwd" or operator.jac is None:
+        compressed_jac = jax.vmap(lambda x: operator.mv(unravel(x)))(basis)
+        compressed_jac_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(compressed_jac)
+        lower_diag = compressed_jac_flat[(coloring[:-1], jnp.arange(1, flat.size))]
+        upper_diag = compressed_jac_flat[(coloring[1:], jnp.arange(flat.size - 1))]
+    elif operator.jac == "bwd":
+        fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
+        _, vjp_fun = jax.vjp(fn, operator.x)
+        compressed_jac = jax.vmap(lambda x: vjp_fun(unravel(x)))(basis)
+        compressed_jac_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(compressed_jac)
+        upper_diag = compressed_jac_flat[(coloring[:-1], jnp.arange(1, flat.size))]
+        lower_diag = compressed_jac_flat[(coloring[1:], jnp.arange(flat.size - 1))]
+    else:
+        raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
+
+    diag = compressed_jac_flat[(coloring, jnp.arange(flat.size))]
+
+    return diag, lower_diag, upper_diag
+
+
+@tridiagonal.register(FunctionLinearOperator)
+def _(operator):
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
+
+        coloring = jnp.arange(flat.size) % 3
+
+        basis = jnp.zeros((3, flat.size), dtype=flat.dtype)
+        for i in range(3):
+            basis = basis.at[i, i::3].set(1.0)
+
+    compressed_jac = jax.vmap(lambda x: operator.fn(unravel(x)))(basis)
+
+    compressed_jac_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(compressed_jac)
+
+    diag = compressed_jac_flat[(coloring, jnp.arange(flat.size))]
+    lower_diag = compressed_jac_flat[(coloring[:-1], jnp.arange(1, flat.size))]
+    upper_diag = compressed_jac_flat[(coloring[1:], jnp.arange(flat.size - 1))]
+
+    return diag, lower_diag, upper_diag
 
 
 @tridiagonal.register(DiagonalLinearOperator)
