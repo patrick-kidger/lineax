@@ -261,6 +261,8 @@ class MatrixLinearOperator(AbstractLinearOperator):
         self.tags = _frozenset(tags)
 
     def mv(self, vector):
+        if diagonal_tag in self.tags:
+            return jnp.diagonal(self.matrix) * vector
         return jnp.matmul(self.matrix, vector, precision=lax.Precision.HIGHEST)
 
     def as_matrix(self):
@@ -1217,6 +1219,21 @@ def _default_not_implemented(name: str, operator: AbstractLinearOperator) -> NoR
         raise NotImplementedError(msg)
 
 
+def _construct_diagonal_basis(structure: PyTree[jax.ShapeDtypeStruct]) -> PyTree[Array]:
+    """Construct a PyTree of ones matching the given structure.
+
+    For a diagonal linear operator, applying it to this basis yields the diagonal.
+
+    Callers should wrap this in `jax.ensure_compile_time_eval()` to ensure the
+    basis is stored in the jaxpr rather than being reallocated at runtime.
+    """
+
+    def make_ones(struct):
+        return jnp.ones(struct.shape, struct.dtype)
+
+    return jtu.tree_map(make_ones, structure)
+
+
 # linearise
 
 
@@ -1333,35 +1350,58 @@ def _(operator):
 @materialise.register(JacobianLinearOperator)
 def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
-    jac, aux = jacobian(
-        fn,
-        operator.in_size(),
-        operator.out_size(),
-        holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
-        has_aux=True,
-        jac=operator.jac,
-    )(operator.x)
-    out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
-    return AuxLinearOperator(out, aux)
+    if is_diagonal(operator):
+        with jax.ensure_compile_time_eval():
+            basis = _construct_diagonal_basis(operator.in_structure())
+
+        if operator.jac == "bwd":
+            ((_, aux), vjp_fn) = jax.vjp(fn, operator.x)
+            if aux is None:
+                aux_ct = None
+            else:
+                aux_ct = jtu.tree_map(jnp.zeros_like, aux)
+            (diag_as_pytree,) = vjp_fn((basis, aux_ct))
+        else:  # "fwd" or None
+            (_, aux), (diag_as_pytree, _) = jax.jvp(fn, (operator.x,), (basis,))
+
+        out = DiagonalLinearOperator(diag_as_pytree)
+        return AuxLinearOperator(out, aux)
+    else:
+        jac, aux = jacobian(
+            fn,
+            operator.in_size(),
+            operator.out_size(),
+            holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
+            has_aux=True,
+            jac=operator.jac,
+        )(operator.x)
+        out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
+        return AuxLinearOperator(out, aux)
 
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    flat, unravel = strip_weak_dtype(
-        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-    )
-    eye = jnp.eye(flat.size, dtype=flat.dtype)
-    jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
+    if is_diagonal(operator):
+        with jax.ensure_compile_time_eval():
+            basis = _construct_diagonal_basis(operator.in_structure())
+        diag_as_pytree = operator.mv(basis)
+        return DiagonalLinearOperator(diag_as_pytree)
+    else:
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
+        eye = jnp.eye(flat.size, dtype=flat.dtype)
+        jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
 
-    def batch_unravel(x):
-        assert x.ndim > 0
-        unravel_ = unravel
-        for _ in range(x.ndim - 1):
-            unravel_ = jax.vmap(unravel_)
-        return unravel_(x)
+        def batch_unravel(x):
+            assert x.ndim > 0
+            unravel_ = unravel
+            for _ in range(x.ndim - 1):
+                unravel_ = jax.vmap(unravel_)
+            return unravel_(x)
 
-    jac = jtu.tree_map(batch_unravel, jac)
-    return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
+        jac = jtu.tree_map(batch_unravel, jac)
+        return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
 
 
 # diagonal
@@ -1409,44 +1449,9 @@ def _(operator):
 
 
 @diagonal.register(JacobianLinearOperator)
-def _(operator):
-    if is_diagonal(operator):
-        with jax.ensure_compile_time_eval():
-            flat, unravel = strip_weak_dtype(
-                eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-            )
-            basis = jnp.ones(flat.size, dtype=flat.dtype)
-
-        if operator.jac == "fwd" or operator.jac is None:
-            diag_as_pytree = operator.mv(unravel(basis))
-        elif operator.jac == "bwd":
-            # Don't use operator.T.mv here: if the operator is symmetric,
-            # operator.T returns self, and self.mv with jac="bwd" computes
-            # the full Jacobian with jacrev. Direct VJP is more efficient.
-            fn = _NoAuxOut(_NoAuxIn(operator.fn, operator.args))
-            _, vjp_fun = jax.vjp(fn, operator.x)
-            (diag_as_pytree,) = vjp_fun(unravel(basis))
-        else:
-            raise ValueError("`jac` should either be None, 'fwd', or 'bwd'.")
-
-        return jfu.ravel_pytree(diag_as_pytree)[0]
-    else:
-        return jnp.diag(operator.as_matrix())
-
-
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
-    if is_diagonal(operator):
-        with jax.ensure_compile_time_eval():
-            flat, unravel = strip_weak_dtype(
-                eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-            )
-            basis = jnp.ones(flat.size, dtype=flat.dtype)
-
-        diag_as_pytree = operator.fn(unravel(basis))
-        return jfu.ravel_pytree(diag_as_pytree)[0]
-    else:
-        return jnp.diag(operator.as_matrix())
+    return diagonal(materialise(operator))
 
 
 @diagonal.register(DiagonalLinearOperator)
