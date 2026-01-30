@@ -1987,7 +1987,7 @@ for check in (is_positive_semidefinite, is_negative_semidefinite):
 
 
 def _scalar_sign(scalar) -> int | None:
-    """Returns 1 if positive, -1 if negative, 0 if zero, None if unknown (traced)."""
+    """Returns scalar sign if known at trace time otherwise None."""
     try:
         if scalar > 0:
             return 1
