@@ -1942,12 +1942,33 @@ for check in (
     def _(operator, check=check):
         return check(operator.primal)
 
-    @check.register(MulLinearOperator)
-    @check.register(NegLinearOperator)
-    @check.register(DivLinearOperator)
     @check.register(AuxLinearOperator)
     def _(operator, check=check):
         return check(operator.operator)
+
+
+# Scaling/negating preserves these structural properties
+for check in (
+    is_symmetric,
+    is_diagonal,
+    is_lower_triangular,
+    is_upper_triangular,
+    is_tridiagonal,
+):
+
+    @check.register(MulLinearOperator)
+    @check.register(NegLinearOperator)
+    @check.register(DivLinearOperator)
+    def _(operator, check=check):
+        return check(operator.operator)
+
+
+# has_unit_diagonal is NOT preserved by scaling or negation
+@has_unit_diagonal.register(MulLinearOperator)
+@has_unit_diagonal.register(NegLinearOperator)
+@has_unit_diagonal.register(DivLinearOperator)
+def _(operator):
+    return False
 
 
 for check in (is_positive_semidefinite, is_negative_semidefinite):
@@ -1960,18 +1981,81 @@ for check in (is_positive_semidefinite, is_negative_semidefinite):
             "Please open a GitHub issue: https://github.com/google/lineax"
         )
 
-    @check.register(MulLinearOperator)
-    @check.register(DivLinearOperator)
-    def _(operator):
-        return False  # play it safe, no way to tell.
-
-    @check.register(NegLinearOperator)
-    def _(operator, check=check):
-        return not check(operator.operator)
-
     @check.register(AuxLinearOperator)
     def _(operator, check=check):
         return check(operator.operator)
+
+
+def _scalar_sign(scalar) -> int | None:
+    """Returns 1 if positive, -1 if negative, 0 if zero, None if unknown (traced)."""
+    try:
+        if scalar > 0:
+            return 1
+        elif scalar < 0:
+            return -1
+        else:
+            return 0
+    except Exception:
+        return None
+
+
+# PSD/NSD for MulLinearOperator: depends on sign of scalar
+# Zero scalar gives zero matrix which is both PSD and NSD
+@is_positive_semidefinite.register(MulLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign == 1:
+        return is_positive_semidefinite(operator.operator)
+    elif sign == -1:
+        return is_negative_semidefinite(operator.operator)
+    elif sign == 0:
+        return True  # zero matrix is PSD
+    return False
+
+
+@is_negative_semidefinite.register(MulLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign == 1:
+        return is_negative_semidefinite(operator.operator)
+    elif sign == -1:
+        return is_positive_semidefinite(operator.operator)
+    elif sign == 0:
+        return True  # zero matrix is NSD
+    return False
+
+
+# PSD/NSD for DivLinearOperator: depends on sign of scalar
+# Zero scalar is division by zero - return False (conservative)
+@is_positive_semidefinite.register(DivLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign == 1:
+        return is_positive_semidefinite(operator.operator)
+    elif sign == -1:
+        return is_negative_semidefinite(operator.operator)
+    return False
+
+
+@is_negative_semidefinite.register(DivLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign == 1:
+        return is_negative_semidefinite(operator.operator)
+    elif sign == -1:
+        return is_positive_semidefinite(operator.operator)
+    return False
+
+
+# PSD/NSD for NegLinearOperator: negation swaps PSD <-> NSD
+@is_positive_semidefinite.register(NegLinearOperator)
+def _(operator):
+    return is_negative_semidefinite(operator.operator)
+
+
+@is_negative_semidefinite.register(NegLinearOperator)
+def _(operator):
+    return is_positive_semidefinite(operator.operator)
 
 
 for check, tag in (
@@ -2010,19 +2094,40 @@ def _(operator):
     return False
 
 
+# These properties ARE preserved under composition
 for check in (
-    is_symmetric,
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
-    is_positive_semidefinite,
-    is_negative_semidefinite,
-    is_tridiagonal,
 ):
 
     @check.register(ComposedLinearOperator)
     def _(operator, check=check):
         return check(operator.operator1) and check(operator.operator2)
+
+
+# is_symmetric: A@B is symmetric only if A and B commute. Diagonal matrices commute.
+@is_symmetric.register(ComposedLinearOperator)
+def _(operator):
+    return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
+
+
+# is_tridiagonal: tridiagonal @ tridiagonal = pentadiagonal, but
+# tridiagonal @ diagonal = tridiagonal and diagonal @ tridiagonal = tridiagonal
+@is_tridiagonal.register(ComposedLinearOperator)
+def _(operator):
+    if is_diagonal(operator.operator1):
+        return is_tridiagonal(operator.operator2)
+    if is_diagonal(operator.operator2):
+        return is_tridiagonal(operator.operator1)
+    return False
+
+
+# PSD/NSD: not preserved under composition in general.
+@is_positive_semidefinite.register(ComposedLinearOperator)
+@is_negative_semidefinite.register(ComposedLinearOperator)
+def _(operator):
+    return False
 
 
 @has_unit_diagonal.register(ComposedLinearOperator)
