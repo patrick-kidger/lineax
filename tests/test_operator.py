@@ -300,7 +300,12 @@ def test_is_tridiagonal(dtype, getkey):
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_tangent_as_matrix(dtype, getkey):
     def _list_setup(matrix):
-        return list(_setup(getkey, matrix))
+        # Exclude jacrev operator: jac="bwd" uses custom_vjp which doesn't support JVP
+        return [
+            op
+            for op in _setup(getkey, matrix)
+            if not (isinstance(op, lx.JacobianLinearOperator) and op.jac == "bwd")
+        ]
 
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     t_matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
