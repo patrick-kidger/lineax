@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import abc
+import enum
 import functools as ft
 import math
 import warnings
@@ -1986,17 +1987,25 @@ for check in (is_positive_semidefinite, is_negative_semidefinite):
         return check(operator.operator)
 
 
-def _scalar_sign(scalar) -> int | None:
-    """Returns scalar sign if known at trace time otherwise None."""
-    try:
+class _ScalarSign(enum.Enum):
+    positive = enum.auto()
+    negative = enum.auto()
+    zero = enum.auto()
+    unknown = enum.auto()
+
+
+def _scalar_sign(scalar) -> _ScalarSign:
+    """Returns the sign of a scalar, or unknown for JAX tracers."""
+    if isinstance(scalar, (int, float, np.ndarray, np.generic)):
+        scalar = float(scalar)
         if scalar > 0:
-            return 1
+            return _ScalarSign.positive
         elif scalar < 0:
-            return -1
+            return _ScalarSign.negative
         else:
-            return 0
-    except Exception:
-        return None
+            return _ScalarSign.zero
+    else:
+        return _ScalarSign.unknown
 
 
 # PSD/NSD for MulLinearOperator: depends on sign of scalar
@@ -2004,11 +2013,11 @@ def _scalar_sign(scalar) -> int | None:
 @is_positive_semidefinite.register(MulLinearOperator)
 def _(operator):
     sign = _scalar_sign(operator.scalar)
-    if sign == 1:
+    if sign is _ScalarSign.positive:
         return is_positive_semidefinite(operator.operator)
-    elif sign == -1:
+    elif sign is _ScalarSign.negative:
         return is_negative_semidefinite(operator.operator)
-    elif sign == 0:
+    elif sign is _ScalarSign.zero:
         return True  # zero matrix is PSD
     return False
 
@@ -2016,11 +2025,11 @@ def _(operator):
 @is_negative_semidefinite.register(MulLinearOperator)
 def _(operator):
     sign = _scalar_sign(operator.scalar)
-    if sign == 1:
+    if sign is _ScalarSign.positive:
         return is_negative_semidefinite(operator.operator)
-    elif sign == -1:
+    elif sign is _ScalarSign.negative:
         return is_positive_semidefinite(operator.operator)
-    elif sign == 0:
+    elif sign is _ScalarSign.zero:
         return True  # zero matrix is NSD
     return False
 
@@ -2030,9 +2039,9 @@ def _(operator):
 @is_positive_semidefinite.register(DivLinearOperator)
 def _(operator):
     sign = _scalar_sign(operator.scalar)
-    if sign == 1:
+    if sign is _ScalarSign.positive:
         return is_positive_semidefinite(operator.operator)
-    elif sign == -1:
+    elif sign is _ScalarSign.negative:
         return is_negative_semidefinite(operator.operator)
     return False
 
@@ -2040,9 +2049,9 @@ def _(operator):
 @is_negative_semidefinite.register(DivLinearOperator)
 def _(operator):
     sign = _scalar_sign(operator.scalar)
-    if sign == 1:
+    if sign is _ScalarSign.positive:
         return is_negative_semidefinite(operator.operator)
-    elif sign == -1:
+    elif sign is _ScalarSign.negative:
         return is_positive_semidefinite(operator.operator)
     return False
 
