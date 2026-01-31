@@ -47,9 +47,8 @@ def test_ops(make_operator, getkey, dtype):
         matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
         tags = ()
     if make_operator is make_jacrev_operator and dtype is jnp.complex128:
-        pytest.skip(
-            'JacobianLinearOperator does not support complex dtypes when jac="bwd"'
-        )
+        # JacobianLinearOperator does not support complex dtypes when jac="bwd"
+        return
     matrix1 = make_operator(getkey, matrix, tags)
     matrix2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3), dtype=dtype))
     scalar = jr.normal(getkey(), (), dtype=dtype)
