@@ -267,7 +267,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
         return self.matrix
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         return MatrixLinearOperator(self.matrix.T, transpose_tags(self.tags))
 
@@ -446,7 +446,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return jnp.concatenate(matrix, axis=0)
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
 
         def _transpose(struct, subtree):
@@ -626,7 +626,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
             # Use VJP + linear_transpose instead of materializing full Jacobian.
             # This works even for custom_vjp functions that don't have JVP rules.
             _, vjp_fn = jax.vjp(fn, self.x)
-            if symmetric_tag in self.tags:
+            if is_symmetric(self):
                 # For symmetric operators, J = J.T, so vjp directly gives J @ v
                 (out,) = vjp_fn(vector)
             else:
@@ -643,7 +643,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
         # Works because vjpfn is a PyTree
@@ -710,7 +710,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         transpose_fn = jax.linear_transpose(self.fn, self.in_structure())
 
@@ -1255,7 +1255,7 @@ def _(operator):
         # For backward mode, use VJP + linear_transpose.
         # This works with custom_vjp functions that don't support forward-mode.
         _, vjp_fn, aux = jax.vjp(fn, operator.x, has_aux=True)
-        if symmetric_tag in operator.tags:
+        if is_symmetric(operator):
             # For symmetric: J = J.T, so vjp directly gives J @ v
             out = FunctionLinearOperator(
                 _Unwrap(vjp_fn), operator.in_structure(), operator.tags
