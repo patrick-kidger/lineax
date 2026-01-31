@@ -210,6 +210,56 @@ def make_jac_operator(getkey, matrix, tags):
 
 
 @_operators_append
+def make_jacfwd_operator(getkey, matrix, tags):
+    out_size, in_size = matrix.shape
+    x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
+    a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
+    b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
+    diff = matrix - jac
+    fn = lambda x, _: a + (b + diff) @ x + c @ x**2
+    return lx.JacobianLinearOperator(fn, x, None, tags, jac="fwd")
+
+
+@_operators_append
+def make_jacrev_operator(getkey, matrix, tags):
+    """JacobianLinearOperator with jac='bwd' using a custom_vjp function.
+
+    This uses custom_vjp so that forward-mode autodiff is NOT available,
+    which tests that jac='bwd' works correctly without relying on JVP.
+    """
+    out_size, in_size = matrix.shape
+    x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
+    a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
+    b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
+    diff = matrix - jac
+
+    # Use custom_vjp to define a function that only has reverse-mode autodiff
+    @jax.custom_vjp
+    def custom_fn(x):
+        return a + (b + diff) @ x + c @ x**2
+
+    def custom_fn_fwd(x):
+        return custom_fn(x), x
+
+    def custom_fn_bwd(x, g):
+        # Jacobian is: (b + diff) + 2 * c * x
+        # VJP is: g @ J = g @ ((b + diff) + 2 * c * x)
+        # So J.T @ g =
+        return ((b + diff).T @ g + 2 * (c.T @ g) * x,)
+
+    custom_fn.defvjp(custom_fn_fwd, custom_fn_bwd)
+
+    fn = lambda x, _: custom_fn(x)
+    return lx.JacobianLinearOperator(fn, x, None, tags, jac="bwd")
+
+
+@_operators_append
 def make_trivial_diagonal_operator(getkey, matrix, tags):
     assert tags == lx.diagonal_tag
     diag = jnp.diag(matrix)

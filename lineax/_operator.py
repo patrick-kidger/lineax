@@ -268,7 +268,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
         return self.matrix
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         return MatrixLinearOperator(self.matrix.T, transpose_tags(self.tags))
 
@@ -447,7 +447,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return jnp.concatenate(matrix, axis=0)
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
 
         def _transpose(struct, subtree):
@@ -544,15 +544,21 @@ class JacobianLinearOperator(AbstractLinearOperator):
     `MatrixLinearOperator(jax.jacfwd(fn)(x))`.
 
     The Jacobian is not materialised; matrix-vector products, which are in fact
-    Jacobian-vector products, are computed using autodifferentiation, specifically
-    `jax.jvp`. Thus, `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
-    `jax.jvp(fn, (x,), (v,))`.
-
-    See also [`lineax.linearise`][], which caches the primal computation, i.e.
-    it returns `_, lin = jax.linearize(fn, x); FunctionLinearOperator(lin, ...)`
+    Jacobian-vector products, are computed using autodifferentiation. By default
+    (or with `jac="fwd"`), `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
+    `jax.jvp(fn, (x,), (v,))`. For `jac="bwd"`, `jax.vjp` is combined with
+    `jax.linear_transpose`, which works even with functions
+    that only define a custom VJP (via `jax.custom_vjp`) and don't support
+    forward-mode differentiation.
 
     See also [`lineax.materialise`][], which materialises the whole Jacobian in
     memory.
+
+    !!! tip
+
+        For repeated `mv()` calls, consider using [`lineax.linearise`][] to cache
+        the primal computation,  e.g. for `jac="fwd"/None` it returns
+        `_, lin = jax.linearize(fn, x); FunctionLinearOperator(lin, ...)`
     """
 
     fn: Callable[
@@ -619,10 +625,18 @@ class JacobianLinearOperator(AbstractLinearOperator):
         if self.jac == "fwd" or self.jac is None:
             _, out = jax.jvp(fn, (self.x,), (vector,))
         elif self.jac == "bwd":
-            jac = jax.jacrev(fn)(self.x)
-            out = PyTreeLinearOperator(jac, output_structure=self.out_structure()).mv(
-                vector
-            )
+            # Use VJP + linear_transpose instead of materializing full Jacobian.
+            # This works even for custom_vjp functions that don't have JVP rules.
+            _, vjp_fn = jax.vjp(fn, self.x)
+            if is_symmetric(self):
+                # For symmetric operators, J = J.T, so vjp directly gives J @ v
+                (out,) = vjp_fn(vector)
+            else:
+                # For non-symmetric, transpose the VJP to get J @ v from J.T @ v
+                transpose_vjp = jax.linear_transpose(
+                    lambda g: vjp_fn(g)[0], self.out_structure()
+                )
+                (out,) = transpose_vjp(vector)
         else:
             raise ValueError("`jac` should be either `'fwd'`, `'bwd'`, or `None`.")
         return out
@@ -631,7 +645,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
         # Works because vjpfn is a PyTree
@@ -698,7 +712,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         transpose_fn = jax.linear_transpose(self.fn, self.in_structure())
 
@@ -1239,8 +1253,21 @@ def _(operator):
 @linearise.register(JacobianLinearOperator)
 def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
-    (_, aux), lin = jax.linearize(fn, operator.x)
-    lin = _NoAuxOut(lin)
+    if operator.jac == "bwd":
+        # For backward mode, use VJP + linear_transpose.
+        # This works even with custom_vjp functions that don't support forward-mode AD.
+        _, vjp_fn, aux = jax.vjp(fn, operator.x, has_aux=True)
+        if is_symmetric(operator):
+            # For symmetric: J = J.T, so vjp directly gives J @ v
+            lin = _Unwrap(vjp_fn())
+        else:
+            # Transpose the VJP to get J @ v from J.T @ v
+            lin = _Unwrap(
+                jax.linear_transpose(lambda g: vjp_fn(g)[0], operator.out_structure())
+            )
+    else:  # "fwd" or None
+        (_, aux), lin = jax.linearize(fn, operator.x)
+        lin = _NoAuxOut(lin)
     out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
     return AuxLinearOperator(out, aux)
 
