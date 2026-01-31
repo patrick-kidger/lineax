@@ -544,8 +544,9 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
     The Jacobian is not materialised; matrix-vector products, which are in fact
     Jacobian-vector products, are computed using autodifferentiation. By default
-    (or with `jac="fwd"`), this uses `jax.jvp`. With `jac="bwd"`, this uses
-    `jax.vjp` combined with `jax.linear_transpose`, which works even with functions
+    (or with `jac="fwd"`), `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
+    `jax.jvp(fn, (x,), (v,))`. For `jac="bwd"`, `jax.vjp` is combined with
+    `jax.linear_transpose`, which works even with functions
     that only define a custom VJP (via `jax.custom_vjp`) and don't support
     forward-mode differentiation.
 
@@ -555,8 +556,8 @@ class JacobianLinearOperator(AbstractLinearOperator):
     !!! tip
 
         For repeated `mv()` calls, consider using [`lineax.linearise`][] to cache
-        the primal computation. This is especially beneficial with `jac="bwd"`
-        as the primal computation affects the entire backward pass.
+        the primal computation,  e.g. for `jac="fwd"/None` it returns
+        `_, lin = jax.linearize(fn, x); FunctionLinearOperator(lin, ...)`
     """
 
     fn: Callable[
@@ -1253,31 +1254,21 @@ def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
     if operator.jac == "bwd":
         # For backward mode, use VJP + linear_transpose.
-        # This works with custom_vjp functions that don't support forward-mode.
+        # This works even with custom_vjp functions that don't support forward-mode AD.
         _, vjp_fn, aux = jax.vjp(fn, operator.x, has_aux=True)
         if is_symmetric(operator):
             # For symmetric: J = J.T, so vjp directly gives J @ v
-            out = FunctionLinearOperator(
-                _Unwrap(vjp_fn), operator.in_structure(), operator.tags
-            )
+            lin = _Unwrap(vjp_fn())
         else:
             # Transpose the VJP to get J @ v from J.T @ v
-            transpose_vjp = jax.linear_transpose(
-                lambda g: vjp_fn(g)[0], operator.out_structure()
+            lin = _Unwrap(
+                jax.linear_transpose(lambda g: vjp_fn(g)[0], operator.out_structure())
             )
-
-            def mv_fn(v):
-                (out,) = transpose_vjp(v)
-                return out
-
-            out = FunctionLinearOperator(mv_fn, operator.in_structure(), operator.tags)
-        return AuxLinearOperator(out, aux)
-    else:
-        # Original implementation for fwd/None
+    else:  # "fwd" or None
         (_, aux), lin = jax.linearize(fn, operator.x)
         lin = _NoAuxOut(lin)
-        out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
-        return AuxLinearOperator(out, aux)
+    out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
+    return AuxLinearOperator(out, aux)
 
 
 # materialise
