@@ -7,6 +7,7 @@ from lineax import FunctionLinearOperator
 
 from .helpers import (
     make_identity_operator,
+    make_jacrev_operator,
     make_operators,
     make_tridiagonal_operator,
     make_trivial_diagonal_operator,
@@ -33,6 +34,9 @@ def test_adjoint(make_operator, dtype, getkey):
         tags = ()
         in_size = 5
         out_size = 3
+    if make_operator is make_jacrev_operator and dtype is jnp.complex128:
+        # JacobianLinearOperator does not support complex dtypes when jac="bwd"
+        return
     operator = make_operator(getkey, matrix, tags)
     v1, v2 = (
         jr.normal(getkey(), (in_size,), dtype=dtype),
@@ -84,7 +88,7 @@ else:
         # complicated, see gh #160
         lx.GMRES(tol, tol, max_steps=4, restart=1),
         lx.BiCGStab(tol, tol, max_steps=3),
-        lx.NormalCG(tol, tol, max_steps=4),
+        lx.Normal(lx.CG(tol, tol, max_steps=4)),
         lx.CG(tol, tol, max_steps=3),
     ],
 )

@@ -42,6 +42,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
+from .._misc import complex_to_real_dtype
 from .._norm import two_norm
 from .._operator import AbstractLinearOperator, conj
 from .._solution import RESULTS
@@ -108,22 +109,29 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             and self.rtol == 0
         )
 
-        m, n = operator.out_size(), operator.in_size()
-        # number of singular values
-        min_dim = min([m, n])
-        if self.max_steps is None:
-            max_steps = min_dim * 10  # for consistency with other iterative solvers
-        else:
-            max_steps = self.max_steps
-
-        if x is None:
-            x = jtu.tree_map(jnp.zeros_like, operator.in_structure())
-
         dtype = jnp.result_type(
             *jtu.tree_leaves(vector),
             *jtu.tree_leaves(x),
             *jtu.tree_leaves(operator.in_structure()),
         )
+
+        m, n = operator.out_size(), operator.in_size()
+        # number of singular values
+        min_dim = min([m, n])
+        if self.max_steps is None:
+            # Set max_steps based on the minimum dimension + avoid numerical overflows
+            # https://github.com/patrick-kidger/lineax/issues/175
+            # https://github.com/patrick-kidger/lineax/issues/177
+            int_dtype = jnp.dtype(f"int{complex_to_real_dtype(dtype).itemsize * 8}")
+            if min_dim > (jnp.iinfo(int_dtype).max / 10):
+                max_steps = jnp.iinfo(int_dtype).max
+            else:
+                max_steps = min_dim * 10  # for consistency with other iterative solvers
+        else:
+            max_steps = self.max_steps
+
+        if x is None:
+            x = jtu.tree_map(jnp.zeros_like, operator.in_structure())
 
         b = vector
         u = (ω(b) - ω(operator.mv(x))).ω
@@ -178,7 +186,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             # variables for estimation of ||A|| and cond(A)
             normA2=alpha**2,
             maxrbar=0.0,
-            minrbar=1e100,
+            minrbar=jnp.finfo(dtype).max,
             condA=1.0,
             # variables for use in stopping rules
             istop=0,
@@ -327,19 +335,19 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             "cond_A": loop_state["condA"],
             "norm_x": self.norm(loop_state["x"]),
         }
-        if (self.max_steps is None) or (max_steps < self.max_steps):
+
+        if self.max_steps is None:
+            result = RESULTS.where(
+                loop_state["itn"] == max_steps, RESULTS.singular, RESULTS.successful
+            )
+        elif has_scale:
             result = RESULTS.where(
                 loop_state["itn"] == max_steps,
-                RESULTS.singular,
+                RESULTS.max_steps_reached,
                 RESULTS.successful,
             )
         else:
-            result = RESULTS.where(
-                loop_state["itn"] == max_steps,
-                RESULTS.max_steps_reached if has_scale else RESULTS.successful,
-                RESULTS.successful,
-            )
-
+            result = RESULTS.successful
         result = RESULTS.where(loop_state["istop"] < 3, RESULTS.successful, result)
         result = RESULTS.where(loop_state["istop"] == 3, RESULTS.conlim, result)
 
@@ -407,11 +415,8 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
         conj_options = {}
         return conj(operator), conj_options
 
-    def allow_dependent_rows(self, operator):
-        return True
-
-    def allow_dependent_columns(self, operator):
-        return True
+    def assume_full_rank(self):
+        return False
 
 
 LSMR.__init__.__doc__ = r"""**Arguments:**

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
 import functools as ft
 
 import equinox as eqx
@@ -107,6 +106,8 @@ def test_gmres_stagnation_or_breakdown(getkey, dtype):
         lx.QR(),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
+        lx.Normal(lx.Cholesky()),
+        lx.Normal(lx.SVD()),
     ),
 )
 def test_nonsquare_pytree_operator1(solver):
@@ -128,6 +129,8 @@ def test_nonsquare_pytree_operator1(solver):
         lx.QR(),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
+        lx.Normal(lx.Cholesky()),
+        lx.Normal(lx.SVD()),
     ),
 )
 def test_nonsquare_pytree_operator2(solver):
@@ -142,11 +145,21 @@ def test_nonsquare_pytree_operator2(solver):
     assert tree_allclose(out, true_out)
 
 
+@pytest.mark.parametrize(
+    "solver",
+    (
+        lx.AutoLinearSolver(well_posed=None),
+        lx.QR(),
+        lx.SVD(),
+        lx.Normal(lx.Cholesky()),
+        lx.Normal(lx.SVD()),
+    ),
+)
 @pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, dtype, getkey):
+def test_nonsquare_mat_vec(solver, full_rank, jvp, wide, dtype, getkey):
     if wide:
         out_size = 3
         in_size = 6
@@ -154,39 +167,50 @@ def test_qr_nonsquare_mat_vec(full_rank, jvp, wide, dtype, getkey):
         out_size = 6
         in_size = 3
     matrix = jr.normal(getkey(), (out_size, in_size), dtype=dtype)
-    if full_rank:
-        context = contextlib.nullcontext()
-    else:
-        context = pytest.raises(Exception)
-        if wide:
-            matrix = matrix.at[:, 2:].set(0)
-        else:
-            matrix = matrix.at[2:, :].set(0)
+    if not full_rank:
+        if solver.assume_full_rank():
+            # There is nothing to test.
+            return
+        # nontrivial rank 2 sparsity pattern
+        matrix = matrix.at[1:, 1:].set(0)
     vector = jr.normal(getkey(), (out_size,), dtype=dtype)
     lx_solve = lambda mat, vec: lx.linear_solve(
-        lx.MatrixLinearOperator(mat), vec, lx.QR()
+        lx.MatrixLinearOperator(mat), vec, solver
     ).value
     jnp_solve = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
     if jvp:
         lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
         jnp_solve = eqx.filter_jit(ft.partial(finite_difference_jvp, jnp_solve))
         t_matrix = jr.normal(getkey(), (out_size, in_size), dtype=dtype)
+        if not full_rank:
+            # t_matrix must be chosen tangent to the manifold of rank 2
+            # matrices at matrix. A simple way to achieve this is to make the
+            # same restriction as we did to matrix
+            t_matrix = t_matrix.at[1:, 1:].set(0)
         t_vector = jr.normal(getkey(), (out_size,), dtype=dtype)
         args = ((matrix, vector), (t_matrix, t_vector))
     else:
         args = (matrix, vector)
-    with context:
-        x = lx_solve(*args)  # pyright: ignore
-    if full_rank:
-        true_x = jnp_solve(*args)
-        assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
+    x = lx_solve(*args)  # pyright: ignore
+    true_x = jnp_solve(*args)
+    assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
+@pytest.mark.parametrize(
+    "solver",
+    (
+        lx.AutoLinearSolver(well_posed=None),
+        lx.QR(),
+        lx.SVD(),
+        lx.Normal(lx.Cholesky()),
+        lx.Normal(lx.SVD()),
+    ),
+)
 @pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_qr_nonsquare_vec(full_rank, jvp, wide, dtype, getkey):
+def test_nonsquare_vec(solver, full_rank, jvp, wide, dtype, getkey):
     if wide:
         out_size = 3
         in_size = 6
@@ -194,17 +218,15 @@ def test_qr_nonsquare_vec(full_rank, jvp, wide, dtype, getkey):
         out_size = 6
         in_size = 3
     matrix = jr.normal(getkey(), (out_size, in_size), dtype=dtype)
-    if full_rank:
-        context = contextlib.nullcontext()
-    else:
-        context = pytest.raises(Exception)
-        if wide:
-            matrix = matrix.at[:, 2:].set(0)
-        else:
-            matrix = matrix.at[2:, :].set(0)
+    if not full_rank:
+        if solver.assume_full_rank():
+            # There is nothing to test.
+            return
+        # nontrivial rank 2 sparsity pattern
+        matrix = matrix.at[1:, 1:].set(0)
     vector = jr.normal(getkey(), (out_size,), dtype=dtype)
     lx_solve = lambda vec: lx.linear_solve(
-        lx.MatrixLinearOperator(matrix), vec, lx.QR()
+        lx.MatrixLinearOperator(matrix), vec, solver
     ).value
     jnp_solve = lambda vec: jnp.linalg.lstsq(matrix, vec)[0]  # pyright: ignore
     if jvp:
@@ -214,11 +236,9 @@ def test_qr_nonsquare_vec(full_rank, jvp, wide, dtype, getkey):
         args = ((vector,), (t_vector,))
     else:
         args = (vector,)
-    with context:
-        x = lx_solve(*args)  # pyright: ignore
-    if full_rank:
-        true_x = jnp_solve(*args)
-        assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
+    x = lx_solve(*args)  # pyright: ignore
+    true_x = jnp_solve(*args)
+    assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
 _iterative_solvers = (

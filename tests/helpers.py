@@ -57,8 +57,10 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
 
 
 def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
-    if isinstance(solver, lx.NormalCG):
+    if isinstance(solver, lx.Normal):
         cond_cutoff = math.sqrt(1000)
+    elif isinstance(solver, lx.LSMR):
+        cond_cutoff = 10  # it's not doing super well for some reason
     else:
         cond_cutoff = 1000
     return tuple(
@@ -109,13 +111,13 @@ solvers_tags_pseudoinverse = [
     (lx.SVD(), (), True),
     (lx.BiCGStab(rtol=tol, atol=tol), (), False),
     (lx.GMRES(rtol=tol, atol=tol), (), False),
-    (lx.NormalCG(rtol=tol, atol=tol), (), False),
     (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
     (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
-    (lx.NormalCG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
+    (lx.Normal(lx.CG(rtol=tol, atol=tol)), (), False),
+    (lx.LSMR(atol=tol, rtol=tol), (), True),
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
-    (lx.LSMR(atol=tol, rtol=tol), (), True),
+    (lx.Normal(lx.Cholesky()), (), False),
 ]
 solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
 solvers = [a for a, _, _ in solvers_tags_pseudoinverse]
@@ -205,6 +207,56 @@ def make_jac_operator(getkey, matrix, tags):
     diff = matrix - jac
     fn = lambda x, _: a + (b + diff) @ x + c @ x**2
     return lx.JacobianLinearOperator(fn, x, None, tags)
+
+
+@_operators_append
+def make_jacfwd_operator(getkey, matrix, tags):
+    out_size, in_size = matrix.shape
+    x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
+    a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
+    b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
+    diff = matrix - jac
+    fn = lambda x, _: a + (b + diff) @ x + c @ x**2
+    return lx.JacobianLinearOperator(fn, x, None, tags, jac="fwd")
+
+
+@_operators_append
+def make_jacrev_operator(getkey, matrix, tags):
+    """JacobianLinearOperator with jac='bwd' using a custom_vjp function.
+
+    This uses custom_vjp so that forward-mode autodiff is NOT available,
+    which tests that jac='bwd' works correctly without relying on JVP.
+    """
+    out_size, in_size = matrix.shape
+    x = jr.normal(getkey(), (in_size,), dtype=matrix.dtype)
+    a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
+    b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
+    diff = matrix - jac
+
+    # Use custom_vjp to define a function that only has reverse-mode autodiff
+    @jax.custom_vjp
+    def custom_fn(x):
+        return a + (b + diff) @ x + c @ x**2
+
+    def custom_fn_fwd(x):
+        return custom_fn(x), x
+
+    def custom_fn_bwd(x, g):
+        # Jacobian is: (b + diff) + 2 * c * x
+        # VJP is: g @ J = g @ ((b + diff) + 2 * c * x)
+        # So J.T @ g =
+        return ((b + diff).T @ g + 2 * (c.T @ g) * x,)
+
+    custom_fn.defvjp(custom_fn_fwd, custom_fn_bwd)
+
+    fn = lambda x, _: custom_fn(x)
+    return lx.JacobianLinearOperator(fn, x, None, tags, jac="bwd")
 
 
 @_operators_append

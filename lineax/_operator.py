@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import abc
+import enum
 import functools as ft
 import math
 import warnings
@@ -255,7 +256,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
             raise ValueError(
                 "`MatrixLinearOperator(matrix=...)` should be 2-dimensional."
             )
-        if not jnp.issubdtype(matrix, jnp.inexact):
+        if not jnp.issubdtype(matrix.dtype, jnp.inexact):
             matrix = matrix.astype(jnp.float32)
         self.matrix = matrix
         self.tags = _frozenset(tags)
@@ -267,7 +268,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
         return self.matrix
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         return MatrixLinearOperator(self.matrix.T, transpose_tags(self.tags))
 
@@ -397,7 +398,9 @@ class PyTreeLinearOperator(AbstractLinearOperator):
                     raise ValueError(
                         "`pytree` and `output_structure` are not consistent"
                     )
-                return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=jnp.dtype(leaf))
+                return jax.ShapeDtypeStruct(
+                    shape=shape[ndim:], dtype=jnp.result_type(leaf)
+                )
 
             return _Leaf(jtu.tree_map(sub_get_structure, subpytree))
 
@@ -444,7 +447,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return jnp.concatenate(matrix, axis=0)
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
 
         def _transpose(struct, subtree):
@@ -541,15 +544,21 @@ class JacobianLinearOperator(AbstractLinearOperator):
     `MatrixLinearOperator(jax.jacfwd(fn)(x))`.
 
     The Jacobian is not materialised; matrix-vector products, which are in fact
-    Jacobian-vector products, are computed using autodifferentiation, specifically
-    `jax.jvp`. Thus, `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
-    `jax.jvp(fn, (x,), (v,))`.
-
-    See also [`lineax.linearise`][], which caches the primal computation, i.e.
-    it returns `_, lin = jax.linearize(fn, x); FunctionLinearOperator(lin, ...)`
+    Jacobian-vector products, are computed using autodifferentiation. By default
+    (or with `jac="fwd"`), `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
+    `jax.jvp(fn, (x,), (v,))`. For `jac="bwd"`, `jax.vjp` is combined with
+    `jax.linear_transpose`, which works even with functions
+    that only define a custom VJP (via `jax.custom_vjp`) and don't support
+    forward-mode differentiation.
 
     See also [`lineax.materialise`][], which materialises the whole Jacobian in
     memory.
+
+    !!! tip
+
+        For repeated `mv()` calls, consider using [`lineax.linearise`][] to cache
+        the primal computation,  e.g. for `jac="fwd"/None` it returns
+        `_, lin = jax.linearize(fn, x); FunctionLinearOperator(lin, ...)`
     """
 
     fn: Callable[
@@ -616,10 +625,18 @@ class JacobianLinearOperator(AbstractLinearOperator):
         if self.jac == "fwd" or self.jac is None:
             _, out = jax.jvp(fn, (self.x,), (vector,))
         elif self.jac == "bwd":
-            jac = jax.jacrev(fn)(self.x)
-            out = PyTreeLinearOperator(jac, output_structure=self.out_structure()).mv(
-                vector
-            )
+            # Use VJP + linear_transpose instead of materializing full Jacobian.
+            # This works even for custom_vjp functions that don't have JVP rules.
+            _, vjp_fn = jax.vjp(fn, self.x)
+            if is_symmetric(self):
+                # For symmetric operators, J = J.T, so vjp directly gives J @ v
+                (out,) = vjp_fn(vector)
+            else:
+                # For non-symmetric, transpose the VJP to get J @ v from J.T @ v
+                transpose_vjp = jax.linear_transpose(
+                    lambda g: vjp_fn(g)[0], self.out_structure()
+                )
+                (out,) = transpose_vjp(vector)
         else:
             raise ValueError("`jac` should be either `'fwd'`, `'bwd'`, or `None`.")
         return out
@@ -628,7 +645,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
         # Works because vjpfn is a PyTree
@@ -695,7 +712,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if symmetric_tag in self.tags:
+        if is_symmetric(self):
             return self
         transpose_fn = jax.linear_transpose(self.fn, self.in_structure())
 
@@ -1240,8 +1257,21 @@ def _(operator):
 @linearise.register(JacobianLinearOperator)
 def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
-    (_, aux), lin = jax.linearize(fn, operator.x)
-    lin = _NoAuxOut(lin)
+    if operator.jac == "bwd":
+        # For backward mode, use VJP + linear_transpose.
+        # This works even with custom_vjp functions that don't support forward-mode AD.
+        _, vjp_fn, aux = jax.vjp(fn, operator.x, has_aux=True)
+        if is_symmetric(operator):
+            # For symmetric: J = J.T, so vjp directly gives J @ v
+            lin = _Unwrap(vjp_fn())
+        else:
+            # Transpose the VJP to get J @ v from J.T @ v
+            lin = _Unwrap(
+                jax.linear_transpose(lambda g: vjp_fn(g)[0], operator.out_structure())
+            )
+    else:  # "fwd" or None
+        (_, aux), lin = jax.linearize(fn, operator.x)
+        lin = _NoAuxOut(lin)
     out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
     return AuxLinearOperator(out, aux)
 
@@ -1823,7 +1853,7 @@ for transform in (linearise, materialise, diagonal):
 
     @transform.register(AddLinearOperator)  # pyright: ignore
     def _(operator, transform=transform):
-        return transform(operator.operator1) + transform(operator.operator2)
+        return transform(operator.operator1) + transform(operator.operator2)  # pyright: ignore
 
     @transform.register(MulLinearOperator)
     def _(operator, transform=transform):
@@ -1950,12 +1980,33 @@ for check in (
     def _(operator, check=check):
         return check(operator.primal)
 
-    @check.register(MulLinearOperator)
-    @check.register(NegLinearOperator)
-    @check.register(DivLinearOperator)
     @check.register(AuxLinearOperator)
     def _(operator, check=check):
         return check(operator.operator)
+
+
+# Scaling/negating preserves these structural properties
+for check in (
+    is_symmetric,
+    is_diagonal,
+    is_lower_triangular,
+    is_upper_triangular,
+    is_tridiagonal,
+):
+
+    @check.register(MulLinearOperator)
+    @check.register(NegLinearOperator)
+    @check.register(DivLinearOperator)
+    def _(operator, check=check):
+        return check(operator.operator)
+
+
+# has_unit_diagonal is NOT preserved by scaling or negation
+@has_unit_diagonal.register(MulLinearOperator)
+@has_unit_diagonal.register(NegLinearOperator)
+@has_unit_diagonal.register(DivLinearOperator)
+def _(operator):
+    return False
 
 
 for check in (is_positive_semidefinite, is_negative_semidefinite):
@@ -1968,18 +2019,89 @@ for check in (is_positive_semidefinite, is_negative_semidefinite):
             "Please open a GitHub issue: https://github.com/google/lineax"
         )
 
-    @check.register(MulLinearOperator)
-    @check.register(DivLinearOperator)
-    def _(operator):
-        return False  # play it safe, no way to tell.
-
-    @check.register(NegLinearOperator)
-    def _(operator, check=check):
-        return not check(operator.operator)
-
     @check.register(AuxLinearOperator)
     def _(operator, check=check):
         return check(operator.operator)
+
+
+class _ScalarSign(enum.Enum):
+    positive = enum.auto()
+    negative = enum.auto()
+    zero = enum.auto()
+    unknown = enum.auto()
+
+
+def _scalar_sign(scalar) -> _ScalarSign:
+    """Returns the sign of a scalar, or unknown for JAX tracers."""
+    if isinstance(scalar, (int, float, np.ndarray, np.generic)):
+        scalar = float(scalar)
+        if scalar > 0:
+            return _ScalarSign.positive
+        elif scalar < 0:
+            return _ScalarSign.negative
+        else:
+            return _ScalarSign.zero
+    else:
+        return _ScalarSign.unknown
+
+
+# PSD/NSD for MulLinearOperator: depends on sign of scalar
+# Zero scalar gives zero matrix which is both PSD and NSD
+@is_positive_semidefinite.register(MulLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign is _ScalarSign.positive:
+        return is_positive_semidefinite(operator.operator)
+    elif sign is _ScalarSign.negative:
+        return is_negative_semidefinite(operator.operator)
+    elif sign is _ScalarSign.zero:
+        return True  # zero matrix is PSD
+    return False
+
+
+@is_negative_semidefinite.register(MulLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign is _ScalarSign.positive:
+        return is_negative_semidefinite(operator.operator)
+    elif sign is _ScalarSign.negative:
+        return is_positive_semidefinite(operator.operator)
+    elif sign is _ScalarSign.zero:
+        return True  # zero matrix is NSD
+    return False
+
+
+# PSD/NSD for DivLinearOperator: depends on sign of scalar
+# Zero scalar is division by zero - return False (conservative)
+@is_positive_semidefinite.register(DivLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign is _ScalarSign.positive:
+        return is_positive_semidefinite(operator.operator)
+    elif sign is _ScalarSign.negative:
+        return is_negative_semidefinite(operator.operator)
+    return False
+
+
+@is_negative_semidefinite.register(DivLinearOperator)
+def _(operator):
+    sign = _scalar_sign(operator.scalar)
+    if sign is _ScalarSign.positive:
+        return is_negative_semidefinite(operator.operator)
+    elif sign is _ScalarSign.negative:
+        return is_positive_semidefinite(operator.operator)
+    return False
+
+
+# PSD/NSD for NegLinearOperator: negation swaps PSD <-> NSD
+@is_positive_semidefinite.register(NegLinearOperator)
+def _(operator):
+    return is_negative_semidefinite(operator.operator)
+
+
+@is_negative_semidefinite.register(NegLinearOperator)
+def _(operator):
+    return is_positive_semidefinite(operator.operator)
 
 
 for check, tag in (
@@ -2018,19 +2140,40 @@ def _(operator):
     return False
 
 
+# These properties ARE preserved under composition
 for check in (
-    is_symmetric,
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
-    is_positive_semidefinite,
-    is_negative_semidefinite,
-    is_tridiagonal,
 ):
 
     @check.register(ComposedLinearOperator)
     def _(operator, check=check):
         return check(operator.operator1) and check(operator.operator2)
+
+
+# is_symmetric: A@B is symmetric only if A and B commute. Diagonal matrices commute.
+@is_symmetric.register(ComposedLinearOperator)
+def _(operator):
+    return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
+
+
+# is_tridiagonal: tridiagonal @ tridiagonal = pentadiagonal, but
+# tridiagonal @ diagonal = tridiagonal and diagonal @ tridiagonal = tridiagonal
+@is_tridiagonal.register(ComposedLinearOperator)
+def _(operator):
+    if is_diagonal(operator.operator1):
+        return is_tridiagonal(operator.operator2)
+    if is_diagonal(operator.operator2):
+        return is_tridiagonal(operator.operator1)
+    return False
+
+
+# PSD/NSD: not preserved under composition in general.
+@is_positive_semidefinite.register(ComposedLinearOperator)
+@is_negative_semidefinite.register(ComposedLinearOperator)
+def _(operator):
+    return False
 
 
 @has_unit_diagonal.register(ComposedLinearOperator)
