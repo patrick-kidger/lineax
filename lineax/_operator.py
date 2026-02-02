@@ -1359,7 +1359,7 @@ def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearO
     preserves the input/output structure of the original operator.
 
     Note: This function silently strips aux and as such should not be called
-    on AuxLinearOperator directly.
+    on AuxLinearOperator or JacobianLinearOperatory directly.
     """
     if is_diagonal(operator):
         diag_flat = diagonal(operator)
@@ -1390,6 +1390,7 @@ def _(operator):
 @materialise.register(JacobianLinearOperator)
 def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
+    # can't use try_sparse_materialise as strips aux
     if is_diagonal(operator):
         with jax.ensure_compile_time_eval():
             basis = _construct_diagonal_basis(operator.in_structure())
