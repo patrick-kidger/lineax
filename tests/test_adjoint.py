@@ -35,9 +35,8 @@ def test_adjoint(make_operator, dtype, getkey):
         in_size = 5
         out_size = 3
     if make_operator is make_jacrev_operator and dtype is jnp.complex128:
-        pytest.skip(
-            'JacobianLinearOperator does not support complex dtypes when jac="bwd"'
-        )
+        # JacobianLinearOperator does not support complex dtypes when jac="bwd"
+        return
     operator = make_operator(getkey, matrix, tags)
     v1, v2 = (
         jr.normal(getkey(), (in_size,), dtype=dtype),
