@@ -1863,9 +1863,19 @@ for transform in (linearise, materialise, diagonal):
     def _(operator, transform=transform):
         return transform(operator.operator) / operator.scalar
 
-    @transform.register(AuxLinearOperator)  # pyright: ignore
+
+# diagonal strips aux (returns array, not operator)
+@diagonal.register(AuxLinearOperator)
+def _(operator):
+    return diagonal(operator.operator)
+
+
+# linearise and materialise preserve aux
+for transform in (linearise, materialise):
+
+    @transform.register(AuxLinearOperator)
     def _(operator, transform=transform):
-        return transform(operator.operator)
+        return AuxLinearOperator(transform(operator.operator), operator.aux)
 
 
 @linearise.register(TangentLinearOperator)
@@ -1934,11 +1944,21 @@ def _(operator):
 
 @linearise.register(ComposedLinearOperator)
 def _(operator):
+    # If the first operator has aux, preserve it on the result
+    if isinstance(operator.operator1, AuxLinearOperator):
+        aux = operator.operator1.aux
+        inner_composed = operator.operator1.operator @ operator.operator2
+        return AuxLinearOperator(linearise(inner_composed), aux)
     return linearise(operator.operator1) @ linearise(operator.operator2)
 
 
 @materialise.register(ComposedLinearOperator)
 def _(operator):
+    # If the first operator has aux, preserve it on the result
+    if isinstance(operator.operator1, AuxLinearOperator):
+        aux = operator.operator1.aux
+        inner_composed = operator.operator1.operator @ operator.operator2
+        return AuxLinearOperator(materialise(inner_composed), aux)
     return materialise(operator.operator1) @ materialise(operator.operator2)
 
 
