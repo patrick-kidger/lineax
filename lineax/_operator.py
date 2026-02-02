@@ -261,8 +261,9 @@ class MatrixLinearOperator(AbstractLinearOperator):
         self.tags = _frozenset(tags)
 
     def mv(self, vector):
-        if diagonal_tag in self.tags:
-            return jnp.diagonal(self.matrix) * vector
+        sparse = _try_sparse_materialise(self)
+        if sparse is not self:
+            return sparse.mv(vector)
         return jnp.matmul(self.matrix, vector, precision=lax.Precision.HIGHEST)
 
     def as_matrix(self):
@@ -431,21 +432,14 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         # self.out_structure() has structure [tree(out)]
         # self.pytree has structure [tree(out), tree(in), leaf(out), leaf(in)]
         # return has structure [tree(out), leaf(out)]
-        if diagonal_tag in self.tags:
-            # Efficient path: diagonal mv is just element-wise multiplication
-            def diag_mv(keypath, struct, subpytree):
-                block = _leaf_from_keypath(subpytree, keypath)
-                vec_leaf = _leaf_from_keypath(vector, keypath)
-                diag = jnp.diag(block.reshape(struct.size, struct.size))
-                return (diag * vec_leaf.reshape(-1)).reshape(struct.shape)
+        sparse = _try_sparse_materialise(self)
+        if sparse is not self:
+            return sparse.mv(vector)
 
-            return jtu.tree_map_with_path(diag_mv, self.out_structure(), self.pytree)
-        else:
+        def matmul(_, matrix):
+            return _tree_matmul(matrix, vector)
 
-            def matmul(_, matrix):
-                return _tree_matmul(matrix, vector)
-
-            return jtu.tree_map(matmul, self.out_structure(), self.pytree)
+        return jtu.tree_map(matmul, self.out_structure(), self.pytree)
 
     def as_matrix(self):
         with jax.numpy_dtype_promotion("standard"):
@@ -1017,6 +1011,9 @@ class AddLinearOperator(AbstractLinearOperator):
             raise ValueError("Incompatible linear operator structures")
 
     def mv(self, vector):
+        sparse = _try_sparse_materialise(self)
+        if sparse is not self:
+            return sparse.mv(vector)
         mv1 = self.operator1.mv(vector)
         mv2 = self.operator2.mv(vector)
         return (mv1**ω + mv2**ω).ω
@@ -1151,6 +1148,9 @@ class ComposedLinearOperator(AbstractLinearOperator):
             raise ValueError("Incompatible linear operator structures")
 
     def mv(self, vector):
+        sparse = _try_sparse_materialise(self)
+        if sparse is not self:
+            return sparse.mv(vector)
         return self.operator1.mv(self.operator2.mv(vector))
 
     def as_matrix(self):
@@ -1223,9 +1223,6 @@ def _construct_diagonal_basis(structure: PyTree[jax.ShapeDtypeStruct]) -> PyTree
     """Construct a PyTree of ones matching the given structure.
 
     For a diagonal linear operator, applying it to this basis yields the diagonal.
-
-    Callers should wrap this in `jax.ensure_compile_time_eval()` to ensure the
-    basis is stored in the jaxpr rather than being reallocated at runtime.
     """
 
     def make_ones(struct):
@@ -1338,8 +1335,30 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     _default_not_implemented("materialise", operator)
 
 
+def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    """Try to materialise to a sparse operator.
+
+    Returns a DiagonalLinearOperator if the operator is tagged as diagonal,
+    otherwise returns the original operator unchanged. The resulting operator
+    preserves the input/output structure of the original operator.
+
+    Note: This function should not be called on AuxLinearOperator directly -
+    use the materialise registration for AuxLinearOperator instead.
+    """
+    if is_diagonal(operator):
+        diag_flat = diagonal(operator)
+        _, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        diag_pytree = unravel(diag_flat)
+        return DiagonalLinearOperator(diag_pytree)
+    return operator
+
+
 @materialise.register(MatrixLinearOperator)
 @materialise.register(PyTreeLinearOperator)
+def _(operator):
+    return _try_sparse_materialise(operator)
+
+
 @materialise.register(IdentityLinearOperator)
 @materialise.register(DiagonalLinearOperator)
 @materialise.register(TridiagonalLinearOperator)
@@ -1353,7 +1372,6 @@ def _(operator):
     if is_diagonal(operator):
         with jax.ensure_compile_time_eval():
             basis = _construct_diagonal_basis(operator.in_structure())
-
         if operator.jac == "bwd":
             ((_, aux), vjp_fn) = jax.vjp(fn, operator.x)
             if aux is None:
@@ -1363,45 +1381,40 @@ def _(operator):
             (diag_as_pytree,) = vjp_fn((basis, aux_ct))
         else:  # "fwd" or None
             (_, aux), (diag_as_pytree, _) = jax.jvp(fn, (operator.x,), (basis,))
-
         out = DiagonalLinearOperator(diag_as_pytree)
         return AuxLinearOperator(out, aux)
-    else:
-        jac, aux = jacobian(
-            fn,
-            operator.in_size(),
-            operator.out_size(),
-            holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
-            has_aux=True,
-            jac=operator.jac,
-        )(operator.x)
-        out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
-        return AuxLinearOperator(out, aux)
+    jac, aux = jacobian(
+        fn,
+        operator.in_size(),
+        operator.out_size(),
+        holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
+        has_aux=True,
+        jac=operator.jac,
+    )(operator.x)
+    out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
+    return AuxLinearOperator(out, aux)
 
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    if is_diagonal(operator):
-        with jax.ensure_compile_time_eval():
-            basis = _construct_diagonal_basis(operator.in_structure())
-        diag_as_pytree = operator.mv(basis)
-        return DiagonalLinearOperator(diag_as_pytree)
-    else:
-        flat, unravel = strip_weak_dtype(
-            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-        )
-        eye = jnp.eye(flat.size, dtype=flat.dtype)
-        jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
+    out = _try_sparse_materialise(operator)
+    if out is not operator:
+        return out
+    flat, unravel = strip_weak_dtype(
+        eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    )
+    eye = jnp.eye(flat.size, dtype=flat.dtype)
+    jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
 
-        def batch_unravel(x):
-            assert x.ndim > 0
-            unravel_ = unravel
-            for _ in range(x.ndim - 1):
-                unravel_ = jax.vmap(unravel_)
-            return unravel_(x)
+    def batch_unravel(x):
+        assert x.ndim > 0
+        unravel_ = unravel
+        for _ in range(x.ndim - 1):
+            unravel_ = jax.vmap(unravel_)
+        return unravel_(x)
 
-        jac = jtu.tree_map(batch_unravel, jac)
-        return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
+    jac = jtu.tree_map(batch_unravel, jac)
+    return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
 
 
 # diagonal
@@ -1449,8 +1462,29 @@ def _(operator):
 
 
 @diagonal.register(JacobianLinearOperator)
+def _(operator):
+    if is_diagonal(operator):
+        fn = _NoAuxIn(operator.fn, operator.args)
+        with jax.ensure_compile_time_eval():
+            basis = _construct_diagonal_basis(operator.in_structure())
+        if operator.jac == "bwd":
+            (_, vjp_fn) = jax.vjp(fn, operator.x)
+            (diag_as_pytree,) = vjp_fn((basis, None))
+        else:  # "fwd" or None
+            _, (diag_as_pytree, _) = jax.jvp(fn, (operator.x,), (basis,))
+        diag, _ = jfu.ravel_pytree(diag_as_pytree)
+        return diag
+    return diagonal(materialise(operator))
+
+
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
+    if is_diagonal(operator):
+        with jax.ensure_compile_time_eval():
+            basis = _construct_diagonal_basis(operator.in_structure())
+        diag_as_pytree = operator.mv(basis)
+        diag, _ = jfu.ravel_pytree(diag_as_pytree)
+        return diag
     return diagonal(materialise(operator))
 
 
@@ -1913,9 +1947,31 @@ for transform in (linearise, materialise, diagonal):
     def _(operator, transform=transform):
         return transform(operator.operator) / operator.scalar
 
-    @transform.register(AuxLinearOperator)  # pyright: ignore
-    def _(operator, transform=transform):
-        return transform(operator.operator)
+
+# diagonal strips aux (returns array, not operator)
+@diagonal.register(AuxLinearOperator)
+def _(operator):
+    return diagonal(operator.operator)
+
+
+# linearise and materialise preserve aux
+@linearise.register(AuxLinearOperator)
+def _(operator):
+    return AuxLinearOperator(linearise(operator.operator), operator.aux)
+
+
+@materialise.register(AuxLinearOperator)
+def _(operator):
+    return AuxLinearOperator(materialise(operator.operator), operator.aux)
+
+
+# Override AddLinearOperator materialise to try sparse materialisation early
+@materialise.register(AddLinearOperator)
+def _(operator):
+    out = _try_sparse_materialise(operator)
+    if out is not operator:
+        return out
+    return materialise(operator.operator1) + materialise(operator.operator2)
 
 
 @linearise.register(TangentLinearOperator)
@@ -1984,16 +2040,31 @@ def _(operator):
 
 @linearise.register(ComposedLinearOperator)
 def _(operator):
+    # If the first operator has aux, preserve it on the result
+    if isinstance(operator.operator1, AuxLinearOperator):
+        aux = operator.operator1.aux
+        inner_composed = operator.operator1.operator @ operator.operator2
+        return AuxLinearOperator(linearise(inner_composed), aux)
     return linearise(operator.operator1) @ linearise(operator.operator2)
 
 
 @materialise.register(ComposedLinearOperator)
 def _(operator):
+    # If the first operator has aux, preserve it on the result
+    if isinstance(operator.operator1, AuxLinearOperator):
+        aux = operator.operator1.aux
+        inner_composed = operator.operator1.operator @ operator.operator2
+        return AuxLinearOperator(materialise(inner_composed), aux)
+    out = _try_sparse_materialise(operator)
+    if out is not operator:
+        return out
     return materialise(operator.operator1) @ materialise(operator.operator2)
 
 
 @diagonal.register(ComposedLinearOperator)
 def _(operator):
+    if is_diagonal(operator):
+        return diagonal(operator.operator1) * diagonal(operator.operator2)
     return jnp.diag(operator.as_matrix())
 
 
