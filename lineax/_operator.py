@@ -1370,8 +1370,8 @@ def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearO
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
 
-    Note: This function should not be called on AuxLinearOperator directly -
-    use the materialise registration for AuxLinearOperator instead.
+    Note: This function silently strips aux and as such should not be called
+    on AuxLinearOperator directly.
     """
     if is_diagonal(operator):
         diag_flat = diagonal(operator)
@@ -1476,7 +1476,7 @@ def _(operator):
 @diagonal.register(PyTreeLinearOperator)
 def _(operator):
     if is_diagonal(operator):
-        # in_structure == out_structure guaranteed for diagonal operators
+
         def extract_diag(keypath, struct, subpytree):
             block = _leaf_from_keypath(subpytree, keypath)
             return jnp.diag(block.reshape(struct.size, struct.size))
@@ -1490,21 +1490,6 @@ def _(operator):
 
 
 @diagonal.register(JacobianLinearOperator)
-def _(operator):
-    if is_diagonal(operator):
-        fn = _NoAuxIn(operator.fn, operator.args)
-        with jax.ensure_compile_time_eval():
-            basis = _construct_diagonal_basis(operator.in_structure())
-        if operator.jac == "bwd":
-            (_, vjp_fn) = jax.vjp(fn, operator.x)
-            (diag_as_pytree,) = vjp_fn((basis, None))
-        else:  # "fwd" or None
-            _, (diag_as_pytree, _) = jax.jvp(fn, (operator.x,), (basis,))
-        diag, _ = jfu.ravel_pytree(diag_as_pytree)
-        return diag
-    return diagonal(materialise(operator))
-
-
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
     if is_diagonal(operator):
@@ -1983,17 +1968,13 @@ def _(operator):
 
 
 # linearise and materialise preserve aux
-@linearise.register(AuxLinearOperator)
-def _(operator):
-    return AuxLinearOperator(linearise(operator.operator), operator.aux)
+for transform in (linearise, materialise):
+
+    @transform.register(AuxLinearOperator)
+    def _(operator, transform=transform):
+        return AuxLinearOperator(transform(operator.operator), operator.aux)
 
 
-@materialise.register(AuxLinearOperator)
-def _(operator):
-    return AuxLinearOperator(materialise(operator.operator), operator.aux)
-
-
-# Override AddLinearOperator materialise to try sparse materialisation early
 @materialise.register(AddLinearOperator)
 def _(operator):
     out = _try_sparse_materialise(operator)
