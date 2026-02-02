@@ -1234,18 +1234,6 @@ def _default_not_implemented(name: str, operator: AbstractLinearOperator) -> NoR
         raise NotImplementedError(msg)
 
 
-def _construct_diagonal_basis(structure: PyTree[jax.ShapeDtypeStruct]) -> PyTree[Array]:
-    """Construct a PyTree of ones matching the given structure.
-
-    For a diagonal linear operator, applying it to this basis yields the diagonal.
-    """
-
-    def make_ones(struct):
-        return jnp.ones(struct.shape, struct.dtype)
-
-    return jtu.tree_map(make_ones, structure)
-
-
 # linearise
 
 
@@ -1379,6 +1367,11 @@ def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearO
         diag_pytree = unravel(diag_flat)
         return DiagonalLinearOperator(diag_pytree)
     return operator
+
+
+def _construct_diagonal_basis(structure: PyTree[jax.ShapeDtypeStruct]) -> PyTree[Array]:
+    """Construct a PyTree of ones matching the given structure."""
+    return jtu.tree_map(lambda s: jnp.ones(s.shape, s.dtype), structure)
 
 
 @materialise.register(MatrixLinearOperator)
