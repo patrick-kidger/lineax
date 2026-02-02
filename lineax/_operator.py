@@ -262,9 +262,9 @@ class MatrixLinearOperator(AbstractLinearOperator):
         self.tags = _frozenset(tags)
 
     def mv(self, vector):
-        sparse = _try_sparse_materialise(self)
-        if sparse is not self:
-            return sparse.mv(vector)
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
         return jnp.matmul(self.matrix, vector, precision=lax.Precision.HIGHEST)
 
     def as_matrix(self):
@@ -433,9 +433,9 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         # self.out_structure() has structure [tree(out)]
         # self.pytree has structure [tree(out), tree(in), leaf(out), leaf(in)]
         # return has structure [tree(out), leaf(out)]
-        sparse = _try_sparse_materialise(self)
-        if sparse is not self:
-            return sparse.mv(vector)
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
 
         def matmul(_, matrix):
             return _tree_matmul(matrix, vector)
@@ -1026,9 +1026,9 @@ class AddLinearOperator(AbstractLinearOperator):
             raise ValueError("Incompatible linear operator structures")
 
     def mv(self, vector):
-        sparse = _try_sparse_materialise(self)
-        if sparse is not self:
-            return sparse.mv(vector)
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
         mv1 = self.operator1.mv(vector)
         mv2 = self.operator2.mv(vector)
         return (mv1**ω + mv2**ω).ω
@@ -1163,9 +1163,9 @@ class ComposedLinearOperator(AbstractLinearOperator):
             raise ValueError("Incompatible linear operator structures")
 
     def mv(self, vector):
-        sparse = _try_sparse_materialise(self)
-        if sparse is not self:
-            return sparse.mv(vector)
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
         return self.operator1.mv(self.operator2.mv(vector))
 
     def as_matrix(self):
