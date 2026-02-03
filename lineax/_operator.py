@@ -1975,6 +1975,8 @@ for check in (
     is_lower_triangular,
     is_upper_triangular,
     is_tridiagonal,
+    is_positive_semidefinite,
+    is_negative_semidefinite,
 ):
 
     @check.register(TangentLinearOperator)
@@ -2008,21 +2010,6 @@ for check in (
 @has_unit_diagonal.register(DivLinearOperator)
 def _(operator):
     return False
-
-
-for check in (is_positive_semidefinite, is_negative_semidefinite):
-
-    @check.register(TangentLinearOperator)
-    def _(operator):
-        # Should be unreachable: TangentLinearOperator is used for a narrow set of
-        # operations only (mv; transpose) inside the JVP rule linear_solve_p.
-        raise NotImplementedError(
-            "Please open a GitHub issue: https://github.com/google/lineax"
-        )
-
-    @check.register(AuxLinearOperator)
-    def _(operator, check=check):
-        return check(operator.operator)
 
 
 class _ScalarSign(enum.Enum):
