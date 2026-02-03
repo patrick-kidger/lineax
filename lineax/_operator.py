@@ -1782,7 +1782,7 @@ def _(operator):
 
 @is_positive_semidefinite.register(IdentityLinearOperator)
 def _(operator):
-    return True
+    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
 
 
 @is_positive_semidefinite.register(DiagonalLinearOperator)
