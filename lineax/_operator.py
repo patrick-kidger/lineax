@@ -86,12 +86,11 @@ class AbstractLinearOperator(eqx.Module):
     """
 
     def __check_init__(self):
-        is_hermitian = (
+        if (
             is_symmetric(self)
             or is_positive_semidefinite(self)
             or is_negative_semidefinite(self)
-        )
-        if is_hermitian:
+        ):
             # In particular, we check that dtypes match.
             in_structure = self.in_structure()
             out_structure = self.out_structure()
