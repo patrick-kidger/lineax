@@ -7,6 +7,7 @@ import pytest
 solver = lx.LSMR(1e-10, 1e-10)
 Aill = lx.DiagonalLinearOperator(jnp.array([1e8, 1e6, 1e4, 1e2, 1]))
 Awell = lx.DiagonalLinearOperator(jnp.array([2.0, 4.0, 5.0, 8.0, 10.0]))
+Asing = lx.DiagonalLinearOperator(jnp.array([0.0, 4.0, 5.0, 8.0, 10.0]))
 
 
 def test_ill_conditioned():
@@ -14,6 +15,19 @@ def test_ill_conditioned():
         lx.linear_solve(Aill, jnp.ones(5), solver=solver)
     except ex.EquinoxRuntimeError as e:
         assert "Condition number" in str(e)
+
+
+def test_zero_rhs():
+    # b=0, so x=0 is solution
+    sol = lx.linear_solve(Aill, jnp.zeros(5), solver=solver)
+    assert (sol.value == 0).all()
+    sol = lx.linear_solve(Awell, jnp.zeros(5), solver=solver)
+    assert (sol.value == 0).all()
+    sol = lx.linear_solve(Asing, jnp.zeros(5), solver=solver)
+    assert (sol.value == 0).all()
+    # b lies in null space of A, so x=0 is minimum norm solution
+    sol = lx.linear_solve(Asing, jnp.zeros(5).at[0].set(1), solver=solver)
+    assert (sol.value == 0).all()
 
 
 @pytest.mark.skip("Damp support is disabled.")
