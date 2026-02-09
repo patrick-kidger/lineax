@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Callable
 
 import equinox as eqx
 import jax
@@ -37,13 +36,6 @@ def resolve_rcond(rcond, n, m, dtype):
         return 2 * jnp.finfo(dtype).eps * max(n, m)
     else:
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
-
-
-class NoneAux(eqx.Module):
-    fn: Callable
-
-    def __call__(self, *args, **kwargs):
-        return self.fn(*args, **kwargs), None
 
 
 def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False, jac=None):
