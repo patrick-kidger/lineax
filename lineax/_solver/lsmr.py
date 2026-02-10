@@ -193,6 +193,11 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             normr=beta,
             normAr=alpha * beta,
         )
+        # beta == 0 means x exactly solves the well posed problem
+        # alpha == 0 means x exactly solves the least squares problem
+        # we check this here to shortcut the loop to avoid division by zero
+        loop_state["istop"] = lax.select(alpha == 0, 2, loop_state["istop"])
+        loop_state["istop"] = lax.select(beta == 0, 1, loop_state["istop"])
 
         def condfun(loop_state):
             return loop_state["istop"] == 0
