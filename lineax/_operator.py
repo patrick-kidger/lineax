@@ -1352,9 +1352,9 @@ def _(operator):
 
 @materialise.register(JacobianLinearOperator)
 def _(operator):
-    out = _try_sparse_materialise(operator)
-    if out is not operator:
-        return out
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
     fn = _NoAuxIn(operator.fn, operator.args)
     jac = jacobian(
         fn,
@@ -1368,9 +1368,9 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
-    out = _try_sparse_materialise(operator)
-    if out is not operator:
-        return out
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
     flat, unravel = strip_weak_dtype(
         eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
     )
@@ -1921,9 +1921,9 @@ for transform in (linearise, materialise, diagonal):
 
 @materialise.register(AddLinearOperator)
 def _(operator):
-    out = _try_sparse_materialise(operator)
-    if out is not operator:
-        return out
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
     return materialise(operator.operator1) + materialise(operator.operator2)
 
 
@@ -1993,9 +1993,9 @@ def _(operator):
 
 @materialise.register(ComposedLinearOperator)
 def _(operator):
-    out = _try_sparse_materialise(operator)
-    if out is not operator:
-        return out
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
     return materialise(operator.operator1) @ materialise(operator.operator2)
 
 
