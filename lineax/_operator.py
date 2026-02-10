@@ -265,6 +265,9 @@ class MatrixLinearOperator(AbstractLinearOperator):
         self.tags = _frozenset(tags)
 
     def mv(self, vector):
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
         return jnp.matmul(self.matrix, vector, precision=lax.Precision.HIGHEST)
 
     def as_matrix(self):
@@ -327,6 +330,14 @@ def _inexact_structure(x: PyTree[jax.ShapeDtypeStruct]) -> PyTree[jax.ShapeDtype
 class _Leaf:  # not a pytree
     def __init__(self, value):
         self.value = value
+
+
+def _leaf_from_keypath(pytree: PyTree, keypath: jtu.KeyPath) -> Array:
+    """Extract the leaf from a pytree at the given keypath."""
+    for path, leaf in jtu.tree_leaves_with_path(pytree):
+        if path == keypath:
+            return leaf
+    raise ValueError(f"Leaf not found at keypath {keypath}")
 
 
 # The `{input,output}_structure`s have to be static because otherwise abstract
@@ -424,7 +435,11 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         # vector has structure [tree(in), leaf(in)]
         # self.out_structure() has structure [tree(out)]
         # self.pytree has structure [tree(out), tree(in), leaf(out), leaf(in)]
-        # return has struture [tree(out), leaf(out)]
+        # return has structure [tree(out), leaf(out)]
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
+
         def matmul(_, matrix):
             return _tree_matmul(matrix, vector)
 
@@ -1003,6 +1018,9 @@ class AddLinearOperator(AbstractLinearOperator):
             raise ValueError("Incompatible linear operator structures")
 
     def mv(self, vector):
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
         mv1 = self.operator1.mv(vector)
         mv2 = self.operator2.mv(vector)
         return (mv1**ω + mv2**ω).ω
@@ -1137,6 +1155,9 @@ class ComposedLinearOperator(AbstractLinearOperator):
             raise ValueError("Incompatible linear operator structures")
 
     def mv(self, vector):
+        maybe_sparse_op = _try_sparse_materialise(self)
+        if maybe_sparse_op is not self:
+            return maybe_sparse_op.mv(vector)
         return self.operator1.mv(self.operator2.mv(vector))
 
     def as_matrix(self):
@@ -1296,8 +1317,32 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     _default_not_implemented("materialise", operator)
 
 
+def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    """Try to materialise to a sparse operator.
+
+    Returns a DiagonalLinearOperator if the operator is tagged as diagonal,
+    otherwise returns the original operator unchanged. The resulting operator
+    preserves the input/output structure of the original operator.
+    """
+    if is_diagonal(operator):
+        diag_flat = diagonal(operator)
+        _, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        diag_pytree = unravel(diag_flat)
+        return DiagonalLinearOperator(diag_pytree)
+    return operator
+
+
+def _construct_diagonal_basis(structure: PyTree[jax.ShapeDtypeStruct]) -> PyTree[Array]:
+    """Construct a PyTree of ones matching the given structure."""
+    return jtu.tree_map(lambda s: jnp.ones(s.shape, s.dtype), structure)
+
+
 @materialise.register(MatrixLinearOperator)
 @materialise.register(PyTreeLinearOperator)
+def _(operator):
+    return _try_sparse_materialise(operator)
+
+
 @materialise.register(IdentityLinearOperator)
 @materialise.register(DiagonalLinearOperator)
 @materialise.register(TridiagonalLinearOperator)
@@ -1307,6 +1352,9 @@ def _(operator):
 
 @materialise.register(JacobianLinearOperator)
 def _(operator):
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
     fn = _NoAuxIn(operator.fn, operator.args)
     jac = jacobian(
         fn,
@@ -1320,6 +1368,9 @@ def _(operator):
 
 @materialise.register(FunctionLinearOperator)
 def _(operator):
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
     flat, unravel = strip_weak_dtype(
         eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
     )
@@ -1361,11 +1412,36 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
 
 @diagonal.register(MatrixLinearOperator)
+def _(operator):
+    return jnp.diag(operator.as_matrix())
+
+
 @diagonal.register(PyTreeLinearOperator)
+def _(operator):
+    if is_diagonal(operator):
+
+        def extract_diag(keypath, struct, subpytree):
+            block = _leaf_from_keypath(subpytree, keypath)
+            return jnp.diag(block.reshape(struct.size, struct.size))
+
+        diags = jtu.tree_map_with_path(
+            extract_diag, operator.out_structure(), operator.pytree
+        )
+        return jnp.concatenate(jtu.tree_leaves(diags))
+    else:
+        return jnp.diag(operator.as_matrix())
+
+
 @diagonal.register(JacobianLinearOperator)
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
-    return jnp.diag(operator.as_matrix())
+    if is_diagonal(operator):
+        with jax.ensure_compile_time_eval():
+            basis = _construct_diagonal_basis(operator.in_structure())
+        diag_as_pytree = operator.mv(basis)
+        diag, _ = jfu.ravel_pytree(diag_as_pytree)
+        return diag
+    return diagonal(materialise(operator))
 
 
 @diagonal.register(DiagonalLinearOperator)
@@ -1843,6 +1919,14 @@ for transform in (linearise, materialise, diagonal):
         return transform(operator.operator) / operator.scalar
 
 
+@materialise.register(AddLinearOperator)
+def _(operator):
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
+    return materialise(operator.operator1) + materialise(operator.operator2)
+
+
 @linearise.register(TangentLinearOperator)
 def _(operator):
     primal_out, tangent_out = eqx.filter_jvp(
@@ -1909,11 +1993,16 @@ def _(operator):
 
 @materialise.register(ComposedLinearOperator)
 def _(operator):
+    maybe_sparse_op = _try_sparse_materialise(operator)
+    if maybe_sparse_op is not operator:
+        return maybe_sparse_op
     return materialise(operator.operator1) @ materialise(operator.operator2)
 
 
 @diagonal.register(ComposedLinearOperator)
 def _(operator):
+    if is_diagonal(operator):
+        return diagonal(operator.operator1) * diagonal(operator.operator2)
     return jnp.diag(operator.as_matrix())
 
 

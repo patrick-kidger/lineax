@@ -216,7 +216,7 @@ def make_jacfwd_operator(getkey, matrix, tags):
     a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
     b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
     c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
-    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2
     jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
     diff = matrix - jac
     fn = lambda x, _: a + (b + diff) @ x + c @ x**2
@@ -235,7 +235,7 @@ def make_jacrev_operator(getkey, matrix, tags):
     a = jr.normal(getkey(), (out_size,), dtype=matrix.dtype)
     b = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
     c = jr.normal(getkey(), (out_size, in_size), dtype=matrix.dtype)
-    fn_tmp = lambda x, _: a + b @ x + c @ x**2.0
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2
     jac = jax.jacfwd(fn_tmp, holomorphic=jnp.iscomplexobj(x))(x, None)
     diff = matrix - jac
 

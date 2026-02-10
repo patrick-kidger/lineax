@@ -177,9 +177,17 @@ def test_materialise_large(dtype, getkey):
 def test_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     matrix_diag = jnp.diag(matrix)
+    # test we properly extract diagonal from a dense matrix when not tagged
     operators = _setup(getkey, matrix)
     for operator in operators:
         assert jnp.allclose(lx.diagonal(operator), matrix_diag)
+    # test we properly extract diagonal from diagonal matrix when tagged
+    operators = _setup(getkey, jnp.diag(matrix_diag), lx.diagonal_tag)
+    for operator in operators:
+        if isinstance(operator, lx.IdentityLinearOperator):
+            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3))
+        else:
+            assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
