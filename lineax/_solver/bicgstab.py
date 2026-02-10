@@ -23,7 +23,7 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
 from .._norm import max_norm, tree_dot
-from .._operator import AbstractLinearOperator, conj
+from .._operator import AbstractLinearOperator, conj, linearise
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import preconditioner_and_y0
@@ -73,7 +73,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
                 "`BiCGstab(..., normal=False)` may only be used for linear solves with "
                 "square matrices."
             )
-        return operator
+        return linearise(operator)
 
     def compute(
         self, state: _BiCGStabState, vector: PyTree[Array], options: dict[str, Any]

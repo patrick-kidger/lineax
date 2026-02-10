@@ -44,7 +44,7 @@ from jaxtyping import Array, PyTree
 
 from .._misc import complex_to_real_dtype
 from .._norm import two_norm
-from .._operator import AbstractLinearOperator, conj
+from .._operator import AbstractLinearOperator, conj, linearise
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 
@@ -89,7 +89,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
                 )
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
-        return operator
+        return linearise(operator)
 
     def compute(
         self,

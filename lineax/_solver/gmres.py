@@ -26,11 +26,7 @@ from jaxtyping import Array, ArrayLike, Bool, Float, Inexact, PyTree
 
 from .._misc import structure_equal
 from .._norm import max_norm, two_norm
-from .._operator import (
-    AbstractLinearOperator,
-    conj,
-    MatrixLinearOperator,
-)
+from .._operator import AbstractLinearOperator, conj, linearise, MatrixLinearOperator
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver, linear_solve
 from .misc import preconditioner_and_y0
@@ -86,7 +82,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
                 "`GMRES(..., normal=False)` may only be used for linear solves with "
                 "square matrices."
             )
-        return operator
+        return linearise(operator)
 
     #
     # This differs from `jax.scipy.sparse.linalg.gmres` in a few ways:

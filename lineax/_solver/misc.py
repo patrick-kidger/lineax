@@ -24,10 +24,7 @@ import numpy as np
 from jaxtyping import Array, PyTree, Shaped
 
 from .._misc import strip_weak_dtype, structure_equal
-from .._operator import (
-    AbstractLinearOperator,
-    IdentityLinearOperator,
-)
+from .._operator import AbstractLinearOperator, IdentityLinearOperator, linearise
 
 
 def preconditioner_and_y0(
@@ -35,7 +32,7 @@ def preconditioner_and_y0(
 ):
     structure = operator.in_structure()
     try:
-        preconditioner = options["preconditioner"]
+        preconditioner = linearise(options["preconditioner"])
     except KeyError:
         preconditioner = IdentityLinearOperator(structure)
     else:
