@@ -43,7 +43,6 @@ from ._misc import (
     default_floating_dtype,
     inexact_asarray,
     jacobian,
-    NoneAux,
     strip_weak_dtype,
 )
 from ._tags import (
@@ -86,14 +85,18 @@ class AbstractLinearOperator(eqx.Module):
     """
 
     def __check_init__(self):
-        if is_symmetric(self):
+        if (
+            is_symmetric(self)
+            or is_positive_semidefinite(self)
+            or is_negative_semidefinite(self)
+        ):
             # In particular, we check that dtypes match.
             in_structure = self.in_structure()
             out_structure = self.out_structure()
             # `is` check to handle the possibility of a tracer.
             if eqx.tree_equal(in_structure, out_structure) is not True:
                 raise ValueError(
-                    "Symmetric matrices must have matching input and output "
+                    "Symmetric/Hermitian matrices must have matching input and output "
                     f"structures. Got input structure {in_structure} and output "
                     f"structure {out_structure}."
                 )
@@ -535,14 +538,6 @@ class _NoAuxIn(eqx.Module):
         return self.fn(x, self.args)
 
 
-class _NoAuxOut(eqx.Module):
-    fn: Callable
-
-    def __call__(self, x):
-        f, _ = self.fn(x)
-        return f
-
-
 class _Unwrap(eqx.Module):
     fn: Callable
 
@@ -584,16 +579,15 @@ class JacobianLinearOperator(AbstractLinearOperator):
     tags: frozenset[object] = eqx.field(static=True)
     jac: Literal["fwd", "bwd"] | None
 
-    @eqxi.doc_remove_args("closure_convert", "_has_aux")
+    @eqxi.doc_remove_args("closure_convert")
     def __init__(
         self,
         fn: Callable,
         x: PyTree[ArrayLike],
         args: PyTree[Any] = None,
         tags: object | Iterable[object] = (),
-        closure_convert: bool = True,
-        _has_aux: bool = False,  # TODO(kidger): remove, no longer used
         jac: Literal["fwd", "bwd"] | None = None,
+        closure_convert: bool = True,
     ):
         """**Arguments:**
 
@@ -617,8 +611,6 @@ class JacobianLinearOperator(AbstractLinearOperator):
                 "`jac` argument of `JacobianLinearOperator` should be either "
                 "`'fwd'`, `'bwd'`, or `None`."
             )
-        if not _has_aux:
-            fn = NoneAux(fn)
         # Flush out any closed-over values, so that we can safely pass `self`
         # across API boundaries. (In particular, across `linear_solve_p`.)
         # We don't use `jax.closure_convert` as that only flushes autodiffable
@@ -636,7 +628,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         self.jac = jac
 
     def mv(self, vector):
-        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
+        fn = _NoAuxIn(self.fn, self.args)
         if self.jac == "fwd" or self.jac is None:
             _, out = jax.jvp(fn, (self.x,), (vector,))
         elif self.jac == "bwd":
@@ -662,7 +654,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     def transpose(self):
         if is_symmetric(self):
             return self
-        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
+        fn = _NoAuxIn(self.fn, self.args)
         # Works because vjpfn is a PyTree
         _, vjpfn = jax.vjp(fn, self.x)
         vjpfn = _Unwrap(vjpfn)
@@ -674,7 +666,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return strip_weak_dtype(jax.eval_shape(lambda: self.x))
 
     def out_structure(self):
-        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
+        fn = _NoAuxIn(self.fn, self.args)
         return strip_weak_dtype(eqxi.cached_filter_eval_shape(fn, self.x))
 
 
@@ -1185,30 +1177,6 @@ class ComposedLinearOperator(AbstractLinearOperator):
         return self.operator1.out_structure()
 
 
-class AuxLinearOperator(AbstractLinearOperator):
-    """Internal to lineax. Used to represent a linear operator with additional
-    metadata attached.
-    """
-
-    operator: AbstractLinearOperator
-    aux: PyTree[Array]
-
-    def mv(self, vector):
-        return self.operator.mv(vector)
-
-    def as_matrix(self):
-        return self.operator.as_matrix()
-
-    def transpose(self):
-        return self.operator.transpose()
-
-    def in_structure(self):
-        return self.operator.in_structure()
-
-    def out_structure(self):
-        return self.operator.out_structure()
-
-
 #
 # Operations on `AbstractLinearOperator`s.
 # These are done through `singledispatch` rather than as methods.
@@ -1277,20 +1245,18 @@ def _(operator):
     if operator.jac == "bwd":
         # For backward mode, use VJP + linear_transpose.
         # This works even with custom_vjp functions that don't support forward-mode AD.
-        _, vjp_fn, aux = jax.vjp(fn, operator.x, has_aux=True)
+        _, vjp_fn = jax.vjp(fn, operator.x)
         if is_symmetric(operator):
             # For symmetric: J = J.T, so vjp directly gives J @ v
-            lin = _Unwrap(vjp_fn())
+            lin = _Unwrap(vjp_fn)
         else:
             # Transpose the VJP to get J @ v from J.T @ v
             lin = _Unwrap(
                 jax.linear_transpose(lambda g: vjp_fn(g)[0], operator.out_structure())
             )
     else:  # "fwd" or None
-        (_, aux), lin = jax.linearize(fn, operator.x)
-        lin = _NoAuxOut(lin)
-    out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
-    return AuxLinearOperator(out, aux)
+        _, lin = jax.linearize(fn, operator.x)
+    return FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
 
 
 # materialise
@@ -1357,9 +1323,6 @@ def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearO
     Returns a DiagonalLinearOperator if the operator is tagged as diagonal,
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
-
-    Note: This function silently strips aux and as such should not be called
-    on AuxLinearOperator or JacobianLinearOperatory directly.
     """
     if is_diagonal(operator):
         diag_flat = diagonal(operator)
@@ -1389,32 +1352,18 @@ def _(operator):
 
 @materialise.register(JacobianLinearOperator)
 def _(operator):
+    out = _try_sparse_materialise(operator)
+    if out is not operator:
+        return out
     fn = _NoAuxIn(operator.fn, operator.args)
-    # can't use try_sparse_materialise as strips aux
-    if is_diagonal(operator):
-        with jax.ensure_compile_time_eval():
-            basis = _construct_diagonal_basis(operator.in_structure())
-        if operator.jac == "bwd":
-            ((_, aux), vjp_fn) = jax.vjp(fn, operator.x)
-            if aux is None:
-                aux_ct = None
-            else:
-                aux_ct = jtu.tree_map(jnp.zeros_like, aux)
-            (diag_as_pytree,) = vjp_fn((basis, aux_ct))
-        else:  # "fwd" or None
-            (_, aux), (diag_as_pytree, _) = jax.jvp(fn, (operator.x,), (basis,))
-        out = DiagonalLinearOperator(diag_as_pytree)
-        return AuxLinearOperator(out, aux)
-    jac, aux = jacobian(
+    jac = jacobian(
         fn,
         operator.in_size(),
         operator.out_size(),
         holomorphic=any(jnp.iscomplexobj(xi) for xi in jtu.tree_leaves(operator.x)),
-        has_aux=True,
         jac=operator.jac,
     )(operator.x)
-    out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
-    return AuxLinearOperator(out, aux)
+    return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
 
 
 @materialise.register(FunctionLinearOperator)
@@ -1601,20 +1550,35 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
     _default_not_implemented("is_symmetric", operator)
 
 
+def _has_real_dtype(operator) -> bool:
+    """Check if all dtypes in an operator's structure are real (not complex)."""
+    leaves = jtu.tree_leaves((operator.in_structure(), operator.out_structure()))
+    dtype = jnp.result_type(*leaves)
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        return False
+    elif jnp.issubdtype(dtype, jnp.floating):
+        return True
+    else:
+        assert False, (
+            "Only `jnp.floating` and `jnp.complexfloating` dtypes are understood."
+        )
+
+
 @is_symmetric.register(MatrixLinearOperator)
 @is_symmetric.register(PyTreeLinearOperator)
 @is_symmetric.register(JacobianLinearOperator)
 @is_symmetric.register(FunctionLinearOperator)
 def _(operator):
-    return any(
-        tag in operator.tags
-        for tag in (
-            symmetric_tag,
-            positive_semidefinite_tag,
-            negative_semidefinite_tag,
-            diagonal_tag,
-        )
-    )
+    # Symmetric (A = A^T) if explicitly tagged symmetric or diagonal
+    if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
+        return True
+    # PSD/NSD implies symmetric only for real dtypes; for complex, it's Hermitian
+    if (
+        positive_semidefinite_tag in operator.tags
+        or negative_semidefinite_tag in operator.tags
+    ):
+        return _has_real_dtype(operator)
+    return False
 
 
 @is_symmetric.register(IdentityLinearOperator)
@@ -1862,7 +1826,7 @@ def _(operator):
 
 @is_positive_semidefinite.register(IdentityLinearOperator)
 def _(operator):
-    return True
+    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
 
 
 @is_positive_semidefinite.register(DiagonalLinearOperator)
@@ -1955,20 +1919,6 @@ for transform in (linearise, materialise, diagonal):
         return transform(operator.operator) / operator.scalar
 
 
-# diagonal strips aux (returns array, not operator)
-@diagonal.register(AuxLinearOperator)
-def _(operator):
-    return diagonal(operator.operator)
-
-
-# linearise and materialise preserve aux
-for transform in (linearise, materialise):
-
-    @transform.register(AuxLinearOperator)
-    def _(operator, transform=transform):
-        return AuxLinearOperator(transform(operator.operator), operator.aux)
-
-
 @materialise.register(AddLinearOperator)
 def _(operator):
     out = _try_sparse_materialise(operator)
@@ -2036,28 +1986,13 @@ def _(operator):
     return (diag / operator.scalar, lower / operator.scalar, upper / operator.scalar)
 
 
-@tridiagonal.register(AuxLinearOperator)
-def _(operator):
-    return tridiagonal(operator.operator)
-
-
 @linearise.register(ComposedLinearOperator)
 def _(operator):
-    # If the first operator has aux, preserve it on the result
-    if isinstance(operator.operator1, AuxLinearOperator):
-        aux = operator.operator1.aux
-        inner_composed = operator.operator1.operator @ operator.operator2
-        return AuxLinearOperator(linearise(inner_composed), aux)
     return linearise(operator.operator1) @ linearise(operator.operator2)
 
 
 @materialise.register(ComposedLinearOperator)
 def _(operator):
-    # If the first operator has aux, preserve it on the result
-    if isinstance(operator.operator1, AuxLinearOperator):
-        aux = operator.operator1.aux
-        inner_composed = operator.operator1.operator @ operator.operator2
-        return AuxLinearOperator(materialise(inner_composed), aux)
     out = _try_sparse_materialise(operator)
     if out is not operator:
         return out
@@ -2088,15 +2023,13 @@ for check in (
     is_lower_triangular,
     is_upper_triangular,
     is_tridiagonal,
+    is_positive_semidefinite,
+    is_negative_semidefinite,
 ):
 
     @check.register(TangentLinearOperator)
     def _(operator, check=check):
         return check(operator.primal)
-
-    @check.register(AuxLinearOperator)
-    def _(operator, check=check):
-        return check(operator.operator)
 
 
 # Scaling/negating preserves these structural properties
@@ -2121,21 +2054,6 @@ for check in (
 @has_unit_diagonal.register(DivLinearOperator)
 def _(operator):
     return False
-
-
-for check in (is_positive_semidefinite, is_negative_semidefinite):
-
-    @check.register(TangentLinearOperator)
-    def _(operator):
-        # Should be unreachable: TangentLinearOperator is used for a narrow set of
-        # operations only (mv; transpose) inside the JVP rule linear_solve_p.
-        raise NotImplementedError(
-            "Please open a GitHub issue: https://github.com/google/lineax"
-        )
-
-    @check.register(AuxLinearOperator)
-    def _(operator, check=check):
-        return check(operator.operator)
 
 
 class _ScalarSign(enum.Enum):
@@ -2398,8 +2316,3 @@ def _(operator):
 @conj.register(ComposedLinearOperator)
 def _(operator):
     return conj(operator.operator1) @ conj(operator.operator2)
-
-
-@conj.register(AuxLinearOperator)
-def _(operator):
-    return conj(operator.operator)
