@@ -44,6 +44,7 @@ from ._operator import (
     TangentLinearOperator as TangentLinearOperator,
     tridiagonal as tridiagonal,
     TridiagonalLinearOperator as TridiagonalLinearOperator,
+    WoodburyLinearOperator as WoodburyLinearOperator,
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solve import (

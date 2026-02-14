@@ -937,6 +937,73 @@ class TaggedLinearOperator(AbstractLinearOperator):
         return self.operator.out_structure()
 
 
+class WoodburyLinearOperator(AbstractLinearOperator, strict=True):
+    """As [`lineax.MatrixLinearOperator`][], but for specifically a matrix
+    with A + U C V structure, such that the Woodbury identity can be used"""
+
+    A: AbstractLinearOperator
+    C: Inexact[Array, " k k"]
+    U: Inexact[Array, " n k"]
+    V: Inexact[Array, " k n"]
+
+    def __init__(
+        self,
+        A: AbstractLinearOperator,
+        C: Inexact[Array, " k k"],
+        U: Inexact[Array, " n k"],
+        V: Inexact[Array, " k n"],
+    ):
+        """**Arguments:**
+
+        Matrix of form A + U C V, such that the inverse can be computed
+        using Woodbury matrix identity
+
+        - `A`: Linear operator, in/out shape (n,n)
+        - `C`: A rank-two JAX array. Shape (k,k)
+        - `U`: A rank-two JAX array. Shape (n,k)
+        - `V`: A rank-two JAX array. Shape (k,n)
+
+        """
+        self.A = A
+        self.C = inexact_asarray(C)
+        self.U = inexact_asarray(U)
+        self.V = inexact_asarray(V)
+        (N, M) = self.A.in_structure(), self.A.out_structure()
+        if not eqx.tree_equal(N, M):
+            raise ValueError(f"expecting square operator for A, got {N} by {M}")
+        (K, L) = self.C.shape
+        if K != L:
+            raise ValueError(f"expecting square operator for C, got {K} by {L}")
+        N = N.shape[0]
+        if self.U.shape != (N, K):
+            raise ValueError("U does not have consistent shape with A and C")
+        if self.V.shape != (K, N):
+            raise ValueError("V does not have consistent shape with A and C")
+
+    def mv(self, vector):
+        Ax = self.A.mv(vector)
+        UCVx = self.U @ (self.C @ (self.V @ vector))
+        return Ax + UCVx
+
+    def as_matrix(self):
+        matrix = self.A.as_matrix() + self.U @ (self.C @ self.V)
+        return matrix
+
+    def transpose(self):
+        return WoodburyLinearOperator(
+            self.A.transpose(),
+            jnp.transpose(self.C),
+            jnp.transpose(self.V),
+            jnp.transpose(self.U),
+        )
+
+    def in_structure(self):
+        return self.A.in_structure()
+
+    def out_structure(self):
+        return self.A.out_structure()
+
+
 #
 # All operators below here are private to lineax.
 #
@@ -1214,6 +1281,7 @@ def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @linearise.register(IdentityLinearOperator)
 @linearise.register(DiagonalLinearOperator)
 @linearise.register(TridiagonalLinearOperator)
+@linearise.register(WoodburyLinearOperator)
 def _(operator):
     return operator
 
@@ -1301,6 +1369,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @materialise.register(IdentityLinearOperator)
 @materialise.register(DiagonalLinearOperator)
 @materialise.register(TridiagonalLinearOperator)
+@materialise.register(WoodburyLinearOperator)
 def _(operator):
     return operator
 
@@ -1361,6 +1430,7 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
 
 @diagonal.register(MatrixLinearOperator)
+@diagonal.register(WoodburyLinearOperator)
 @diagonal.register(PyTreeLinearOperator)
 @diagonal.register(JacobianLinearOperator)
 @diagonal.register(FunctionLinearOperator)
@@ -1420,6 +1490,7 @@ def tridiagonal(
 
 
 @tridiagonal.register(MatrixLinearOperator)
+@tridiagonal.register(WoodburyLinearOperator)
 @tridiagonal.register(PyTreeLinearOperator)
 @tridiagonal.register(JacobianLinearOperator)
 @tridiagonal.register(FunctionLinearOperator)
@@ -1516,6 +1587,7 @@ def _(operator):
 
 
 @is_symmetric.register(TridiagonalLinearOperator)
+@is_symmetric.register(WoodburyLinearOperator)
 def _(operator):
     return False
 
@@ -1557,6 +1629,7 @@ def _(operator):
     return True
 
 
+@is_diagonal.register(WoodburyLinearOperator)
 @is_diagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return operator.in_size() == 1
@@ -1598,6 +1671,11 @@ def _(operator):
     return True
 
 
+@is_tridiagonal.register(WoodburyLinearOperator)
+def _(operator):
+    return False
+
+
 # has_unit_diagonal
 
 
@@ -1632,6 +1710,7 @@ def _(operator):
     return True
 
 
+@has_unit_diagonal.register(WoodburyLinearOperator)
 @has_unit_diagonal.register(DiagonalLinearOperator)
 @has_unit_diagonal.register(TridiagonalLinearOperator)
 def _(operator):
@@ -1674,6 +1753,7 @@ def _(operator):
     return True
 
 
+@is_lower_triangular.register(WoodburyLinearOperator)
 @is_lower_triangular.register(TridiagonalLinearOperator)
 def _(operator):
     return False
@@ -1714,6 +1794,7 @@ def _(operator):
     return True
 
 
+@is_upper_triangular.register(WoodburyLinearOperator)
 @is_upper_triangular.register(TridiagonalLinearOperator)
 def _(operator):
     return False
@@ -1753,6 +1834,7 @@ def _(operator):
     return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
 
 
+@is_positive_semidefinite.register(WoodburyLinearOperator)
 @is_positive_semidefinite.register(DiagonalLinearOperator)
 @is_positive_semidefinite.register(TridiagonalLinearOperator)
 def _(operator):
@@ -1794,6 +1876,7 @@ def _(operator):
     return False
 
 
+@is_negative_semidefinite.register(WoodburyLinearOperator)
 @is_negative_semidefinite.register(DiagonalLinearOperator)
 @is_negative_semidefinite.register(TridiagonalLinearOperator)
 def _(operator):

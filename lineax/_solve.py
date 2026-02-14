@@ -42,6 +42,7 @@ from ._operator import (
     is_upper_triangular,
     linearise,
     TangentLinearOperator,
+    WoodburyLinearOperator,
 )
 from ._solution import RESULTS, Solution
 
@@ -279,7 +280,7 @@ def _linear_solve_transpose(inputs, cts_out):
         _assert_defined, (operator, state, options, solver), is_leaf=_is_undefined
     )
     cts_solution = jtu.tree_map(
-        ft.partial(eqxi.materialise_zeros, allow_struct=True),
+        ft.partial(eqxi.materialise_zeros, allow_struct=True),  # pyright: ignore
         operator.in_structure(),
         cts_solution,
     )
@@ -476,6 +477,7 @@ _triangular_token = eqxi.str2jax("triangular_token")
 _cholesky_token = eqxi.str2jax("cholesky_token")
 _lu_token = eqxi.str2jax("lu_token")
 _svd_token = eqxi.str2jax("svd_token")
+_woodbury_token = eqxi.str2jax("woodbury_token")
 
 
 # Ugly delayed import because we have the dependency chain
@@ -496,6 +498,7 @@ def _lookup(token) -> AbstractLinearSolver:
         _cholesky_token: _solver.Cholesky(),  # pyright: ignore
         _lu_token: _solver.LU(),  # pyright: ignore
         _svd_token: _solver.SVD(),  # pyright: ignore
+        _woodbury_token: _solver.Woodbury(),  # pyright: ignore
     }
     return _lookup_dict[token]
 
@@ -513,6 +516,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
+        - If the matrix has structure A + U C V, then use [`lineax.Woodbury`][].
         - Else use [`lineax.LU`][].
 
     This is a good choice if you want to be certain that an error is raised for
@@ -532,6 +536,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
+        - If the matrix has structure A + U C V, then use [`lineax.Woodbury`][].
         - Else, use [`lineax.LU`][].
 
     This is a good choice if your primary concern is computational efficiency. It will
@@ -560,6 +565,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 operator
             ):
                 token = _cholesky_token
+            elif isinstance(operator, WoodburyLinearOperator):
+                token = _woodbury_token
             else:
                 token = _lu_token
         elif self.well_posed is False:
