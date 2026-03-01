@@ -182,6 +182,71 @@ def test_diagonal(dtype, getkey):
         assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
 
+@pytest.mark.parametrize("dtype", (jnp.float64,))
+def test_Woodbury(dtype, getkey):
+    tol = 1e-4
+    N = 20
+    k = 2
+
+    A = jr.normal(getkey(), (N, N), dtype=dtype)
+    C = jr.normal(getkey(), (k, k), dtype=dtype)
+    U = jr.normal(getkey(), (N, k), dtype=dtype)
+    V = jr.normal(getkey(), (k, N), dtype=dtype)
+
+    # Full matrix A
+    WB = lx.WoodburyLinearOperator(lx.MatrixLinearOperator(A), C, U, V)
+
+    full_matrix = WB.as_matrix()
+
+    true_x = jr.normal(getkey(), (N,))
+    b = full_matrix @ true_x
+    b_WB = WB.mv(true_x)
+
+    assert tree_allclose(b, b_WB, atol=tol, rtol=tol)
+
+    WB_soln = lx.linear_solve(WB, b)
+    LU_soln = lx.linear_solve(lx.MatrixLinearOperator(full_matrix), b)
+
+    assert tree_allclose(WB_soln.value, LU_soln.value, atol=tol, rtol=tol)
+
+    # Tridiagonal matrix A
+    diagonal = jnp.diagonal(A, offset=0)
+    upper_diagonal = jnp.diagonal(A, offset=1)
+    lower_diagonal = jnp.diagonal(A, offset=-1)
+    WB = lx.WoodburyLinearOperator(
+        lx.TridiagonalLinearOperator(diagonal, lower_diagonal, upper_diagonal), C, U, V
+    )
+
+    full_matrix = WB.as_matrix()
+
+    true_x = jr.normal(getkey(), (N,))
+    b = full_matrix @ true_x
+    b_WB = WB.mv(true_x)
+
+    assert tree_allclose(b, b_WB, atol=tol, rtol=tol)
+
+    WB_soln = lx.linear_solve(WB, b)
+    LU_soln = lx.linear_solve(lx.MatrixLinearOperator(full_matrix), b)
+
+    assert tree_allclose(WB_soln.value, LU_soln.value, atol=tol, rtol=tol)
+
+    # Diagonal matrix A
+    WB = lx.WoodburyLinearOperator(lx.DiagonalLinearOperator(diagonal), C, U, V)
+
+    full_matrix = WB.as_matrix()
+
+    true_x = jr.normal(getkey(), (N,))
+    b = full_matrix @ true_x
+    b_WB = WB.mv(true_x)
+
+    assert tree_allclose(b, b_WB, atol=tol, rtol=tol)
+
+    WB_soln = lx.linear_solve(WB, b)
+    LU_soln = lx.linear_solve(lx.MatrixLinearOperator(full_matrix), b)
+
+    assert tree_allclose(WB_soln.value, LU_soln.value, atol=tol, rtol=tol)
+
+
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_symmetric(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
