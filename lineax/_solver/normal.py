@@ -18,10 +18,7 @@ from typing import Any, TypeVar
 import equinox.internal as eqxi
 from jaxtyping import Array, PyTree
 
-from .._operator import (
-    conj,
-    TaggedLinearOperator,
-)
+from .._operator import conj, linearise, TaggedLinearOperator
 from .._solution import RESULTS
 from .._solve import AbstractLinearOperator, AbstractLinearSolver
 from .._tags import positive_semidefinite_tag
@@ -36,6 +33,7 @@ def normal_preconditioner_and_y0(options: dict[str, Any], tall: bool):
     inner_options = copy(options)
     del options
     if preconditioner is not None:
+        preconditioner = linearise(preconditioner)
         if tall:
             inner_options["preconditioner"] = TaggedLinearOperator(
                 preconditioner @ conj(preconditioner.transpose()),
@@ -46,8 +44,8 @@ def normal_preconditioner_and_y0(options: dict[str, Any], tall: bool):
                 conj(preconditioner.transpose()) @ preconditioner,
                 positive_semidefinite_tag,
             )
-    if preconditioner is not None and y0 is not None and not tall:
-        inner_options["y0"] = conj(preconditioner.transpose()).mv(y0)
+            if y0 is not None:
+                inner_options["y0"] = conj(preconditioner.transpose()).mv(y0)
     return inner_options
 
 
@@ -105,14 +103,17 @@ class Normal(
 
     def init(self, operator, options):
         tall = operator.out_size() >= operator.in_size()
+        # we are apply repeated mv's when constructing normal matrix
+        # these cannot be parallelised so more efficient to linearise first
+        lin_op = linearise(operator)
         if tall:
-            inner_operator = conj(operator.transpose()) @ operator
+            inner_operator = conj(lin_op.transpose()) @ lin_op
         else:
-            inner_operator = operator @ conj(operator.transpose())
+            inner_operator = lin_op @ conj(lin_op.transpose())
         inner_operator = TaggedLinearOperator(inner_operator, positive_semidefinite_tag)
         inner_options = normal_preconditioner_and_y0(options, tall)
         inner_state = self.inner_solver.init(inner_operator, inner_options)
-        operator_conj_transpose = conj(operator.transpose())
+        operator_conj_transpose = conj(lin_op.transpose())
         return inner_state, eqxi.Static(tall), operator_conj_transpose, inner_options
 
     def compute(
