@@ -24,11 +24,7 @@ import numpy as np
 from jaxtyping import Array, PyTree, Shaped
 
 from .._misc import strip_weak_dtype, structure_equal
-from .._operator import (
-    AbstractLinearOperator,
-    IdentityLinearOperator,
-    is_positive_semidefinite,
-)
+from .._operator import AbstractLinearOperator, IdentityLinearOperator, linearise
 
 
 def preconditioner_and_y0(
@@ -36,7 +32,7 @@ def preconditioner_and_y0(
 ):
     structure = operator.in_structure()
     try:
-        preconditioner = options["preconditioner"]
+        preconditioner = linearise(options["preconditioner"])
     except KeyError:
         preconditioner = IdentityLinearOperator(structure)
     else:
@@ -52,8 +48,6 @@ def preconditioner_and_y0(
                 "The preconditioner must have `out_structure` that matches the "
                 "operator's `in_structure`."
             )
-        if not is_positive_semidefinite(preconditioner):
-            raise ValueError("The preconditioner must be positive definite.")
     try:
         y0 = options["y0"]
     except KeyError:

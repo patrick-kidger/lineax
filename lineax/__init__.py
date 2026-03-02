@@ -18,7 +18,6 @@ from . import internal as internal
 from ._operator import (
     AbstractLinearOperator as AbstractLinearOperator,
     AddLinearOperator as AddLinearOperator,
-    AuxLinearOperator as AuxLinearOperator,
     ComposedLinearOperator as ComposedLinearOperator,
     conj as conj,
     diagonal as diagonal,
@@ -58,7 +57,9 @@ from ._solver import (
     Cholesky as Cholesky,
     Diagonal as Diagonal,
     GMRES as GMRES,
+    LSMR as LSMR,
     LU as LU,
+    Normal as Normal,
     NormalCG as NormalCG,
     QR as QR,
     SVD as SVD,

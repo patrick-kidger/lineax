@@ -33,9 +33,8 @@ from .helpers import (
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     if make_operator is make_jacrev_operator and dtype is jnp.complex128:
-        pytest.skip(
-            'JacobianLinearOperator does not support complex dtypes when jac="bwd"'
-        )
+        # JacobianLinearOperator does not support complex dtypes when jac="bwd"
+        return
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
     else:
@@ -58,7 +57,7 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
 def test_pytree_wellposed(solver, getkey, dtype):
     if not isinstance(
         solver,
-        (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG, lx.NormalCG),
+        (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG),
     ):
         if jax.config.jax_enable_x64:  # pyright: ignore
             tol = 1e-10

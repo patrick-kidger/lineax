@@ -77,7 +77,7 @@ class Diagonal(AbstractLinearSolver[_DiagonalState]):
                 (size,) = diag.shape
                 rcond = resolve_rcond(self.rcond, size, size, diag.dtype)
                 abs_diag = jnp.abs(diag)
-                diag = jnp.where(abs_diag > rcond * jnp.max(abs_diag), diag, jnp.inf)
+                diag = jnp.where(abs_diag > rcond * jnp.max(abs_diag), diag, jnp.inf)  # pyright: ignore
             solution = vector / diag
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
@@ -101,11 +101,8 @@ class Diagonal(AbstractLinearSolver[_DiagonalState]):
         conj_state = conj_diag, packed_structures
         return conj_state, conj_options
 
-    def allow_dependent_columns(self, operator):
-        return not self.well_posed
-
-    def allow_dependent_rows(self, operator):
-        return not self.well_posed
+    def assume_full_rank(self):
+        return self.well_posed
 
 
 Diagonal.__init__.__doc__ = """**Arguments**:

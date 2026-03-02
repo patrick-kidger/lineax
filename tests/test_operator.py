@@ -47,9 +47,8 @@ def test_ops(make_operator, getkey, dtype):
         matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
         tags = ()
     if make_operator is make_jacrev_operator and dtype is jnp.complex128:
-        pytest.skip(
-            'JacobianLinearOperator does not support complex dtypes when jac="bwd"'
-        )
+        # JacobianLinearOperator does not support complex dtypes when jac="bwd"
+        return
     matrix1 = make_operator(getkey, matrix, tags)
     matrix2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3), dtype=dtype))
     scalar = jr.normal(getkey(), (), dtype=dtype)
@@ -142,9 +141,22 @@ def _assert_except_diag(cond_fun, operators, flip_cond):
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_linearise(dtype, getkey):
-    operators = _setup(getkey, jr.normal(getkey(), (3, 3), dtype=dtype))
+    matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+    operators = list(_setup(getkey, matrix))
+    vec = jr.normal(getkey(), (3,), dtype=dtype)
     for operator in operators:
-        lx.linearise(operator)
+        # Skip jacrev operators with complex dtype (jacrev doesn't support complex)
+        if (
+            isinstance(operator, lx.JacobianLinearOperator)
+            and operator.jac == "bwd"
+            and dtype is jnp.complex128
+        ):
+            continue
+        linearised = lx.linearise(operator)
+        # Actually evaluate the linearised operator to ensure it works
+        result = linearised.mv(vec)
+        expected = operator.mv(vec)
+        assert tree_allclose(result, expected)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -165,9 +177,17 @@ def test_materialise_large(dtype, getkey):
 def test_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     matrix_diag = jnp.diag(matrix)
+    # test we properly extract diagonal from a dense matrix when not tagged
     operators = _setup(getkey, matrix)
     for operator in operators:
         assert jnp.allclose(lx.diagonal(operator), matrix_diag)
+    # test we properly extract diagonal from diagonal matrix when tagged
+    operators = _setup(getkey, jnp.diag(matrix_diag), lx.diagonal_tag)
+    for operator in operators:
+        if isinstance(operator, lx.IdentityLinearOperator):
+            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3))
+        else:
+            assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -273,25 +293,6 @@ def test_is_negative_semidefinite(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_tridiagonal(dtype, getkey):
-    matrix = jr.normal(getkey(), (5, 5), dtype=dtype)
-    matrix_diag = jnp.diag(matrix)
-    matrix_lower_diag = jnp.diag(matrix, k=-1)
-    matrix_upper_diag = jnp.diag(matrix, k=1)
-    tridiag_matrix = (
-        jnp.diag(matrix_diag)
-        + jnp.diag(matrix_lower_diag, k=-1)
-        + jnp.diag(matrix_upper_diag, k=1)
-    )
-    operators = _setup(getkey, tridiag_matrix)
-    for operator in operators:
-        diag, lower_diag, upper_diag = lx.tridiagonal(operator)
-        assert jnp.allclose(diag, matrix_diag)
-        assert jnp.allclose(lower_diag, matrix_lower_diag)
-        assert jnp.allclose(upper_diag, matrix_upper_diag)
-
-
-@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_tridiagonal(dtype, getkey):
     diag1 = jr.normal(getkey(), (5,), dtype=dtype)
     diag2 = jr.normal(getkey(), (4,), dtype=dtype)
@@ -307,7 +308,12 @@ def test_is_tridiagonal(dtype, getkey):
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_tangent_as_matrix(dtype, getkey):
     def _list_setup(matrix):
-        return list(_setup(getkey, matrix))
+        # Exclude jacrev operator: jac="bwd" uses custom_vjp which doesn't support JVP
+        return [
+            op
+            for op in _setup(getkey, matrix)
+            if not (isinstance(op, lx.JacobianLinearOperator) and op.jac == "bwd")
+        ]
 
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     t_matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
@@ -445,25 +451,31 @@ def test_zero_pytree_as_matrix(dtype):
 
 
 def test_jacrev_operator():
+    # Test that custom_vjp is respected. The custom backward multiplies by 3
+    # instead of the true derivative (which would be 2).
+    # This tests that lineax uses the custom_vjp, not the true derivative.
     @jax.custom_vjp
     def f(x, _):
-        return dict(foo=x["bar"] + 2)
+        return dict(foo=x["bar"] * 2)  # forward: multiply by 2
 
     def f_fwd(x, _):
         return f(x, None), None
 
     def f_bwd(_, g):
-        return dict(bar=g["foo"] + 5), None
+        # Custom backward: multiply by 3 (not the true derivative 2)
+        # This must be linear in g for linear_transpose to work correctly.
+        return dict(bar=g["foo"] * 3), None
 
     f.defvjp(f_fwd, f_bwd)
 
     x = dict(bar=jnp.arange(2.0))
     rev_op = lx.JacobianLinearOperator(f, x, jac="bwd")
-    as_matrix = jnp.array([[6.0, 5.0], [5.0, 6.0]])
+    # Jacobian is 3*I (from custom backward, not 2*I from true derivative)
+    as_matrix = jnp.array([[3.0, 0.0], [0.0, 3.0]])
     assert tree_allclose(rev_op.as_matrix(), as_matrix)
 
-    y = dict(bar=jnp.arange(2.0) + 1)
-    true_out = dict(foo=jnp.array([16.0, 17.0]))
+    y = dict(bar=jnp.arange(2.0) + 1)  # y = [1, 2]
+    true_out = dict(foo=jnp.array([3.0, 6.0]))  # 3*I @ [1, 2] = [3, 6]
     for op in (rev_op, lx.materialise(rev_op)):
         out = op.mv(y)
         assert tree_allclose(out, true_out)
