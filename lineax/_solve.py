@@ -375,7 +375,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
             the box. If you need to differentiate through the solve, either
             wrap the state with `jax.lax.stop_gradient`, or use
             [`lineax.invert`][] (with `cache=True`) which handles this
-            automatically.
+            automatically. Defaults to `True`.
 
         **Arguments:**
 
@@ -812,7 +812,7 @@ def invert(
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
     options: dict[str, Any] | None = None,
-    cache: bool = False,
+    cache: bool = True,
 ) -> FunctionLinearOperator:
     r"""Returns a [`lineax.FunctionLinearOperator`][] representing the
     (pseudo)inverse of `operator`.
@@ -830,9 +830,11 @@ def invert(
     - `solver`: the linear solver to use. Defaults to
         `AutoLinearSolver(well_posed=True)`.
     - `options`: additional options passed to the solver. Defaults to `None`.
-    - `cache`: if `True`, eagerly compute and cache the solver state (typically
-        a factorisation such as LU or Cholesky) so that subsequent matvecs
-        re-use it. This trades memory for runtime. Defaults to `False`.
+    - `cache`: by default, `lx.invert` eagerly computes and caches the solver
+        state (typically a factorisation such as LU or Cholesky)
+        so that subsequent matvecs re-use it. This improves runtime at the cost
+        of additional memory usage, if you find memory usage is an issue set
+        `cache=False`.
 
     **Returns:**
 
