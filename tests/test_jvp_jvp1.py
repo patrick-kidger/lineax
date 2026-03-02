@@ -35,11 +35,9 @@ def _clear_cache():
 @pytest.mark.parametrize("solver, tags, pseudoinverse", solvers_tags_pseudoinverse)
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("use_state", (True, False))
-@pytest.mark.parametrize("make_matrix", (construct_matrix, construct_singular_matrix))
 @pytest.mark.parametrize("dtype", (jnp.float64,))
-def test_jvp_jvp(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
-):
+def test_jvp_jvp(getkey, solver, tags, pseudoinverse, make_operator, use_state, dtype):
+    make_matrix = construct_singular_matrix if pseudoinverse else construct_matrix
     jvp_jvp_impl(
         getkey,
         solver,

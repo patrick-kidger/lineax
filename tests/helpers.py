@@ -69,18 +69,24 @@ def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
     )
 
 
-def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
-    matrices = construct_matrix(getkey, solver, tags, num, dtype=dtype)
+def construct_singular_matrix(
+    getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64
+):
+    # There is currently no attempt to generate matrices respecting tags.
+    matrices = construct_matrix(getkey, solver, tags, num, size=3, dtype=dtype)
     if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
         return tuple(matrix.at[0, :].set(0) for matrix in matrices)
     else:
         version = jr.choice(getkey(), np.array([0, 1, 2]))
+        # version = jr.choice(getkey(), np.array([0, 1, 2, 3]))
         if version == 0:
+            return tuple(matrix.at[1:, 1:].set(0) for matrix in matrices)
+        if version == 1:
             return tuple(matrix.at[0, :].set(0) for matrix in matrices)
-        elif version == 1:
-            return tuple(matrix[1:, :] for matrix in matrices)
+        elif version == 2:
+            return tuple(matrix.at[:, 0].set(0) for matrix in matrices)
         else:
-            return tuple(matrix[:, 1:] for matrix in matrices)
+            return tuple(matrix - matrix.T for matrix in matrices)
 
 
 def construct_poisson_matrix(size, dtype=jnp.float64):
@@ -99,6 +105,7 @@ else:
 solvers_tags_pseudoinverse = [
     (lx.AutoLinearSolver(well_posed=True), (), False),
     (lx.AutoLinearSolver(well_posed=False), (), True),
+    (lx.AutoLinearSolver(well_posed=False), (), True),
     (lx.Triangular(), lx.lower_triangular_tag, False),
     (lx.Triangular(), lx.upper_triangular_tag, False),
     (lx.Triangular(), (lx.lower_triangular_tag, lx.unit_diagonal_tag), False),
@@ -108,19 +115,25 @@ solvers_tags_pseudoinverse = [
     (lx.Tridiagonal(), lx.tridiagonal_tag, False),
     (lx.LU(), (), False),
     (lx.QR(), (), False),
+    (lx.QRP(), (), False),
+    (lx.QRP(), (), True),
+    (lx.QRP(rank_defect=0), (), False),
+    (lx.QRP(rank_defect=1), (), True),
+    (lx.SVD(), (), False),
     (lx.SVD(), (), True),
     (lx.BiCGStab(rtol=tol, atol=tol), (), False),
     (lx.GMRES(rtol=tol, atol=tol), (), False),
     (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
     (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
     (lx.Normal(lx.CG(rtol=tol, atol=tol)), (), False),
+    (lx.LSMR(atol=tol, rtol=tol), (), False),
     (lx.LSMR(atol=tol, rtol=tol), (), True),
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
     (lx.Normal(lx.Cholesky()), (), False),
 ]
 solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
-solvers = [a for a, _, _ in solvers_tags_pseudoinverse]
+solvers = [a for a, _, c in solvers_tags_pseudoinverse if not c]
 pseudosolvers_tags = [(a, b) for a, b, c in solvers_tags_pseudoinverse if c]
 
 
@@ -139,10 +152,10 @@ def _materialise(operator, matrix):
 ops = (lambda x, y: (x, y), _transpose, _linearise, _materialise)
 
 
-def params(only_pseudo):
+def params(pseudo):
     for make_operator in make_operators:
         for solver, tags, pseudoinverse in solvers_tags_pseudoinverse:
-            if only_pseudo and not pseudoinverse:
+            if pseudo != pseudoinverse:
                 continue
             if (
                 make_operator is make_trivial_diagonal_operator
@@ -341,171 +354,151 @@ def jvp_jvp_impl(
     getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
 ):
     t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
-    if (make_matrix is construct_matrix) or pseudoinverse:
-        matrix, t_matrix, tt_matrix, tt_t_matrix = construct_matrix(
-            getkey, solver, tags, num=4, dtype=dtype
-        )
+    matrix, t_matrix, tt_matrix, tt_t_matrix = make_matrix(
+        getkey, solver, tags, num=4, dtype=dtype
+    )
 
-        make_op = ft.partial(make_operator, getkey)
-        t_make_operator = lambda p, t_p: eqx.filter_jvp(
-            make_op, (p, tags), (t_p, t_tags)
-        )
-        tt_make_operator = lambda p, t_p, tt_p, tt_t_p: eqx.filter_jvp(
-            t_make_operator, (p, t_p), (tt_p, tt_t_p)
-        )
-        (operator, t_operator), (tt_operator, tt_t_operator) = tt_make_operator(
-            matrix, t_matrix, tt_matrix, tt_t_matrix
-        )
+    make_op = ft.partial(make_operator, getkey)
+    t_make_operator = lambda p, t_p: eqx.filter_jvp(make_op, (p, tags), (t_p, t_tags))
+    tt_make_operator = lambda p, t_p, tt_p, tt_t_p: eqx.filter_jvp(
+        t_make_operator, (p, t_p), (tt_p, tt_t_p)
+    )
+    (operator, t_operator), (tt_operator, tt_t_operator) = tt_make_operator(
+        matrix, t_matrix, tt_matrix, tt_t_matrix
+    )
 
-        out_size, _ = matrix.shape
-        vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-        t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-        tt_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-        tt_t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    out_size, _ = matrix.shape
+    vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    tt_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    tt_t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
-        if use_state:
+    if use_state:
 
-            def linear_solve1(operator, vector):
-                op_dynamic, op_static = eqx.partition(operator, eqx.is_inexact_array)
-                stopped_operator = eqx.combine(lax.stop_gradient(op_dynamic), op_static)
-                state = solver.init(stopped_operator, options={})
+        def linear_solve1(operator, vector):
+            # state = solver.init(operator, options={})
+            # state_dynamic, state_static = eqx.partition(state, eqx.is_inexact_array)
+            # state_dynamic = lax.stop_gradient(state_dynamic)
+            # state = eqx.combine(state_dynamic, state_static)
+            op_dynamic, op_static = eqx.partition(operator, eqx.is_inexact_array)
+            stopped_operator = eqx.combine(lax.stop_gradient(op_dynamic), op_static)
+            state = solver.init(stopped_operator, options={})
+            sol = lx.linear_solve(operator, vector, state=state, solver=solver)
+            return sol.value
 
-                sol = lx.linear_solve(operator, vector, state=state, solver=solver)
-                return sol.value
+    else:
 
-        else:
+        def linear_solve1(operator, vector):
+            sol = lx.linear_solve(operator, vector, solver=solver)
+            return sol.value
 
-            def linear_solve1(operator, vector):
-                sol = lx.linear_solve(operator, vector, solver=solver)
-                return sol.value
+    if pseudoinverse:
+        jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
+    else:
+        jnp_solve1 = jnp.linalg.solve  # pyright: ignore
 
-        if pseudoinverse:
-            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
-        else:
-            jnp_solve1 = jnp.linalg.solve  # pyright: ignore
+    linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
+    jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
 
-        linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
-        jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
+    def _make_primal_tangents(mode):
+        lx_args = ([], [], operator, t_operator, tt_operator, tt_t_operator)
+        jnp_args = ([], [], matrix, t_matrix, tt_matrix, tt_t_matrix)
+        for primals, ttangents, op, t_op, tt_op, tt_t_op in (lx_args, jnp_args):
+            if "op" in mode:
+                primals.append(op)
+                ttangents.append(tt_op)
+            if "vec" in mode:
+                primals.append(vec)
+                ttangents.append(tt_vec)
+            if "t_op" in mode:
+                primals.append(t_op)
+                ttangents.append(tt_t_op)
+            if "t_vec" in mode:
+                primals.append(t_vec)
+                ttangents.append(tt_t_vec)
+        lx_out = tuple(lx_args[0]), tuple(lx_args[1])
+        jnp_out = tuple(jnp_args[0]), tuple(jnp_args[1])
+        return lx_out, jnp_out
 
-        def _make_primal_tangents(mode):
-            lx_args = ([], [], operator, t_operator, tt_operator, tt_t_operator)
-            jnp_args = ([], [], matrix, t_matrix, tt_matrix, tt_t_matrix)
-            for primals, ttangents, op, t_op, tt_op, tt_t_op in (lx_args, jnp_args):
-                if "op" in mode:
-                    primals.append(op)
-                    ttangents.append(tt_op)
-                if "vec" in mode:
-                    primals.append(vec)
-                    ttangents.append(tt_vec)
-                if "t_op" in mode:
-                    primals.append(t_op)
-                    ttangents.append(tt_t_op)
-                if "t_vec" in mode:
-                    primals.append(t_vec)
-                    ttangents.append(tt_t_vec)
-            lx_out = tuple(lx_args[0]), tuple(lx_args[1])
-            jnp_out = tuple(jnp_args[0]), tuple(jnp_args[1])
-            return lx_out, jnp_out
-
-        modes = (
-            {"op"},
-            {"vec"},
-            {"t_op"},
-            {"t_vec"},
-            {"op", "vec"},
-            {"op", "t_op"},
-            {"op", "t_vec"},
-            {"vec", "t_op"},
-            {"vec", "t_vec"},
-            {"op", "vec", "t_op"},
-            {"op", "vec", "t_vec"},
-            {"vec", "t_op", "t_vec"},
-            {"op", "vec", "t_op", "t_vec"},
-        )
-        for mode in modes:
-            if mode == {"op"}:
-                linear_solve3 = lambda op: linear_solve2((op, vec), (t_operator, t_vec))
-                jnp_solve3 = lambda mat: jnp_solve2((mat, vec), (t_matrix, t_vec))
-            elif mode == {"vec"}:
-                linear_solve3 = lambda v: linear_solve2(
-                    (operator, v), (t_operator, t_vec)
-                )
-                jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
-            elif mode == {"op", "vec"}:
-                linear_solve3 = lambda op, v: linear_solve2(
-                    (op, v), (t_operator, t_vec)
-                )
-                jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
-            elif mode == {"t_op"}:
-                linear_solve3 = lambda t_op: linear_solve2(
-                    (operator, vec), (t_op, t_vec)
-                )
-                jnp_solve3 = lambda t_mat: jnp_solve2((matrix, vec), (t_mat, t_vec))
-            elif mode == {"t_vec"}:
-                linear_solve3 = lambda t_v: linear_solve2(
-                    (operator, vec), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda t_v: jnp_solve2((matrix, vec), (t_matrix, t_v))
-            elif mode == {"op", "vec"}:
-                linear_solve3 = lambda op, v: linear_solve2(
-                    (op, v), (t_operator, t_vec)
-                )
-                jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
-            elif mode == {"op", "t_op"}:
-                linear_solve3 = lambda op, t_op: linear_solve2((op, vec), (t_op, t_vec))
-                jnp_solve3 = lambda mat, t_mat: jnp_solve2((mat, vec), (t_mat, t_vec))
-            elif mode == {"op", "t_vec"}:
-                linear_solve3 = lambda op, t_v: linear_solve2(
-                    (op, vec), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda mat, t_v: jnp_solve2((mat, vec), (t_matrix, t_v))
-            elif mode == {"vec", "t_op"}:
-                linear_solve3 = lambda v, t_op: linear_solve2(
-                    (operator, v), (t_op, t_vec)
-                )
-                jnp_solve3 = lambda v, t_mat: jnp_solve2((matrix, v), (t_mat, t_vec))
-            elif mode == {"vec", "t_vec"}:
-                linear_solve3 = lambda v, t_v: linear_solve2(
-                    (operator, v), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda v, t_v: jnp_solve2((matrix, v), (t_matrix, t_v))
-            elif mode == {"op", "vec", "t_op"}:
-                linear_solve3 = lambda op, v, t_op: linear_solve2(
-                    (op, v), (t_op, t_vec)
-                )
-                jnp_solve3 = lambda mat, v, t_mat: jnp_solve2((mat, v), (t_mat, t_vec))
-            elif mode == {"op", "vec", "t_vec"}:
-                linear_solve3 = lambda op, v, t_v: linear_solve2(
-                    (op, v), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda mat, v, t_v: jnp_solve2((mat, v), (t_matrix, t_v))
-            elif mode == {"vec", "t_op", "t_vec"}:
-                linear_solve3 = lambda v, t_op, t_v: linear_solve2(
-                    (operator, v), (t_op, t_v)
-                )
-                jnp_solve3 = lambda v, t_mat, t_v: jnp_solve2((matrix, v), (t_mat, t_v))
-            elif mode == {"op", "vec", "t_op", "t_vec"}:
-                linear_solve3 = lambda op, v, t_op, t_v: linear_solve2(
-                    (op, v), (t_op, t_v)
-                )
-                jnp_solve3 = lambda mat, v, t_mat, t_v: jnp_solve2(
-                    (mat, v), (t_mat, t_v)
-                )
-            else:
-                assert False
-
-            linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
-            linear_solve3 = eqx.filter_jit(linear_solve3)
-            jnp_solve3 = ft.partial(eqx.filter_jvp, jnp_solve3)
-            jnp_solve3 = eqx.filter_jit(jnp_solve3)
-
-            (primal, tangent), (jnp_primal, jnp_tangent) = _make_primal_tangents(mode)
-            (out, t_out), (minus_out, tt_out) = linear_solve3(primal, tangent)
-            (true_out, true_t_out), (minus_true_out, true_tt_out) = jnp_solve3(
-                jnp_primal, jnp_tangent
+    modes = (
+        {"op"},
+        {"vec"},
+        {"t_op"},
+        {"t_vec"},
+        {"op", "vec"},
+        {"op", "t_op"},
+        {"op", "t_vec"},
+        {"vec", "t_op"},
+        {"vec", "t_vec"},
+        {"op", "vec", "t_op"},
+        {"op", "vec", "t_vec"},
+        {"vec", "t_op", "t_vec"},
+        {"op", "vec", "t_op", "t_vec"},
+    )
+    for mode in modes:
+        if mode == {"op"}:
+            linear_solve3 = lambda op: linear_solve2((op, vec), (t_operator, t_vec))
+            jnp_solve3 = lambda mat: jnp_solve2((mat, vec), (t_matrix, t_vec))
+        elif mode == {"vec"}:
+            linear_solve3 = lambda v: linear_solve2((operator, v), (t_operator, t_vec))
+            jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
+        elif mode == {"op", "vec"}:
+            linear_solve3 = lambda op, v: linear_solve2((op, v), (t_operator, t_vec))
+            jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
+        elif mode == {"t_op"}:
+            linear_solve3 = lambda t_op: linear_solve2((operator, vec), (t_op, t_vec))
+            jnp_solve3 = lambda t_mat: jnp_solve2((matrix, vec), (t_mat, t_vec))
+        elif mode == {"t_vec"}:
+            linear_solve3 = lambda t_v: linear_solve2(
+                (operator, vec), (t_operator, t_v)
             )
+            jnp_solve3 = lambda t_v: jnp_solve2((matrix, vec), (t_matrix, t_v))
+        elif mode == {"op", "vec"}:
+            linear_solve3 = lambda op, v: linear_solve2((op, v), (t_operator, t_vec))
+            jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
+        elif mode == {"op", "t_op"}:
+            linear_solve3 = lambda op, t_op: linear_solve2((op, vec), (t_op, t_vec))
+            jnp_solve3 = lambda mat, t_mat: jnp_solve2((mat, vec), (t_mat, t_vec))
+        elif mode == {"op", "t_vec"}:
+            linear_solve3 = lambda op, t_v: linear_solve2((op, vec), (t_operator, t_v))
+            jnp_solve3 = lambda mat, t_v: jnp_solve2((mat, vec), (t_matrix, t_v))
+        elif mode == {"vec", "t_op"}:
+            linear_solve3 = lambda v, t_op: linear_solve2((operator, v), (t_op, t_vec))
+            jnp_solve3 = lambda v, t_mat: jnp_solve2((matrix, v), (t_mat, t_vec))
+        elif mode == {"vec", "t_vec"}:
+            linear_solve3 = lambda v, t_v: linear_solve2(
+                (operator, v), (t_operator, t_v)
+            )
+            jnp_solve3 = lambda v, t_v: jnp_solve2((matrix, v), (t_matrix, t_v))
+        elif mode == {"op", "vec", "t_op"}:
+            linear_solve3 = lambda op, v, t_op: linear_solve2((op, v), (t_op, t_vec))
+            jnp_solve3 = lambda mat, v, t_mat: jnp_solve2((mat, v), (t_mat, t_vec))
+        elif mode == {"op", "vec", "t_vec"}:
+            linear_solve3 = lambda op, v, t_v: linear_solve2((op, v), (t_operator, t_v))
+            jnp_solve3 = lambda mat, v, t_v: jnp_solve2((mat, v), (t_matrix, t_v))
+        elif mode == {"vec", "t_op", "t_vec"}:
+            linear_solve3 = lambda v, t_op, t_v: linear_solve2(
+                (operator, v), (t_op, t_v)
+            )
+            jnp_solve3 = lambda v, t_mat, t_v: jnp_solve2((matrix, v), (t_mat, t_v))
+        elif mode == {"op", "vec", "t_op", "t_vec"}:
+            linear_solve3 = lambda op, v, t_op, t_v: linear_solve2((op, v), (t_op, t_v))
+            jnp_solve3 = lambda mat, v, t_mat, t_v: jnp_solve2((mat, v), (t_mat, t_v))
+        else:
+            assert False
 
-            assert tree_allclose(out, true_out, atol=1e-4)
-            assert tree_allclose(t_out, true_t_out, atol=1e-4)
-            assert tree_allclose(tt_out, true_tt_out, atol=1e-4)
-            assert tree_allclose(minus_out, minus_true_out, atol=1e-4)
+        linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
+        linear_solve3 = eqx.filter_jit(linear_solve3)
+        jnp_solve3 = ft.partial(eqx.filter_jvp, jnp_solve3)
+        jnp_solve3 = eqx.filter_jit(jnp_solve3)
+
+        (primal, tangent), (jnp_primal, jnp_tangent) = _make_primal_tangents(mode)
+        (out, t_out), (minus_out, tt_out) = linear_solve3(primal, tangent)
+        (true_out, true_t_out), (minus_true_out, true_tt_out) = jnp_solve3(
+            jnp_primal, jnp_tangent
+        )
+
+        assert tree_allclose(out, true_out, atol=1e-4)
+        assert tree_allclose(t_out, true_t_out, atol=1e-4)
+        assert tree_allclose(tt_out, true_tt_out, atol=1e-4)
+        assert tree_allclose(minus_out, minus_true_out, atol=1e-4)

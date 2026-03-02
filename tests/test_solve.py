@@ -61,7 +61,9 @@ def test_nontrivial_diagonal_operator():
     assert tree_allclose(out, true_out)
 
 
-@pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
+@pytest.mark.parametrize(
+    "solver", (lx.LU(), lx.QR(), lx.SVD(), lx.QRP(), lx.QRP(rank_defect=0))
+)
 def test_mixed_dtypes(solver):
     f32 = lambda x: jnp.array(x, dtype=jnp.float32)
     f64 = lambda x: jnp.array(x, dtype=jnp.float64)
@@ -74,7 +76,9 @@ def test_mixed_dtypes(solver):
     assert tree_allclose(out, true_out)
 
 
-@pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
+@pytest.mark.parametrize(
+    "solver", (lx.LU(), lx.QR(), lx.SVD(), lx.QRP(), lx.QRP(rank_defect=0))
+)
 def test_mixed_dtypes_complex(solver):
     c64 = lambda x: jnp.array(x, dtype=jnp.complex64)
     c128 = lambda x: jnp.array(x, dtype=jnp.complex128)
@@ -87,7 +91,9 @@ def test_mixed_dtypes_complex(solver):
     assert tree_allclose(out, true_out)
 
 
-@pytest.mark.parametrize("solver", (lx.LU(), lx.QR(), lx.SVD()))
+@pytest.mark.parametrize(
+    "solver", (lx.LU(), lx.QR(), lx.SVD(), lx.QRP(), lx.QRP(rank_defect=0))
+)
 def test_mixed_dtypes_complex_real(solver):
     f64 = lambda x: jnp.array(x, dtype=jnp.float64)
     c128 = lambda x: jnp.array(x, dtype=jnp.complex128)

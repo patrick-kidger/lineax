@@ -62,6 +62,7 @@ from ._solver import (
     Normal as Normal,
     NormalCG as NormalCG,
     QR as QR,
+    QRP as QRP,
     SVD as SVD,
     Triangular as Triangular,
     Tridiagonal as Tridiagonal,

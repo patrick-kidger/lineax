@@ -33,7 +33,7 @@ from .helpers import (
 )
 
 
-@pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=True))
+@pytest.mark.parametrize("make_operator,solver,tags", params(pseudo=True))
 @pytest.mark.parametrize("ops", ops)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
@@ -104,6 +104,8 @@ def test_gmres_stagnation_or_breakdown(getkey, dtype):
     (
         lx.AutoLinearSolver(well_posed=None),
         lx.QR(),
+        lx.QRP(),
+        lx.QRP(rank_defect=0),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
         lx.Normal(lx.Cholesky()),
@@ -127,6 +129,8 @@ def test_nonsquare_pytree_operator1(solver):
     (
         lx.AutoLinearSolver(well_posed=None),
         lx.QR(),
+        lx.QRP(),
+        lx.QRP(rank_defect=0),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
         lx.Normal(lx.Cholesky()),
@@ -146,16 +150,21 @@ def test_nonsquare_pytree_operator2(solver):
 
 
 @pytest.mark.parametrize(
-    "solver",
+    "solver, full_rank",
     (
-        lx.AutoLinearSolver(well_posed=None),
-        lx.QR(),
-        lx.SVD(),
-        lx.Normal(lx.Cholesky()),
-        lx.Normal(lx.SVD()),
+        (lx.AutoLinearSolver(well_posed=None), True),
+        (lx.QR(), True),
+        (lx.QRP(), True),
+        (lx.QRP(), False),
+        (lx.QRP(rank_defect=0), True),
+        (lx.QRP(rank_defect=1), False),
+        (lx.SVD(), True),
+        (lx.SVD(), False),
+        (lx.Normal(lx.Cholesky()), True),
+        (lx.Normal(lx.SVD()), True),
+        (lx.Normal(lx.SVD()), False),
     ),
 )
-@pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -168,9 +177,6 @@ def test_nonsquare_mat_vec(solver, full_rank, jvp, wide, dtype, getkey):
         in_size = 3
     matrix = jr.normal(getkey(), (out_size, in_size), dtype=dtype)
     if not full_rank:
-        if solver.assume_full_rank():
-            # There is nothing to test.
-            return
         # nontrivial rank 2 sparsity pattern
         matrix = matrix.at[1:, 1:].set(0)
     vector = jr.normal(getkey(), (out_size,), dtype=dtype)
@@ -197,16 +203,21 @@ def test_nonsquare_mat_vec(solver, full_rank, jvp, wide, dtype, getkey):
 
 
 @pytest.mark.parametrize(
-    "solver",
+    "solver, full_rank",
     (
-        lx.AutoLinearSolver(well_posed=None),
-        lx.QR(),
-        lx.SVD(),
-        lx.Normal(lx.Cholesky()),
-        lx.Normal(lx.SVD()),
+        (lx.AutoLinearSolver(well_posed=None), True),
+        (lx.QR(), True),
+        (lx.QRP(), True),
+        (lx.QRP(), False),
+        (lx.QRP(rank_defect=0), True),
+        (lx.QRP(rank_defect=1), False),
+        (lx.SVD(), True),
+        (lx.SVD(), False),
+        (lx.Normal(lx.Cholesky()), True),
+        (lx.Normal(lx.SVD()), True),
+        (lx.Normal(lx.SVD()), False),
     ),
 )
-@pytest.mark.parametrize("full_rank", (True, False))
 @pytest.mark.parametrize("jvp", (False, True))
 @pytest.mark.parametrize("wide", (False, True))
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -219,9 +230,6 @@ def test_nonsquare_vec(solver, full_rank, jvp, wide, dtype, getkey):
         in_size = 3
     matrix = jr.normal(getkey(), (out_size, in_size), dtype=dtype)
     if not full_rank:
-        if solver.assume_full_rank():
-            # There is nothing to test.
-            return
         # nontrivial rank 2 sparsity pattern
         matrix = matrix.at[1:, 1:].set(0)
     vector = jr.normal(getkey(), (out_size,), dtype=dtype)
@@ -268,3 +276,24 @@ def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtyp
 
     with pytest.raises(Exception):
         linear_solve(operator, vec, solver)
+
+
+@pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
+@pytest.mark.parametrize("use_state", (False, True))
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize("rank_defect", (0, 2))
+def test_qrp_wrong_rank(getkey, use_state, make_operator, dtype, rank_defect):
+    solver = lx.QRP(rank_defect=rank_defect, rcond=float(jnp.finfo(dtype).eps * 6))
+
+    (matrix,) = construct_singular_matrix(getkey, solver, ())
+    operator = make_operator(getkey, matrix, ())
+
+    out_size, _ = matrix.shape
+    vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+
+    if use_state:
+        with pytest.raises(Exception):
+            solver.init(operator, options={})
+    else:
+        with pytest.raises(Exception):
+            lx.linear_solve(operator, vec, solver)

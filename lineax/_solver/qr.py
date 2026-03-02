@@ -45,10 +45,8 @@ class QR(AbstractLinearSolver):
         Note that whilst this does handle non-square operators, it still can only
         handle full-rank operators.
 
-        This is because JAX does not currently support a rank-revealing/pivoted QR
-        decomposition, see [issue #12897](https://github.com/google/jax/issues/12897).
-
-        For such use cases, switch to [`lineax.SVD`][] instead.
+        For solving rank deficient linear least squares, use [`lineax.QRP`][] or
+        [`lineax.SVD`][] instead.
     """
 
     def init(self, operator, options):
