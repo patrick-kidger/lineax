@@ -332,14 +332,6 @@ class _Leaf:  # not a pytree
         self.value = value
 
 
-def _leaf_from_keypath(pytree: PyTree, keypath: jtu.KeyPath) -> Array:
-    """Extract the leaf from a pytree at the given keypath."""
-    for path, leaf in jtu.tree_leaves_with_path(pytree):
-        if path == keypath:
-            return leaf
-    raise ValueError(f"Leaf not found at keypath {keypath}")
-
-
 # The `{input,output}_structure`s have to be static because otherwise abstract
 # evaluation rules will promote them to ShapedArrays.
 class PyTreeLinearOperator(AbstractLinearOperator):
@@ -1412,6 +1404,14 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     function ensures that you always get the most efficient implementation.
     """
     _default_not_implemented("diagonal", operator)
+
+
+def _leaf_from_keypath(pytree: PyTree, keypath: jtu.KeyPath) -> Array:
+    """Extract the leaf from a pytree at the given keypath."""
+    for path, leaf in jtu.tree_leaves_with_path(pytree):
+        if path == keypath:
+            return leaf
+    raise ValueError(f"Leaf not found at keypath {keypath}")
 
 
 @diagonal.register(MatrixLinearOperator)
