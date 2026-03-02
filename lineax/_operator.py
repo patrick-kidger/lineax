@@ -2013,7 +2013,7 @@ def _(operator):
 
 @diagonal.register(ComposedLinearOperator)
 def _(operator):
-    if is_diagonal(operator):
+    if is_diagonal(operator.operator1) and is_diagonal(operator.operator2):
         return diagonal(operator.operator1) * diagonal(operator.operator2)
     return jnp.diag(operator.as_matrix())
 
