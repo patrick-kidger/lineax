@@ -1340,11 +1340,6 @@ def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearO
     return operator
 
 
-def _construct_diagonal_basis(structure: PyTree[jax.ShapeDtypeStruct]) -> PyTree[Array]:
-    """Construct a PyTree of ones matching the given structure."""
-    return jtu.tree_map(lambda s: jnp.ones(s.shape, s.dtype), structure)
-
-
 @materialise.register(MatrixLinearOperator)
 @materialise.register(PyTreeLinearOperator)
 def _(operator):
@@ -1445,7 +1440,9 @@ def _(operator):
 def _(operator):
     if is_diagonal(operator):
         with jax.ensure_compile_time_eval():
-            basis = _construct_diagonal_basis(operator.in_structure())
+            basis = jtu.tree_map(
+                lambda s: jnp.ones(s.shape, s.dtype), operator.in_structure()
+            )
         diag_as_pytree = operator.mv(basis)
         diag, _ = jfu.ravel_pytree(diag_as_pytree)
         return diag
@@ -1909,10 +1906,6 @@ def _(operator):
 
 
 for transform in (linearise, materialise, diagonal):
-
-    @transform.register(AddLinearOperator)  # pyright: ignore
-    def _(operator, transform=transform):
-        return transform(operator.operator1) + transform(operator.operator2)  # pyright: ignore
 
     @transform.register(MulLinearOperator)
     def _(operator, transform=transform):
