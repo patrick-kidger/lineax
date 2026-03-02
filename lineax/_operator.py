@@ -1324,17 +1324,18 @@ def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearO
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
     """
-
-    _, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-
     if is_diagonal(operator):
         diag_flat = diagonal(operator)
+        _, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
         diag_pytree = unravel(diag_flat)
         return DiagonalLinearOperator(diag_pytree)
-    if is_tridiagonal(operator):
-        tridiag_flat = tridiagonal(operator)
-        tridiag_pytree = (unravel(diag) for diag in tridiag_flat)
-        return TridiagonalLinearOperator(*tridiag_pytree)
+    # TridiagonalLinearOperator only supports flat in and out structures
+    if (
+        is_tridiagonal(operator)
+        and isinstance(operator.in_structure(), jax.ShapeDtypeStruct)
+        and isinstance(operator.out_structure(), jax.ShapeDtypeStruct)
+    ):
+        return TridiagonalLinearOperator(*tridiagonal(operator))
     return operator
 
 
