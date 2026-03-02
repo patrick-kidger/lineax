@@ -107,8 +107,8 @@ class Normal(
         # Cholesky materialises op twice when computing (op^H @ op).as_matrix()
         # Cheaper to materialise first and then conjugate-transpose.
         # For iterative solvers we only linearise to avoid eager materialisation.
-        _materialise = isinstance(self.inner_solver, Cholesky)
-        lin_op = materialise(operator) if _materialise else linearise(operator)
+        is_cholesky = isinstance(self.inner_solver, Cholesky)
+        lin_op = materialise(operator) if is_cholesky else linearise(operator)
         if tall:
             inner_operator = conj(lin_op.transpose()) @ lin_op
         else:
