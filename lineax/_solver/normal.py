@@ -18,10 +18,11 @@ from typing import Any, TypeVar
 import equinox.internal as eqxi
 from jaxtyping import Array, PyTree
 
-from .._operator import conj, linearise, TaggedLinearOperator
+from .._operator import conj, linearise, materialise, TaggedLinearOperator
 from .._solution import RESULTS
 from .._solve import AbstractLinearOperator, AbstractLinearSolver
 from .._tags import positive_semidefinite_tag
+from .cholesky import Cholesky
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")
@@ -103,9 +104,11 @@ class Normal(
 
     def init(self, operator, options):
         tall = operator.out_size() >= operator.in_size()
-        # we are apply repeated mv's when constructing normal matrix
-        # these cannot be parallelised so more efficient to linearise first
-        lin_op = linearise(operator)
+        # Cholesky materialises op twice when computing (op^H @ op).as_matrix()
+        # Cheaper to materialise first and then conjugate-transpose.
+        # For iterative solvers we only linearise to avoid eager materialisation.
+        _materialise = isinstance(self.inner_solver, Cholesky)
+        lin_op = materialise(operator) if _materialise else linearise(operator)
         if tall:
             inner_operator = conj(lin_op.transpose()) @ lin_op
         else:
