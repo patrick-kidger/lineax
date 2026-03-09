@@ -35,7 +35,10 @@ These are capable of solving ill-posed linear problems.
         members:
             - __init__
 
----
+::: lineax.QRP
+    options:
+        members:
+            - __init__
 
 ::: lineax.SVD
     options:

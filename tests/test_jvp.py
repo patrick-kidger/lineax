@@ -35,86 +35,75 @@ from .helpers import (
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("solver, tags, pseudoinverse", solvers_tags_pseudoinverse)
 @pytest.mark.parametrize("use_state", (True, False))
-@pytest.mark.parametrize(
-    "make_matrix",
-    (
-        construct_matrix,
-        construct_singular_matrix,
-    ),
-)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_jvp(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
-):
+def test_jvp(getkey, solver, tags, pseudoinverse, make_operator, use_state, dtype):
     t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
 
-    if (make_matrix is construct_matrix) or pseudoinverse:
-        matrix, t_matrix = make_matrix(getkey, solver, tags, num=2, dtype=dtype)
+    make_matrix = construct_singular_matrix if pseudoinverse else construct_matrix
+    matrix, t_matrix = make_matrix(getkey, solver, tags, num=2, dtype=dtype)
 
-        out_size, _ = matrix.shape
-        vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-        t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    out_size, _ = matrix.shape
+    vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
-        if has_tag(tags, lx.unit_diagonal_tag):
-            # For all the other tags, A + εB with A, B \in {matrices satisfying the tag}
-            # still satisfies the tag itself.
-            # This is the exception.
-            t_matrix.at[jnp.arange(3), jnp.arange(3)].set(0)
+    if has_tag(tags, lx.unit_diagonal_tag):
+        # For all the other tags, A + εB with A, B \in {matrices satisfying the tag}
+        # still satisfies the tag itself.
+        # This is the exception.
+        t_matrix.at[jnp.arange(3), jnp.arange(3)].set(0)
 
-        make_op = ft.partial(make_operator, getkey)
-        operator, t_operator = eqx.filter_jvp(
-            make_op, (matrix, tags), (t_matrix, t_tags)
-        )
+    make_op = ft.partial(make_operator, getkey)
+    operator, t_operator = eqx.filter_jvp(make_op, (matrix, tags), (t_matrix, t_tags))
 
-        if use_state:
-            state = solver.init(operator, options={})
-            linear_solve = ft.partial(lx.linear_solve, state=state)
-        else:
-            linear_solve = lx.linear_solve
+    if use_state:
+        state = solver.init(operator, options={})
+        linear_solve = ft.partial(lx.linear_solve, state=state)
+    else:
+        linear_solve = lx.linear_solve
 
-        solve_vec_only = lambda v: linear_solve(operator, v, solver).value
-        solve_op_only = lambda op: linear_solve(op, vec, solver).value
-        solve_op_vec = lambda op, v: linear_solve(op, v, solver).value
+    solve_vec_only = lambda v: linear_solve(operator, v, solver).value
+    solve_op_only = lambda op: linear_solve(op, vec, solver).value
+    solve_op_vec = lambda op, v: linear_solve(op, v, solver).value
 
-        vec_out, t_vec_out = eqx.filter_jvp(solve_vec_only, (vec,), (t_vec,))
-        op_out, t_op_out = eqx.filter_jvp(solve_op_only, (operator,), (t_operator,))
-        op_vec_out, t_op_vec_out = eqx.filter_jvp(
-            solve_op_vec,
-            (operator, vec),
-            (t_operator, t_vec),
-        )
-        (expected_op_out, *_), (t_expected_op_out, *_) = eqx.filter_jvp(
+    vec_out, t_vec_out = eqx.filter_jvp(solve_vec_only, (vec,), (t_vec,))
+    op_out, t_op_out = eqx.filter_jvp(solve_op_only, (operator,), (t_operator,))
+    op_vec_out, t_op_vec_out = eqx.filter_jvp(
+        solve_op_vec,
+        (operator, vec),
+        (t_operator, t_vec),
+    )
+    (expected_op_out, *_), (t_expected_op_out, *_) = eqx.filter_jvp(
+        lambda op: jnp.linalg.lstsq(op, vec),  # pyright: ignore
+        (matrix,),
+        (t_matrix,),
+    )
+    (expected_op_vec_out, *_), (t_expected_op_vec_out, *_) = eqx.filter_jvp(
+        jnp.linalg.lstsq,
+        (matrix, vec),
+        (t_matrix, t_vec),  # pyright: ignore
+    )
+
+    # Work around JAX issue #14868.
+    if jnp.any(jnp.isnan(t_expected_op_out)):
+        _, (t_expected_op_out, *_) = finite_difference_jvp(
             lambda op: jnp.linalg.lstsq(op, vec),  # pyright: ignore
             (matrix,),
             (t_matrix,),
         )
-        (expected_op_vec_out, *_), (t_expected_op_vec_out, *_) = eqx.filter_jvp(
+    if jnp.any(jnp.isnan(t_expected_op_vec_out)):
+        _, (t_expected_op_vec_out, *_) = finite_difference_jvp(
             jnp.linalg.lstsq,
             (matrix, vec),
             (t_matrix, t_vec),  # pyright: ignore
         )
 
-        # Work around JAX issue #14868.
-        if jnp.any(jnp.isnan(t_expected_op_out)):
-            _, (t_expected_op_out, *_) = finite_difference_jvp(
-                lambda op: jnp.linalg.lstsq(op, vec),  # pyright: ignore
-                (matrix,),
-                (t_matrix,),
-            )
-        if jnp.any(jnp.isnan(t_expected_op_vec_out)):
-            _, (t_expected_op_vec_out, *_) = finite_difference_jvp(
-                jnp.linalg.lstsq,
-                (matrix, vec),
-                (t_matrix, t_vec),  # pyright: ignore
-            )
+    pinv_matrix = jnp.linalg.pinv(matrix)  # pyright: ignore
+    expected_vec_out = pinv_matrix @ vec
+    assert tree_allclose(vec_out, expected_vec_out)
+    assert tree_allclose(op_out, expected_op_out)
+    assert tree_allclose(op_vec_out, expected_op_vec_out)
 
-        pinv_matrix = jnp.linalg.pinv(matrix)  # pyright: ignore
-        expected_vec_out = pinv_matrix @ vec
-        assert tree_allclose(vec_out, expected_vec_out)
-        assert tree_allclose(op_out, expected_op_out)
-        assert tree_allclose(op_vec_out, expected_op_vec_out)
-
-        t_expected_vec_out = pinv_matrix @ t_vec
-        assert tree_allclose(matrix @ t_vec_out, matrix @ t_expected_vec_out, rtol=1e-3)
-        assert tree_allclose(t_op_out, t_expected_op_out, rtol=1e-3)
-        assert tree_allclose(t_op_vec_out, t_expected_op_vec_out, rtol=1e-3)
+    t_expected_vec_out = pinv_matrix @ t_vec
+    assert tree_allclose(matrix @ t_vec_out, matrix @ t_expected_vec_out, rtol=1e-3)
+    assert tree_allclose(t_op_out, t_expected_op_out, rtol=1e-3)
+    assert tree_allclose(t_op_vec_out, t_expected_op_vec_out, rtol=1e-3)

@@ -28,7 +28,7 @@ from .helpers import (
 )
 
 
-@pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
+@pytest.mark.parametrize("make_operator,solver,tags", params(pseudo=False))
 @pytest.mark.parametrize("ops", ops)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
