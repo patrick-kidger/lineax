@@ -366,10 +366,9 @@ def jvp_jvp_impl(
         if use_state:
 
             def linear_solve1(operator, vector):
-                state = solver.init(operator, options={})
-                state_dynamic, state_static = eqx.partition(state, eqx.is_inexact_array)
-                state_dynamic = lax.stop_gradient(state_dynamic)
-                state = eqx.combine(state_dynamic, state_static)
+                op_dynamic, op_static = eqx.partition(operator, eqx.is_inexact_array)
+                stopped_operator = eqx.combine(lax.stop_gradient(op_dynamic), op_static)
+                state = solver.init(stopped_operator, options={})
 
                 sol = lx.linear_solve(operator, vector, state=state, solver=solver)
                 return sol.value
