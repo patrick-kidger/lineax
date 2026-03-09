@@ -28,10 +28,23 @@ from equinox.internal import ω
 
 
 @ft.cache
-def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
+def _construct_matrix_impl(
+    getkey, tags, size, dtype, cond_or_singular: int | float | str, i: int
+):
     del i  # used to break the cache
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
+        if isinstance(cond_or_singular, str):
+            if cond_or_singular == "zero":
+                matrix = matrix.at[0, :].set(0)
+            elif cond_or_singular == "trim_row":
+                matrix = matrix[1:, :]
+            elif cond_or_singular == "trim_col":
+                matrix = matrix[:, 1:]
+        if tags != ():
+            assert (
+                isinstance(cond_or_singular, (int, float)) or cond_or_singular == "zero"
+            )
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
         if has_tag(tags, lx.symmetric_tag):
@@ -51,36 +64,38 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i):
             matrix = matrix @ matrix.T.conj()
         if has_tag(tags, lx.negative_semidefinite_tag):
             matrix = -matrix @ matrix.T.conj()
-        if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_cutoff):  # pyright: ignore
+        if isinstance(cond_or_singular, str):
             break
+        else:
+            if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_or_singular):  # pyright: ignore
+                break
     return matrix
 
 
 def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
     if isinstance(solver, lx.Normal):
         cond_cutoff = math.sqrt(1000)
-    elif isinstance(solver, lx.LSMR):
-        cond_cutoff = 10  # it's not doing super well for some reason
     else:
         cond_cutoff = 1000
     return tuple(
-        _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype, i)
+        _construct_matrix_impl(getkey, tags, size, dtype, cond_cutoff, i)
         for i in range(num)
     )
 
 
 def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
-    matrices = construct_matrix(getkey, solver, tags, num, dtype=dtype)
     if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
-        return tuple(matrix.at[0, :].set(0) for matrix in matrices)
+        singular_method = "zero"
     else:
-        version = jr.choice(getkey(), np.array([0, 1, 2]))
-        if version == 0:
-            return tuple(matrix.at[0, :].set(0) for matrix in matrices)
-        elif version == 1:
-            return tuple(matrix[1:, :] for matrix in matrices)
-        else:
-            return tuple(matrix[:, 1:] for matrix in matrices)
+        # Use `getkey()` rather than the stdlib `random.choice` for reproducibility
+        singular_method = ["zero", "trim_row", "trim_col"][
+            jr.choice(getkey(), np.array([0, 1, 2]))
+        ]
+    size = 3
+    return tuple(
+        _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
+        for i in range(num)
+    )
 
 
 def construct_poisson_matrix(size, dtype=jnp.float64):
