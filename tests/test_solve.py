@@ -242,6 +242,9 @@ def test_solver_init_not_differentiated(getkey):
     # solver.init should not be differentiated through.
     jax.jvp(f, (m,), (mt,))
 
+    _, f_vjp = jax.vjp(f, m)
+    f_vjp(v)
+
 
 def test_nonfinite_input():
     operator = lx.DiagonalLinearOperator((1.0, 1.0))
