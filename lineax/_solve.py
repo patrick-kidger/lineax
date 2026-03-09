@@ -812,6 +812,7 @@ def invert(
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
     options: dict[str, Any] | None = None,
+    throw: bool = True,
     cache: bool = True,
 ) -> FunctionLinearOperator:
     r"""Returns a [`lineax.FunctionLinearOperator`][] representing the
@@ -830,6 +831,7 @@ def invert(
     - `solver`: the linear solver to use. Defaults to
         `AutoLinearSolver(well_posed=True)`.
     - `options`: additional options passed to the solver. Defaults to `None`.
+    - `throw`: as [`lineax.linear_solve`][]. Defaults to `True`.
     - `cache`: by default, `lx.invert` eagerly computes and caches the solver
         state (typically a factorisation such as LU or Cholesky)
         so that subsequent matvecs re-use it. This improves runtime at the cost
@@ -858,6 +860,7 @@ def invert(
             solver,
             state=state,
             options=options,
+            throw=throw,
         ).value
 
     tags = {
