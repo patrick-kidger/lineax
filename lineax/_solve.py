@@ -369,14 +369,6 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
             solution2 = lx.linear_solve(operator, vector2, solver, state=state)
             ```
 
-        !!! Warning
-
-            Passing `state` to `linear_solve` does not support autodiff out of
-            the box. If you need to differentiate through the solve, either
-            wrap the state with `jax.lax.stop_gradient`, or use
-            [`lineax.invert`][] (with `cache=True`) which handles this
-            automatically. Defaults to `True`.
-
         **Arguments:**
 
         - `operator`: a linear operator.
@@ -848,20 +840,12 @@ def invert(
     if options is None:
         options = {}
 
-    if cache:
-        state = solver.init(operator, options)
-        dynamic_state, static_state = eqx.partition(state, eqx.is_array)
-        dynamic_state = lax.stop_gradient(dynamic_state)
-        state = eqx.combine(dynamic_state, static_state)
-    else:
-        state = sentinel
-
     def solve_fn(vector):
         return linear_solve(
             operator,
             vector,
             solver,
-            state=state,
+            state=solver.init(operator, options) if cache else sentinel,
             options=options,
             throw=throw,
         ).value
