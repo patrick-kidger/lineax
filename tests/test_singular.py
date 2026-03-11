@@ -104,6 +104,7 @@ def test_gmres_stagnation_or_breakdown(getkey, dtype):
     (
         lx.AutoLinearSolver(well_posed=None),
         lx.QR(),
+        lx.QR(pivoting=True),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
         lx.Normal(lx.Cholesky()),
@@ -127,6 +128,7 @@ def test_nonsquare_pytree_operator1(solver):
     (
         lx.AutoLinearSolver(well_posed=None),
         lx.QR(),
+        lx.QR(pivoting=True),
         lx.SVD(),
         lx.LSMR(atol=tol, rtol=tol),
         lx.Normal(lx.Cholesky()),
@@ -150,6 +152,7 @@ def test_nonsquare_pytree_operator2(solver):
     (
         lx.AutoLinearSolver(well_posed=None),
         lx.QR(),
+        lx.QR(pivoting=True),
         lx.SVD(),
         lx.Normal(lx.Cholesky()),
         lx.Normal(lx.SVD()),
@@ -201,6 +204,7 @@ def test_nonsquare_mat_vec(solver, full_rank, jvp, wide, dtype, getkey):
     (
         lx.AutoLinearSolver(well_posed=None),
         lx.QR(),
+        lx.QR(pivoting=True),
         lx.SVD(),
         lx.Normal(lx.Cholesky()),
         lx.Normal(lx.SVD()),
