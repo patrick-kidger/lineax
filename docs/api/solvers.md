@@ -49,9 +49,48 @@ These are capable of solving ill-posed linear problems.
         members:
             - __init__
 
-!!! info
+---
 
-    In addition to these, `lineax.Diagonal(well_posed=False)` (below) also supports ill-posed problems.
+::: lineax.LSMR
+    options:
+        members:
+            - __init__
+
+
+### Diagonal
+
+In addition to these, [`lineax.Diagonal`][] with `well_posed=False` (below) also supports ill-posed problems.
+
+## Iterative solvers
+
+These solvers use only matrix-vector products, and do not require instantiating the whole matrix. This makes them good when used alongside e.g. [`lineax.JacobianLinearOperator`][] or [`lineax.FunctionLinearOperator`][], which only provide matrix-vector products.
+
+!!! warning
+
+    Note that [`lineax.BiCGStab`][] and [`lineax.GMRES`][] may fail to converge on some (typically non-sparse) problems.
+
+::: lineax.CG
+    options:
+        members:
+            - __init__
+
+---
+
+::: lineax.BiCGStab
+    options:
+        members:
+            - __init__
+
+---
+
+::: lineax.GMRES
+    options:
+        members:
+            - __init__
+
+### LSMR
+
+In addition to these, [`lineax.LSMR`][] (above) is also an iterative method.
 
 ## Structure-exploiting solvers
 
@@ -83,33 +122,6 @@ These require special structure in the operator. (And will throw an error if pas
         members:
             - __init__
 
-!!! info
+### CG
 
-    In addition to these, [`lineax.CG`][] also requires special structure (positive or negative definiteness).
-
-## Iterative solvers
-
-These solvers use only matrix-vector products, and do not require instantiating the whole matrix. This makes them good when used alongside e.g. [`lineax.JacobianLinearOperator`][] or [`lineax.FunctionLinearOperator`][], which only provide matrix-vector products.
-
-!!! warning
-
-    Note that [`lineax.BiCGStab`][] and [`lineax.GMRES`][] may fail to converge on some (typically non-sparse) problems.
-
-::: lineax.CG
-    options:
-        members:
-            - __init__
-
----
-
-::: lineax.BiCGStab
-    options:
-        members:
-            - __init__
-
----
-
-::: lineax.GMRES
-    options:
-        members:
-            - __init__
+In addition to these, [`lineax.CG`][] also requires special structure (positive or negative definiteness).
