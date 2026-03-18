@@ -783,7 +783,11 @@ def linear_solve(
             stats={},
         )
     if state == sentinel:
-        state = solver.init(operator, options)
+        dynamic_operator, static_operator = eqx.partition(operator, eqx.is_array)
+        stopped_operator = eqx.combine(
+            lax.stop_gradient(dynamic_operator), static_operator
+        )
+        state = solver.init(stopped_operator, options)
 
     dynamic_state, static_state = eqx.partition(state, eqx.is_array)
     dynamic_state = lax.stop_gradient(dynamic_state)
