@@ -123,6 +123,7 @@ solvers_tags_pseudoinverse = [
     (lx.Tridiagonal(), lx.tridiagonal_tag, False),
     (lx.LU(), (), False),
     (lx.QR(), (), False),
+    (lx.QR(pivoting=True), (), True),
     (lx.SVD(), (), True),
     (lx.BiCGStab(rtol=tol, atol=tol), (), False),
     (lx.GMRES(rtol=tol, atol=tol), (), False),
