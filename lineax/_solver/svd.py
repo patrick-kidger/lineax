@@ -22,7 +22,7 @@ from jaxtyping import Array, PyTree
 from .._misc import resolve_rcond
 from .._operator import AbstractLinearOperator
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .._solve import _gram_inverse_mv, _row_space_projection, AbstractLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -52,6 +52,14 @@ class SVD(AbstractLinearSolver[_SVDState]):
         packed_structures = pack_structures(operator)
         return svd, packed_structures
 
+    def _singular_mask(self, s, n, m):
+        rcond = resolve_rcond(self.rcond, n, m, s.dtype)
+        rcond = jnp.array(rcond, dtype=s.dtype)
+        if s.size > 0:
+            rcond = rcond * s[0]
+        # Not >=, or this fails with a matrix of all-zeros.
+        return s > rcond
+
     def compute(
         self,
         state: _SVDState,
@@ -63,12 +71,7 @@ class SVD(AbstractLinearSolver[_SVDState]):
         vector = ravel_vector(vector, packed_structures)
         m, _ = u.shape
         _, n = vt.shape
-        rcond = resolve_rcond(self.rcond, n, m, s.dtype)
-        rcond = jnp.array(rcond, dtype=s.dtype)
-        if s.size > 0:
-            rcond = rcond * s[0]
-        # Not >=, or this fails with a matrix of all-zeros.
-        mask = s > rcond
+        mask = self._singular_mask(s, n, m)
         rank = mask.sum()
         safe_s = jnp.where(mask, s, 1)
         s_inv = jnp.where(mask, jnp.array(1.0) / safe_s, 0).astype(u.dtype)
@@ -102,3 +105,32 @@ SVD.__init__.__doc__ = """**Arguments**:
     precision times `max(N, M)`, where `(N, M)` is the shape of the operator. (I.e.
     `N` is the output size and `M` is the input size.)
 """
+
+
+@_gram_inverse_mv.register(SVD)
+def _(solver: SVD, state: _SVDState, vector):
+    (u, s, vt), packed_structures = state
+    m, n = u.shape[0], vt.shape[1]
+    transposed_ps = transpose_packed_structures(packed_structures)
+    w = ravel_vector(vector, transposed_ps)
+    mask = solver._singular_mask(s, n, m)
+    safe_s = jnp.where(mask, s, 1)
+    # (A^H A)^{-1} v = VΣ⁻²V^H v.  U^H U = I cancels entirely.
+    s_inv_sq = jnp.where(mask, 1.0 / safe_s**2, 0).astype(vt.dtype)
+    vt_w = jnp.matmul(vt, w, precision=lax.Precision.HIGHEST)
+    result = jnp.matmul(vt.conj().T, s_inv_sq * vt_w, precision=lax.Precision.HIGHEST)
+    return unravel_solution(result, packed_structures)
+
+
+@_row_space_projection.register(SVD)
+def _(solver: SVD, state: _SVDState, vector):
+    (u, s, vt), packed_structures = state
+    m, n = u.shape[0], vt.shape[1]
+    transposed_ps = transpose_packed_structures(packed_structures)
+    w = ravel_vector(vector, transposed_ps)
+    mask = solver._singular_mask(s, n, m)
+    # A^†A v = VV^H v (restricted to row space).  Σ cancels entirely.
+    vt_w = jnp.matmul(vt, w, precision=lax.Precision.HIGHEST)
+    masked_vt_w = jnp.where(mask, vt_w, 0)
+    result = jnp.matmul(vt.conj().T, masked_vt_w, precision=lax.Precision.HIGHEST)
+    return unravel_solution(result, packed_structures)

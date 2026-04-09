@@ -20,7 +20,12 @@ from jaxtyping import Array, PyTree
 
 from .._operator import conj, linearise, materialise, TaggedLinearOperator
 from .._solution import RESULTS
-from .._solve import AbstractLinearOperator, AbstractLinearSolver
+from .._solve import (
+    _gram_inverse_mv,
+    _row_space_projection,
+    AbstractLinearOperator,
+    AbstractLinearSolver,
+)
 from .._tags import positive_semidefinite_tag
 from .cholesky import Cholesky
 
@@ -186,3 +191,43 @@ Normal.__init__.__doc__ = """**Arguments:**
 - `inner_solver`: The solver to wrap. It should support solving positive
   definite systems or positive semidefinite systems
 """
+
+
+@_gram_inverse_mv.register(Normal)
+def _(solver: Normal, state, vector):
+    inner_state, tall, operator_conj_transpose, inner_options = state
+    tall = tall.value
+    del state, operator_conj_transpose
+    if tall:
+        # inner operator IS A^* A
+        result, _, _ = solver.inner_solver.compute(inner_state, vector, inner_options)
+        return result
+    if not tall:
+        if solver.inner_solver.assume_full_rank():
+            # Should be unreachable: assume_independent_rows should be true for wide ops
+            raise NotImplementedError(
+                "Please open a GitHub issue: https://github.com/google/lineax"
+            )
+        # Wide case with non-full-rank inner solver, no suitable solvers currently exist
+        # in lineax but a user may implement one (e.g. Modified Cholesky/LDL)
+        # No fast path exists as cannot compute (A^* A)^† from the stored AA^*
+        return NotImplemented
+
+
+@_row_space_projection.register(Normal)
+def _(solver: Normal, state, vector):
+    inner_state, tall, operator_conj_transpose, inner_options = state
+    del state, operator_conj_transpose, inner_options
+    tall = tall.value
+    if tall:
+        if solver.inner_solver.assume_full_rank():
+            # Should be unreachable: assume_independent_columns should be True for tall
+            raise NotImplementedError(
+                "Please open a GitHub issue: https://github.com/google/lineax"
+            )
+        # Tall case with non-full-rank inner solver, no suitable solvers currently exist
+        # in lineax, but a user may implement one (e.g. Modified Cholesky/LDL)
+        # A^\dagger A = (A^*A)^\dagger A^* A (same row space as inner solver)
+        return _row_space_projection(solver.inner_solver, inner_state, vector)
+    if not tall:
+        return NotImplemented
