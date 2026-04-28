@@ -177,9 +177,62 @@ def test_materialise_large(dtype, getkey):
 def test_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     matrix_diag = jnp.diag(matrix)
+    # test we properly extract diagonal from a dense matrix when not tagged
     operators = _setup(getkey, matrix)
     for operator in operators:
         assert jnp.allclose(lx.diagonal(operator), matrix_diag)
+    # test we properly extract diagonal from diagonal matrix when tagged
+    operators = _setup(getkey, jnp.diag(matrix_diag), lx.diagonal_tag)
+    for operator in operators:
+        if isinstance(operator, lx.IdentityLinearOperator):
+            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3))
+        else:
+            assert jnp.allclose(lx.diagonal(operator), matrix_diag)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_tridiagonal(dtype, getkey):
+    matrix = jr.normal(getkey(), (5, 5), dtype=dtype)
+    matrix_diag = jnp.diag(matrix)
+    matrix_lower_diag = jnp.diag(matrix, k=-1)
+    matrix_upper_diag = jnp.diag(matrix, k=1)
+    tridiag_matrix = (
+        jnp.diag(matrix_diag)
+        + jnp.diag(matrix_lower_diag, k=-1)
+        + jnp.diag(matrix_upper_diag, k=1)
+    )
+    operators = _setup(getkey, tridiag_matrix, lx.tridiagonal_tag)
+    for operator in operators:
+        diag, lower_diag, upper_diag = lx.tridiagonal(operator)
+        if isinstance(operator, lx.IdentityLinearOperator):
+            assert jnp.allclose(diag, jnp.ones(5))
+            assert jnp.allclose(lower_diag, jnp.zeros(4))
+            assert jnp.allclose(upper_diag, jnp.zeros(4))
+        else:
+            assert jnp.allclose(diag, matrix_diag)
+            assert jnp.allclose(lower_diag, matrix_lower_diag)
+            assert jnp.allclose(upper_diag, matrix_upper_diag)
+
+    # Test ComposedLinearOperator: diagonal @ tridiagonal and tridiagonal @ diagonal
+    random_diag = jr.normal(getkey(), (5,), dtype=dtype)
+    tridiag_op = lx.TridiagonalLinearOperator(
+        matrix_diag, matrix_lower_diag, matrix_upper_diag
+    )
+    diag_op = lx.DiagonalLinearOperator(random_diag)
+
+    # diagonal @ tridiagonal (row scaling)
+    dt_matrix = jnp.matmul(jnp.diag(random_diag), tridiag_matrix)
+    diag, lower_diag, upper_diag = lx.tridiagonal(diag_op @ tridiag_op)
+    assert jnp.allclose(diag, jnp.diagonal(dt_matrix, 0))
+    assert jnp.allclose(lower_diag, jnp.diagonal(dt_matrix, -1))
+    assert jnp.allclose(upper_diag, jnp.diagonal(dt_matrix, 1))
+
+    # tridiagonal @ diagonal (column scaling)
+    td_matrix = jnp.matmul(tridiag_matrix, jnp.diag(random_diag))
+    diag, lower_diag, upper_diag = lx.tridiagonal(tridiag_op @ diag_op)
+    assert jnp.allclose(diag, jnp.diagonal(td_matrix, 0))
+    assert jnp.allclose(lower_diag, jnp.diagonal(td_matrix, -1))
+    assert jnp.allclose(upper_diag, jnp.diagonal(td_matrix, 1))
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))

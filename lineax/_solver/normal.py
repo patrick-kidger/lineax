@@ -18,13 +18,11 @@ from typing import Any, TypeVar
 import equinox.internal as eqxi
 from jaxtyping import Array, PyTree
 
-from .._operator import (
-    conj,
-    TaggedLinearOperator,
-)
+from .._operator import conj, linearise, materialise, TaggedLinearOperator
 from .._solution import RESULTS
 from .._solve import AbstractLinearOperator, AbstractLinearSolver
 from .._tags import positive_semidefinite_tag
+from .cholesky import Cholesky
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")
@@ -36,6 +34,7 @@ def normal_preconditioner_and_y0(options: dict[str, Any], tall: bool):
     inner_options = copy(options)
     del options
     if preconditioner is not None:
+        preconditioner = linearise(preconditioner)
         if tall:
             inner_options["preconditioner"] = TaggedLinearOperator(
                 preconditioner @ conj(preconditioner.transpose()),
@@ -46,8 +45,8 @@ def normal_preconditioner_and_y0(options: dict[str, Any], tall: bool):
                 conj(preconditioner.transpose()) @ preconditioner,
                 positive_semidefinite_tag,
             )
-    if preconditioner is not None and y0 is not None and not tall:
-        inner_options["y0"] = conj(preconditioner.transpose()).mv(y0)
+            if y0 is not None:
+                inner_options["y0"] = conj(preconditioner.transpose()).mv(y0)
     return inner_options
 
 
@@ -105,14 +104,19 @@ class Normal(
 
     def init(self, operator, options):
         tall = operator.out_size() >= operator.in_size()
+        # Cholesky materialises op twice when computing (op^H @ op).as_matrix()
+        # Cheaper to materialise first and then conjugate-transpose.
+        # For iterative solvers we only linearise to avoid eager materialisation.
+        is_cholesky = isinstance(self.inner_solver, Cholesky)
+        lin_op = materialise(operator) if is_cholesky else linearise(operator)
         if tall:
-            inner_operator = conj(operator.transpose()) @ operator
+            inner_operator = conj(lin_op.transpose()) @ lin_op
         else:
-            inner_operator = operator @ conj(operator.transpose())
+            inner_operator = lin_op @ conj(lin_op.transpose())
         inner_operator = TaggedLinearOperator(inner_operator, positive_semidefinite_tag)
         inner_options = normal_preconditioner_and_y0(options, tall)
         inner_state = self.inner_solver.init(inner_operator, inner_options)
-        operator_conj_transpose = conj(operator.transpose())
+        operator_conj_transpose = conj(lin_op.transpose())
         return inner_state, eqxi.Static(tall), operator_conj_transpose, inner_options
 
     def compute(
