@@ -1535,16 +1535,23 @@ def _(operator):
 
             coloring = jnp.arange(flat.size) % 3
 
-        # All three diagonals stored in (3, flat.size) array
         compressed_as_pytree = jax.vmap(operator.mv)(basis)
         compressed_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(
             compressed_as_pytree
         )
 
-        # Extract diagonals according to coloring method
-        diag = compressed_flat[(coloring, jnp.arange(flat.size))]
-        lower_diag = compressed_flat[(coloring[:-1], jnp.arange(1, flat.size))]
-        upper_diag = compressed_flat[(coloring[1:], jnp.arange(flat.size - 1))]
+        # unique_indices propagates through linear_transpose to set unique_indices=True
+        # on the scatter, allowing assignment rather than accumulation.
+        rows = jnp.arange(flat.size)
+        diag = compressed_flat.at[coloring, rows].get(
+            wrap_negative_indices=False, unique_indices=True
+        )
+        lower_diag = compressed_flat.at[coloring[:-1], rows[1:]].get(
+            wrap_negative_indices=False, unique_indices=True
+        )
+        upper_diag = compressed_flat.at[coloring[1:], rows[:-1]].get(
+            wrap_negative_indices=False, unique_indices=True
+        )
 
         return diag, lower_diag, upper_diag
     matrix = operator.as_matrix()
