@@ -1320,7 +1320,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     """Try to materialise to a sparse operator.
 
-    Returns a DiagonalLinearOperator if the operator is tagged as diagonal,
+    Returns a (Tri)DiagonalLinearOperator if the operator is tagged as (tri)diagonal,
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
     """
@@ -1329,6 +1329,13 @@ def _try_sparse_materialise(operator: AbstractLinearOperator) -> AbstractLinearO
         _, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
         diag_pytree = unravel(diag_flat)
         return DiagonalLinearOperator(diag_pytree)
+    # TridiagonalLinearOperator only supports flat in and out structures
+    if (
+        is_tridiagonal(operator)
+        and isinstance(operator.in_structure(), jax.ShapeDtypeStruct)
+        and isinstance(operator.out_structure(), jax.ShapeDtypeStruct)
+    ):
+        return TridiagonalLinearOperator(*tridiagonal(operator))
     return operator
 
 
@@ -1502,15 +1509,57 @@ def tridiagonal(
 
 @tridiagonal.register(MatrixLinearOperator)
 @tridiagonal.register(PyTreeLinearOperator)
-@tridiagonal.register(JacobianLinearOperator)
-@tridiagonal.register(FunctionLinearOperator)
 def _(operator):
     matrix = operator.as_matrix()
     assert matrix.ndim == 2
-    diagonal = jnp.diagonal(matrix, offset=0)
+    main_diagonal = jnp.diagonal(matrix, offset=0)
     upper_diagonal = jnp.diagonal(matrix, offset=1)
     lower_diagonal = jnp.diagonal(matrix, offset=-1)
-    return diagonal, lower_diagonal, upper_diagonal
+    return main_diagonal, lower_diagonal, upper_diagonal
+
+
+@tridiagonal.register(JacobianLinearOperator)
+@tridiagonal.register(FunctionLinearOperator)
+def _(operator):
+    if is_tridiagonal(operator):
+        with jax.ensure_compile_time_eval():
+            flat, unravel = strip_weak_dtype(
+                eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+            )
+
+            basis = jnp.zeros((3, flat.size), dtype=flat.dtype)
+            for i in range(3):
+                basis = basis.at[i, i::3].set(1.0)
+
+            basis = jax.vmap(unravel)(basis)
+
+            coloring = jnp.arange(flat.size) % 3
+
+        compressed_as_pytree = jax.vmap(operator.mv)(basis)
+        compressed_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(
+            compressed_as_pytree
+        )
+
+        # unique_indices propagates through linear_transpose to set unique_indices=True
+        # on the scatter, allowing assignment rather than accumulation.
+        rows = jnp.arange(flat.size)
+        diag = compressed_flat.at[coloring, rows].get(
+            wrap_negative_indices=False, unique_indices=True
+        )
+        lower_diag = compressed_flat.at[coloring[:-1], rows[1:]].get(
+            wrap_negative_indices=False, unique_indices=True
+        )
+        upper_diag = compressed_flat.at[coloring[1:], rows[:-1]].get(
+            wrap_negative_indices=False, unique_indices=True
+        )
+
+        return diag, lower_diag, upper_diag
+    matrix = operator.as_matrix()
+    assert matrix.ndim == 2
+    main_diagonal = jnp.diagonal(matrix, offset=0)
+    upper_diagonal = jnp.diagonal(matrix, offset=1)
+    lower_diagonal = jnp.diagonal(matrix, offset=-1)
+    return main_diagonal, lower_diagonal, upper_diagonal
 
 
 @tridiagonal.register(DiagonalLinearOperator)
@@ -1524,9 +1573,9 @@ def _(operator):
 @tridiagonal.register(IdentityLinearOperator)
 def _(operator):
     size = operator.in_size()
-    diagonal = jnp.ones(size)
+    main_diagonal = jnp.ones(size)
     off_diagonal = jnp.zeros(size - 1)
-    return diagonal, off_diagonal, off_diagonal
+    return main_diagonal, off_diagonal, off_diagonal
 
 
 @tridiagonal.register(TridiagonalLinearOperator)
@@ -2020,12 +2069,22 @@ def _(operator):
 
 @tridiagonal.register(ComposedLinearOperator)
 def _(operator):
+    if is_diagonal(operator.operator1) and is_tridiagonal(operator.operator2):
+        d = diagonal(operator.operator1)
+        main, lower, upper = tridiagonal(operator.operator2)
+        # D @ T scales rows: row i multiplied by d[i]
+        return d * main, d[1:] * lower, d[:-1] * upper
+    if is_diagonal(operator.operator2) and is_tridiagonal(operator.operator1):
+        d = diagonal(operator.operator2)
+        main, lower, upper = tridiagonal(operator.operator1)
+        # T @ D scales columns: column j multiplied by d[j]
+        return d * main, d[:-1] * lower, d[1:] * upper
     matrix = operator.as_matrix()
     assert matrix.ndim == 2
-    diagonal = jnp.diagonal(matrix, offset=0)
+    main_diagonal = jnp.diagonal(matrix, offset=0)
     upper_diagonal = jnp.diagonal(matrix, offset=1)
     lower_diagonal = jnp.diagonal(matrix, offset=-1)
-    return diagonal, lower_diagonal, upper_diagonal
+    return main_diagonal, lower_diagonal, upper_diagonal
 
 
 for check in (
