@@ -33,17 +33,29 @@ from ._misc import inexact_asarray, strip_weak_dtype
 from ._operator import (
     AbstractLinearOperator,
     conj,
+    FunctionLinearOperator,
+    has_unit_diagonal,
     IdentityLinearOperator,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
+    is_symmetric,
     is_tridiagonal,
     is_upper_triangular,
     linearise,
     TangentLinearOperator,
 )
 from ._solution import RESULTS, Solution
+from ._tags import (
+    diagonal_tag,
+    lower_triangular_tag,
+    negative_semidefinite_tag,
+    positive_semidefinite_tag,
+    symmetric_tag,
+    unit_diagonal_tag,
+    upper_triangular_tag,
+)
 
 
 #
@@ -792,6 +804,71 @@ def linear_solve(
     # TODO: prevent forward-mode autodiff through stats
     stats = eqxi.nondifferentiable_backward(stats)
     return Solution(value=solution, result=result, state=state, stats=stats)
+
+
+def invert(
+    operator: AbstractLinearOperator,
+    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
+    *,
+    options: dict[str, Any] | None = None,
+    throw: bool = True,
+) -> FunctionLinearOperator:
+    r"""Returns a [`lineax.FunctionLinearOperator`][] representing the
+    (pseudo)inverse of `operator`.
+
+    `invert(A).mv(v)` is equivalent to `linear_solve(A, v, solver).value`.
+    See [`lineax.linear_solve`][] for details on how the solution is defined
+    for square, overdetermined, and underdetermined systems.
+
+    The returned operator fully supports AD (both forward and reverse mode),
+    `vmap`, and composition with other operators.
+
+    **Arguments:**
+
+    - `operator`: the linear operator to invert.
+    - `solver`: the linear solver to use. Defaults to
+        `AutoLinearSolver(well_posed=True)`.
+    - `options`: additional options passed to the solver. Defaults to `None`.
+    - `throw`: as [`lineax.linear_solve`][]. Defaults to `True`.
+
+    **Returns:**
+
+    A [`lineax.FunctionLinearOperator`][] whose `mv` solves `operator @ x = v`.
+    """
+    if options is None:
+        options = {}
+
+    state = solver.init(operator, options)
+
+    def solve_fn(vector):
+        return linear_solve(
+            operator,
+            vector,
+            solver,
+            state=state,
+            options=options,
+            throw=throw,
+        ).value
+
+    tags = {
+        tag
+        for check, tag in [
+            (is_symmetric, symmetric_tag),
+            (is_diagonal, diagonal_tag),
+            (is_lower_triangular, lower_triangular_tag),
+            (is_upper_triangular, upper_triangular_tag),
+            (is_positive_semidefinite, positive_semidefinite_tag),
+            (is_negative_semidefinite, negative_semidefinite_tag),
+        ]
+        if check(operator)
+    }
+    if has_unit_diagonal(operator) and (
+        is_diagonal(operator)
+        or is_lower_triangular(operator)
+        or is_upper_triangular(operator)
+    ):
+        tags.add(unit_diagonal_tag)
+    return FunctionLinearOperator(solve_fn, operator.out_structure(), frozenset(tags))
 
 
 # Work around JAX issue #22011,
