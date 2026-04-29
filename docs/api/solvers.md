@@ -57,7 +57,7 @@ These are capable of solving ill-posed linear problems.
             - __init__
 
 
-### Diagonal
+#### Diagonal
 
 In addition to these, [`lineax.Diagonal`][] with `well_posed=False` (below) also supports ill-posed problems.
 
@@ -88,7 +88,7 @@ These solvers use only matrix-vector products, and do not require instantiating 
         members:
             - __init__
 
-### LSMR
+#### LSMR
 
 In addition to these, [`lineax.LSMR`][] (above) is also an iterative method.
 
@@ -122,6 +122,6 @@ These require special structure in the operator. (And will throw an error if pas
         members:
             - __init__
 
-### CG
+#### CG
 
 In addition to these, [`lineax.CG`][] also requires special structure (positive or negative definiteness).
