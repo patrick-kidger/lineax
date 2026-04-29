@@ -71,20 +71,6 @@ def test_double_inverse(getkey):
     assert tree_allclose(result, expected, atol=1e-8)
 
 
-def test_cache(getkey):
-    """cache=True produces the same result as cache=False."""
-    matrix = _well_conditioned_matrix(getkey)
-    op = lx.MatrixLinearOperator(matrix)
-    inv_cached = lx.invert(op, cache=True)
-    inv_uncached = lx.invert(op, cache=False)
-    vec = jr.normal(getkey(), (3,), dtype=jnp.float64)
-    result_cached = inv_cached.mv(vec)
-    result_uncached = inv_uncached.mv(vec)
-    expected = jnp.linalg.solve(matrix, vec)
-    assert tree_allclose(result_cached, expected, atol=1e-10)
-    assert tree_allclose(result_uncached, expected, atol=1e-10)
-
-
 # -- Pseudoinverse (non-square) --
 
 

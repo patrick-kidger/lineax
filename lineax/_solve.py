@@ -812,7 +812,6 @@ def invert(
     *,
     options: dict[str, Any] | None = None,
     throw: bool = True,
-    cache: bool = True,
 ) -> FunctionLinearOperator:
     r"""Returns a [`lineax.FunctionLinearOperator`][] representing the
     (pseudo)inverse of `operator`.
@@ -831,11 +830,6 @@ def invert(
         `AutoLinearSolver(well_posed=True)`.
     - `options`: additional options passed to the solver. Defaults to `None`.
     - `throw`: as [`lineax.linear_solve`][]. Defaults to `True`.
-    - `cache`: by default, `lx.invert` eagerly computes and caches the solver
-        state (typically a factorisation such as LU or Cholesky)
-        so that subsequent matvecs re-use it. This improves runtime at the cost
-        of additional memory usage, if you find memory usage is an issue set
-        `cache=False`.
 
     **Returns:**
 
@@ -844,12 +838,14 @@ def invert(
     if options is None:
         options = {}
 
+    state = solver.init(operator, options)
+
     def solve_fn(vector):
         return linear_solve(
             operator,
             vector,
             solver,
-            state=solver.init(operator, options) if cache else sentinel,
+            state=state,
             options=options,
             throw=throw,
         ).value
