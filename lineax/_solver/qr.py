@@ -15,6 +15,7 @@
 from typing import Any, TypeAlias
 
 import equinox.internal as eqxi
+import jax.lax.linalg as jll
 import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
@@ -58,9 +59,10 @@ class QR(AbstractLinearSolver):
         transpose = n > m
         if transpose:
             matrix = matrix.T
-        qr = jnp.linalg.qr(matrix, mode="reduced")  # pyright: ignore
+        h, taus = jnp.linalg.qr(matrix, mode="raw")  # pyright: ignore
+        a = h.mT
         packed_structures = pack_structures(operator)
-        return qr, eqxi.Static(transpose), packed_structures
+        return (a, taus), eqxi.Static(transpose), packed_structures
 
     def compute(
         self,
@@ -68,28 +70,34 @@ class QR(AbstractLinearSolver):
         vector: PyTree[Array],
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        (q, r), transpose, packed_structures = state
+        (a, taus), transpose, packed_structures = state
         transpose = transpose.value
         del state, options
         vector = ravel_vector(vector, packed_structures)
+        n_full, n_min = a.shape
+        r = a[:n_min]
         if transpose:
-            # Minimal norm solution if underdetermined.
-            solution = q.conj() @ jsp.linalg.solve_triangular(
-                r, vector, trans="T", unit_diagonal=False
-            )
+            # Minimal norm solution if underdetermined: x = Q.conj() @ R^{-T} @ b.
+            # Use Q.conj() @ z = (z^T @ Q^H)^T to avoid explicit `conj` calls,
+            # and pad `y` along the row axis to absorb the discarded columns of Q.
+            y = jsp.linalg.solve_triangular(r, vector, trans="T", unit_diagonal=False)
+            zeros = jnp.zeros((1, n_full - n_min), dtype=y.dtype)
+            y_pad = jnp.concatenate([y[None, :], zeros], axis=1)
+            solution = jll.ormqr(a, taus, y_pad, left=False, transpose=True)[0]
         else:
             # Least squares solution if overdetermined.
+            qHv = jll.ormqr(a, taus, vector[:, None], transpose=True)[:n_min, 0]
             solution = jsp.linalg.solve_triangular(
-                r, q.T.conj() @ vector, trans="N", unit_diagonal=False
+                r, qHv, trans="N", unit_diagonal=False
             )
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
     def transpose(self, state: _QRState, options: dict[str, Any]):
-        (q, r), transpose, structures = state
+        (a, taus), transpose, structures = state
         transposed_packed_structures = transpose_packed_structures(structures)
         transpose_state = (
-            (q, r),
+            (a, taus),
             eqxi.Static(not transpose.value),
             transposed_packed_structures,
         )
@@ -97,9 +105,9 @@ class QR(AbstractLinearSolver):
         return transpose_state, transpose_options
 
     def conj(self, state: _QRState, options: dict[str, Any]):
-        (q, r), transpose, structures = state
+        (a, taus), transpose, structures = state
         conj_state = (
-            (q.conj(), r.conj()),
+            (a.conj(), taus.conj()),
             transpose,
             structures,
         )
