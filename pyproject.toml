@@ -47,13 +47,13 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Information Analysis",
   "Topic :: Scientific/Engineering :: Mathematics"
 ]
-dependencies = ["jax>=0.6.1", "jaxtyping>=0.2.24", "equinox>=0.11.10", "typing_extensions>=4.5.0"]
+dependencies = ["jax>=0.10.0", "jaxtyping>=0.2.24", "equinox>=0.11.10", "typing_extensions>=4.5.0"]
 description = "Linear solvers in JAX and Equinox."
 keywords = ["jax", "neural-networks", "deep-learning", "equinox", "linear-solvers", "least-squares", "numerical-methods"]
 license = {file = "LICENSE"}
 name = "lineax"
 readme = "README.md"
-requires-python = "~=3.10"
+requires-python = "~=3.11"
 urls = {repository = "https://github.com/google/lineax"}
 version = "0.1.0"
 
