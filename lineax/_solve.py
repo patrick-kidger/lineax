@@ -223,16 +223,22 @@ def _linear_solve_jvp(primals, tangents):
         if not assume_independent_rows:
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
             tmp = t_operator_conj_transpose.mv(lst_sqr_diff)  # pyright: ignore
-            tmp, _, _ = eqxi.filter_primitive_bind(
-                linear_solve_p,
-                operator_conj_transpose,  # pyright: ignore
-                state_conj_transpose,  # pyright: ignore
-                tmp,
-                options_conj_transpose,  # pyright: ignore
-                solver,
-                True,
-            )
-            vecs.append(tmp)
+            # Fast path: A†(Aᵀ)†w = (AᵀA)†w directly (e.g. R⁻¹R⁻ᵀw for QR)
+            gram_inv = _gram_inverse_mv(solver, state, tmp)
+            if gram_inv is NotImplemented:
+                tmp, _, _ = eqxi.filter_primitive_bind(
+                    linear_solve_p,
+                    operator_conj_transpose,  # pyright: ignore
+                    state_conj_transpose,  # pyright: ignore
+                    tmp,
+                    options_conj_transpose,  # pyright: ignore
+                    solver,
+                    True,
+                )
+                vecs.append(tmp)
+            else:
+                # Result already lives in input space; bypass outer A† for this term.
+                sols.append(gram_inv)
 
         if not assume_independent_columns:
             tmp1, _, _ = eqxi.filter_primitive_bind(
@@ -246,10 +252,16 @@ def _linear_solve_jvp(primals, tangents):
             )
             tmp2 = t_operator_conj_transpose.mv(tmp1)  # pyright: ignore
             # tmp2 is the y term
-            tmp3 = operator.mv(tmp2)
-            tmp4 = (-(tmp3**ω)).ω
-            # tmp4 is the Ay term
-            vecs.append(tmp4)
+            # Fast path: e.g. A†Ay = QQᵀy for QR, VVᵀy for SVD
+            proj = _row_space_projection(solver, state, tmp2)
+            if proj is NotImplemented:
+                tmp3 = operator.mv(tmp2)
+                tmp4 = (-(tmp3**ω)).ω
+                # tmp4 is the Ay term
+                vecs.append(tmp4)
+            else:
+                # Projection already computed; add -A†Ay directly.
+                sols.append((-(proj**ω)).ω)
             sols.append(tmp2)
     vecs = jtu.tree_map(_sum, *vecs)
     # the A^ term at the very beginning
@@ -478,6 +490,32 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
         Either `True` or `False`.
         """
+
+
+#
+# These optimisation hooks are singledispatch functions rather than methods on
+# AbstractLinearSolver, following the same pattern as _operator.py.
+#
+
+
+@ft.singledispatch
+def _gram_inverse_mv(solver: "AbstractLinearSolver", state, vector):
+    """Compute $(A^H A)^\\dagger v$ directly, or return `NotImplemented`.
+
+    Used in `_linear_solve_jvp` for the `not assume_independent_rows` branch.
+    Falls back to the generic two-solve chain when `NotImplemented` is returned.
+    """
+    return NotImplemented
+
+
+@ft.singledispatch
+def _row_space_projection(solver: "AbstractLinearSolver", state, vector):
+    """Compute $A^\\dagger A v$ directly, or return `NotImplemented`.
+
+    Used in `_linear_solve_jvp` for the `not assume_independent_columns` branch.
+    Falls back to the generic matvec+solve path when `NotImplemented` is returned.
+    """
+    return NotImplemented
 
 
 _qr_token = eqxi.str2jax("qr_token")

@@ -21,7 +21,7 @@ import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .._solve import _gram_inverse_mv, _row_space_projection, AbstractLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -122,3 +122,42 @@ QR.__init__.__doc__ = """**Arguments:**
 
 Nothing.
 """
+
+
+@_gram_inverse_mv.register(QR)
+def _(solver, state: _QRState, vector):
+    (q, r), transpose, packed_structures = state
+    transpose = transpose.value
+    del state
+    if transpose:
+        # Should be unreachable: QR.assume_full_rank() is True, so
+        # assume_independent_rows is always True for wide operators.
+        raise NotImplementedError(
+            "Please open a GitHub issue: https://github.com/google/lineax"
+        )
+    # Tall A = QR: (A^H A)^{-1} v = R^{-1} R^{-H} v.  Q^H Q = I cancels.
+    transposed_packed_structures = transpose_packed_structures(packed_structures)
+    w = ravel_vector(vector, transposed_packed_structures)
+    # trans="C" gives R^{-H} (conjugate-transpose solve)
+    rHw = jsp.linalg.solve_triangular(r, w, trans="C", unit_diagonal=False)
+    result = jsp.linalg.solve_triangular(r, rHw, unit_diagonal=False)
+    return unravel_solution(result, packed_structures)
+
+
+@_row_space_projection.register(QR)
+def _(solver, state: _QRState, vector):
+    (q, r), transpose, packed_structures = state
+    transpose = transpose.value
+    del state
+    if not transpose:
+        # Should be unreachable: QR.assume_full_rank() is True, so
+        # assume_independent_columns is always True for tall operators.
+        raise NotImplementedError(
+            "Please open a GitHub issue: https://github.com/google/lineax"
+        )
+    # Wide A stores QR of A^T = Q₁R₁ => A^†A = Q₁^{-T} R₁^{-T} R₁^T Q₁^T
+    # => A^†A = conj(Q₁) Q₁^T by unitarity — two matvecs, no solve.
+    transposed_packed_structures = transpose_packed_structures(packed_structures)
+    w = ravel_vector(vector, transposed_packed_structures)
+    result = q.conj() @ (q.T @ w)
+    return unravel_solution(result, packed_structures)
