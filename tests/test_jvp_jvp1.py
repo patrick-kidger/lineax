@@ -17,12 +17,10 @@ import jax.numpy as jnp
 import pytest
 
 from .helpers import (
-    construct_matrix,
-    construct_singular_matrix,
+    all_test_cases,
     jvp_jvp_impl,
     make_jac_operator,
     make_matrix_operator,
-    solvers_tags_pseudoinverse,
 )
 
 
@@ -32,21 +30,29 @@ def _clear_cache():
     eqx.clear_caches()
 
 
-@pytest.mark.parametrize("solver, tags, pseudoinverse", solvers_tags_pseudoinverse)
+@pytest.mark.parametrize("solver, tags, rows, cols, full_rank", all_test_cases())
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("use_state", (True, False))
-@pytest.mark.parametrize("make_matrix", (construct_matrix, construct_singular_matrix))
 @pytest.mark.parametrize("dtype", (jnp.float64,))
 def test_jvp_jvp(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
+    getkey,
+    solver,
+    tags,
+    rows,
+    cols,
+    full_rank,
+    make_operator,
+    use_state,
+    dtype,
 ):
     jvp_jvp_impl(
         getkey,
         solver,
         tags,
-        pseudoinverse,
         make_operator,
         use_state,
-        make_matrix,
+        rows,
+        cols,
+        full_rank,
         dtype,
     )

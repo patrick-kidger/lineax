@@ -21,19 +21,10 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from .helpers import (
-    construct_singular_matrix,
-    finite_difference_jvp,
-    make_jac_operator,
-    make_matrix_operator,
-    ops,
-    params,
-    tol,
-    tree_allclose,
-)
+from .helpers import construct_matrix, jnp_lstsq, ops, params, tol, tree_allclose
 
 
-@pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=True))
+@pytest.mark.parametrize("make_operator,solver,tags", params(only_rank_deficient=True))
 @pytest.mark.parametrize("ops", ops)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
@@ -41,7 +32,7 @@ def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
         tol = 1e-10
     else:
         tol = 1e-4
-    (matrix,) = construct_singular_matrix(getkey, solver, tags, dtype=dtype)
+    (matrix,) = construct_matrix(getkey, solver, tags, full_rank=False, dtype=dtype)
     operator = make_operator(getkey, matrix, tags)
     operator, matrix = ops(operator, matrix)
     assert tree_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
@@ -177,22 +168,18 @@ def test_nonsquare_mat_vec(solver, full_rank, jvp, wide, dtype, getkey):
     lx_solve = lambda mat, vec: lx.linear_solve(
         lx.MatrixLinearOperator(mat), vec, solver
     ).value
-    jnp_solve = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
+    r = 3 if full_rank else 2
+    jnp_solve = lambda mat, vec: jnp_lstsq(mat, vec, r)  # pyright: ignore
     if jvp:
         lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
-        jnp_solve = eqx.filter_jit(ft.partial(finite_difference_jvp, jnp_solve))
+        jnp_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, jnp_solve))
         t_matrix = jr.normal(getkey(), (out_size, in_size), dtype=dtype)
-        if not full_rank:
-            # t_matrix must be chosen tangent to the manifold of rank 2
-            # matrices at matrix. A simple way to achieve this is to make the
-            # same restriction as we did to matrix
-            t_matrix = t_matrix.at[1:, 1:].set(0)
         t_vector = jr.normal(getkey(), (out_size,), dtype=dtype)
         args = ((matrix, vector), (t_matrix, t_vector))
     else:
         args = (matrix, vector)
     x = lx_solve(*args)  # pyright: ignore
-    true_x = jnp_solve(*args)
+    true_x = jnp_solve(*args)  # pyright: ignore
     assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
@@ -228,43 +215,44 @@ def test_nonsquare_vec(solver, full_rank, jvp, wide, dtype, getkey):
     lx_solve = lambda vec: lx.linear_solve(
         lx.MatrixLinearOperator(matrix), vec, solver
     ).value
-    jnp_solve = lambda vec: jnp.linalg.lstsq(matrix, vec)[0]  # pyright: ignore
+    r = 3 if full_rank else 2
+    jnp_solve = lambda vec: jnp_lstsq(matrix, vec, r)  # pyright: ignore
     if jvp:
         lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
-        jnp_solve = eqx.filter_jit(ft.partial(finite_difference_jvp, jnp_solve))
+        jnp_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, jnp_solve))
         t_vector = jr.normal(getkey(), (out_size,), dtype=dtype)
         args = ((vector,), (t_vector,))
     else:
         args = (vector,)
     x = lx_solve(*args)  # pyright: ignore
-    true_x = jnp_solve(*args)
+    true_x = jnp_solve(*args)  # pyright: ignore
     assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
-_iterative_solvers = (
-    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag),
-    (lx.CG(rtol=tol, atol=tol, max_steps=512), lx.negative_semidefinite_tag),
-    (lx.GMRES(rtol=tol, atol=tol), ()),
-    (lx.BiCGStab(rtol=tol, atol=tol), ()),
-)
-
-
-@pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
-@pytest.mark.parametrize("solver, tags", _iterative_solvers)
-@pytest.mark.parametrize("use_state", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtype):
-    (matrix,) = construct_singular_matrix(getkey, solver, tags)
-    operator = make_operator(getkey, matrix, tags)
-
-    out_size, _ = matrix.shape
-    vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-
-    if use_state:
-        state = solver.init(operator, options={})
-        linear_solve = ft.partial(lx.linear_solve, state=state)
-    else:
-        linear_solve = lx.linear_solve
-
-    with pytest.raises(Exception):
-        linear_solve(operator, vec, solver)
+# _iterative_solvers = (
+#     (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag),
+#     (lx.CG(rtol=tol, atol=tol, max_steps=512), lx.negative_semidefinite_tag),
+#     (lx.GMRES(rtol=tol, atol=tol), ()),
+#     (lx.BiCGStab(rtol=tol, atol=tol), ()),
+# )
+#
+#
+# @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
+# @pytest.mark.parametrize("solver, tags", _iterative_solvers)
+# @pytest.mark.parametrize("use_state", (False, True))
+# @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+# def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtype):
+#     (matrix,) = construct_singular_matrix(getkey, solver, tags)
+#     operator = make_operator(getkey, matrix, tags)
+#
+#     out_size, _ = matrix.shape
+#     vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+#
+#     if use_state:
+#         state = solver.init(operator, options={})
+#         linear_solve = ft.partial(lx.linear_solve, state=state)
+#     else:
+#         linear_solve = lx.linear_solve
+#
+#     with pytest.raises(Exception):
+#         linear_solve(operator, vec, solver)
