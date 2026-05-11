@@ -29,71 +29,135 @@ from equinox.internal import ω
 
 @ft.cache
 def _construct_matrix_impl(
-    getkey, tags, size, dtype, cond_or_singular: int | float | str, i: int
+    getkey,
+    tags,
+    rows: int,
+    cols: int,
+    full_rank: bool,
+    dtype,
+    cond_cutoff: float | None,
+    i: int,
 ):
-    del i  # used to break the cache
-    while True:
-        matrix = jr.normal(getkey(), (size, size), dtype=dtype)
-        if isinstance(cond_or_singular, str):
-            if cond_or_singular == "zero":
-                matrix = matrix.at[0, :].set(0)
-            elif cond_or_singular == "trim_row":
-                matrix = matrix[1:, :]
-            elif cond_or_singular == "trim_col":
-                matrix = matrix[:, 1:]
-        if tags != ():
-            assert (
-                isinstance(cond_or_singular, (int, float)) or cond_or_singular == "zero"
+    if i > 0:  # we are giving a tangent vector
+        # handle the tags special cased for fast mv by _try_sparse_materialise,
+        # as tangent vectors must also have the tags to be mv'd correctly.
+
+        # It is otherwise not necessary that tangent vectors (and higher order)
+        # have the same tags as the primal unless we have optimized mv to
+        # exploit the structure of the tags. Furthermore, we pick tangent
+        # directions tangent to the constant rank locus at the primal.
+        t_matrix = jr.normal(getkey(), (rows, cols), dtype=dtype)
+        if not full_rank:
+            matrix = _construct_matrix_impl(
+                getkey, tags, rows, cols, full_rank, dtype, cond_cutoff, 0
             )
+            r = min(rows, cols) - 1
+            t_matrix = jax.jvp(lambda A: Ahat(A, r), (matrix,), (t_matrix,))[1]
         if has_tag(tags, lx.diagonal_tag):
-            matrix = jnp.diag(jnp.diag(matrix))
-        if has_tag(tags, lx.symmetric_tag):
-            matrix = matrix + matrix.T
+            t_matrix = jnp.tril(jnp.triu(t_matrix))
+            assert full_rank
+        if has_tag(tags, lx.tridiagonal_tag):
+            t_matrix = jnp.tril(jnp.triu(t_matrix, k=-1), k=1)
+            assert full_rank
+        return t_matrix
+    assert full_rank or cond_cutoff is None, (
+        "Cannot construct rank deficient matrix with bounded condition number"
+    )
+    while True:
+        matrix = jr.normal(getkey(), (rows, cols), dtype=dtype)
+        if isinstance(tags, tuple) and len(tags) == 0 and not full_rank:
+            u, s, vh = jnp.linalg.svd(matrix, full_matrices=False)
+            s = s.at[-1].set(0).astype(matrix.dtype)
+            matrix = (u * s[None, :]) @ vh
+        if has_tag(tags, lx.diagonal_tag):
+            matrix = jnp.tril(jnp.triu(matrix))
+            if not full_rank:
+                matrix = matrix.at[0, :].set(0)
         if has_tag(tags, lx.lower_triangular_tag):
             matrix = jnp.tril(matrix)
+            if not full_rank:
+                matrix = matrix.at[:, 0].set(0)
         if has_tag(tags, lx.upper_triangular_tag):
             matrix = jnp.triu(matrix)
+            if not full_rank:
+                matrix = matrix.at[0, :].set(0)
         if has_tag(tags, lx.unit_diagonal_tag):
-            matrix = matrix.at[jnp.arange(size), jnp.arange(size)].set(1)
+            matrix = matrix.at[
+                jnp.arange(min(rows, cols)), jnp.arange(min(rows, cols))
+            ].set(1)
+            if not full_rank:
+                raise NotImplementedError(
+                    "Rank deficient matrix with unit diagonal not implemented."
+                )
         if has_tag(tags, lx.tridiagonal_tag):
-            diagonal = jnp.diag(jnp.diag(matrix))
-            upper_diagonal = jnp.diag(jnp.diag(matrix, k=1), k=1)
-            lower_diagonal = jnp.diag(jnp.diag(matrix, k=-1), k=-1)
-            matrix = lower_diagonal + diagonal + upper_diagonal
+            matrix = jnp.tril(jnp.triu(matrix, k=-1), k=1)
+            if not full_rank:
+                matrix = matrix.at[0, :].set(0)
+        if has_tag(tags, lx.symmetric_tag):
+            assert rows == cols, "Symmetric matrix must be square"
+            matrix = matrix + matrix.T
+            if not full_rank:
+                matrix = matrix.at[0, :].set(0).at[:, 0].set(0)
         if has_tag(tags, lx.positive_semidefinite_tag):
-            matrix = matrix @ matrix.T.conj()
+            assert rows == cols, "Positive semidefinite matrix must be square"
+            u, s, _ = jnp.linalg.svd(matrix)
+            if not full_rank:
+                s = s.at[-1].set(0)
+            matrix = (u * s[None, :].astype(matrix.dtype)) @ u.conj().T
         if has_tag(tags, lx.negative_semidefinite_tag):
-            matrix = -matrix @ matrix.T.conj()
-        if isinstance(cond_or_singular, str):
+            assert rows == cols, "Negative semidefinite matrix must be square"
+            u, s, _ = jnp.linalg.svd(matrix)
+            if not full_rank:
+                s = s.at[-1].set(0)
+            matrix = -(u * s[None, :].astype(matrix.dtype)) @ u.conj().T
+
+        if cond_cutoff is None or eqxi.unvmap_all(
+            jnp.linalg.cond(matrix) < cond_cutoff
+        ):
             break
-        else:
-            if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_or_singular):  # pyright: ignore
-                break
     return matrix
 
 
-def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
+def construct_matrix(
+    getkey,
+    solver,
+    tags,
+    num=1,
+    *,
+    rows=3,
+    cols=3,
+    full_rank=True,
+    dtype=jnp.float64,
+):
+    """Construct test matrices with specified shape and rank properties.
+
+    Args:
+        getkey: Random key generator
+        solver: Solver instance (used to determine condition cutoff)
+        tags: Matrix tags
+        num: number of examples, the first is the primal and the rest are
+            tangent vectors to primal
+        rows: Number of rows (default 3)
+        cols: Number of columns (default 3)
+        full_rank: If True, construct full-rank matrix. If False, construct
+            rank-deficient matrix with rank min(rows,cols)-1
+        dtype: Data type
+    """
     if isinstance(solver, lx.Normal):
         cond_cutoff = math.sqrt(1000)
     else:
         cond_cutoff = 1000
     return tuple(
-        _construct_matrix_impl(getkey, tags, size, dtype, cond_cutoff, i)
-        for i in range(num)
-    )
-
-
-def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
-    if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
-        singular_method = "zero"
-    else:
-        # Use `getkey()` rather than the stdlib `random.choice` for reproducibility
-        singular_method = ["zero", "trim_row", "trim_col"][
-            jr.choice(getkey(), np.array([0, 1, 2]))
-        ]
-    size = 3
-    return tuple(
-        _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
+        _construct_matrix_impl(
+            getkey,
+            tags,
+            rows,
+            cols,
+            full_rank,
+            dtype,
+            cond_cutoff if full_rank else None,
+            i,
+        )
         for i in range(num)
     )
 
@@ -111,32 +175,55 @@ if jax.config.jax_enable_x64:  # pyright: ignore
     tol = 1e-12
 else:
     tol = 1e-6
-solvers_tags_pseudoinverse = [
-    (lx.AutoLinearSolver(well_posed=True), (), False),
-    (lx.AutoLinearSolver(well_posed=False), (), True),
-    (lx.Triangular(), lx.lower_triangular_tag, False),
-    (lx.Triangular(), lx.upper_triangular_tag, False),
-    (lx.Triangular(), (lx.lower_triangular_tag, lx.unit_diagonal_tag), False),
-    (lx.Triangular(), (lx.upper_triangular_tag, lx.unit_diagonal_tag), False),
-    (lx.Diagonal(), lx.diagonal_tag, False),
-    (lx.Diagonal(), (lx.diagonal_tag, lx.unit_diagonal_tag), False),
-    (lx.Tridiagonal(), lx.tridiagonal_tag, False),
-    (lx.LU(), (), False),
-    (lx.QR(), (), False),
-    (lx.SVD(), (), True),
-    (lx.BiCGStab(rtol=tol, atol=tol), (), False),
-    (lx.GMRES(rtol=tol, atol=tol), (), False),
-    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
-    (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
-    (lx.Normal(lx.CG(rtol=tol, atol=tol)), (), False),
-    (lx.LSMR(atol=tol, rtol=tol), (), True),
-    (lx.Cholesky(), lx.positive_semidefinite_tag, False),
-    (lx.Cholesky(), lx.negative_semidefinite_tag, False),
-    (lx.Normal(lx.Cholesky()), (), False),
+
+
+# Each entry: (solver, tags, nonsquare, rank_deficient)
+# - nonsquare: True if solver supports nonsquare (rectangular) matrices
+# - rank_deficient: True if solver supports rank-deficient matrices
+solver_features = [
+    (lx.AutoLinearSolver(well_posed=True), (), False, False),
+    (lx.AutoLinearSolver(well_posed=None), (), True, False),
+    (lx.AutoLinearSolver(well_posed=False), (), True, True),
+    (lx.Triangular(), lx.lower_triangular_tag, False, False),
+    (lx.Triangular(), lx.upper_triangular_tag, False, False),
+    (
+        lx.Triangular(),
+        (lx.lower_triangular_tag, lx.unit_diagonal_tag),
+        False,
+        False,
+    ),
+    (
+        lx.Triangular(),
+        (lx.upper_triangular_tag, lx.unit_diagonal_tag),
+        False,
+        False,
+    ),
+    (lx.Diagonal(), lx.diagonal_tag, False, False),
+    (lx.Diagonal(), (lx.diagonal_tag, lx.unit_diagonal_tag), False, False),
+    (lx.Tridiagonal(), lx.tridiagonal_tag, False, False),
+    (lx.LU(), (), False, False),
+    (lx.QR(), (), True, False),
+    (lx.SVD(), (), True, True),
+    (lx.BiCGStab(rtol=tol, atol=tol), (), False, False),
+    (lx.GMRES(rtol=tol, atol=tol), (), False, False),
+    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False, False),
+    (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False, False),
+    (lx.Normal(lx.CG(rtol=tol, atol=tol)), (), True, False),
+    (lx.LSMR(atol=tol, rtol=tol), (), True, True),
+    (lx.Cholesky(), lx.positive_semidefinite_tag, False, False),
+    (lx.Cholesky(), lx.negative_semidefinite_tag, False, False),
+    (lx.Normal(lx.Cholesky()), (), True, False),
 ]
-solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
-solvers = [a for a, _, _ in solvers_tags_pseudoinverse]
-pseudosolvers_tags = [(a, b) for a, b, c in solvers_tags_pseudoinverse if c]
+
+
+def all_test_cases():
+    for solver, tags, nonsquare, rank_deficient in solver_features:
+        for rows, cols in [(3, 3), (2, 3), (3, 2)] if nonsquare else [(3, 3)]:
+            # One need not restrict to square below. Do just for test speed
+            for fullrank in (
+                [True, False] if rank_deficient and rows == cols else [True]
+            ):
+                yield (solver, tags, rows, cols, fullrank)
 
 
 def _transpose(operator, matrix):
@@ -154,10 +241,10 @@ def _materialise(operator, matrix):
 ops = (lambda x, y: (x, y), _transpose, _linearise, _materialise)
 
 
-def params(only_pseudo):
+def params(only_rank_deficient):
     for make_operator in make_operators:
-        for solver, tags, pseudoinverse in solvers_tags_pseudoinverse:
-            if only_pseudo and not pseudoinverse:
+        for solver, tags, nonsquare, rank_deficient in solver_features:
+            if only_rank_deficient and not rank_deficient:
                 continue
             if (
                 make_operator is make_trivial_diagonal_operator
@@ -334,6 +421,117 @@ def make_composed_operator(getkey, matrix, tags):
     return lx.TaggedLinearOperator(operator1 @ operator2, tags)
 
 
+# Nearest rank r factorization via Eckart-Young-Mirsky + IFT.
+# Computes B, C so that Ahat = B @ C where the inner dimension is r,
+# C[:,:r] = I_r, and |A - Ahat|_F is smallest.
+# The JVP is defined via the implicit function theorem applied to the
+# stationarity conditions of the Frobenius-norm minimization on the free
+# variables of C (B obtained by linear least squares).
+# This is smooth in a neighborhood of any A where s_r is separated from
+# s_{r+1} and A[:,:r] is full rank
+def Ahat_factor(A, r):
+    @jax.custom_jvp
+    def Cfree(A):
+        # Use the Eckart-Young-Mirsky theorem and normalize. We must not
+        # differentiate through this, so we define custom_jvp
+        u, s, vh = jnp.linalg.svd(A, full_matrices=False)
+        C = vh[:r, :]
+        Cfree = jnp.linalg.solve(C[:, :r], C[:, r:])
+        return Cfree
+
+    @Cfree.defjvp
+    def Cfree_jvp(primals, tangents):
+        # obtain derivatives by the implicit function theorem applied to the
+        # conditions defining Cfree. Everything here must be differentiable
+        # in order for higher derivatives to be defined: Cfree is obtained
+        # recursively and everything else is obtained with autodifferentiable
+        # functions.
+        (A,) = primals
+        (A_t,) = tangents
+        Cf = Cfree(A)
+        a, b = Cf.shape
+
+        # Cf is defined by this quantity being minimized in the L2 sense.
+        def minimized(A, Cfree):
+            C = jnp.hstack([jnp.eye(r, dtype=A.dtype), Cfree])
+            # B = lstsq(C.T, A.T).T
+            B = jnp.linalg.solve(C.conj() @ C.T, C.conj() @ A.T).T
+            E = A - B @ C
+            return jnp.real(jnp.sum(E.conj() * E))
+
+        # equations obtained from critical points of the minimized function
+        def stationary_eq(A, Cfree):
+            return jax.grad(minimized, argnums=[1])(A, Cfree)[0]
+
+        # implicit function theorem
+        eq_t = jax.jvp(lambda a: stationary_eq(a, Cf), (A,), (A_t,))[1]
+        if jnp.issubdtype(A.dtype, jnp.complexfloating):
+            toreal = lambda z: jnp.stack([jnp.real(z), jnp.imag(z)])
+            tocx = lambda x: jax.lax.complex(x[0], x[1])
+            JCf = jax.jacfwd(lambda cfree: toreal(stationary_eq(A, tocx(cfree))))(
+                toreal(Cf)
+            )
+            Cf_t = -tocx(
+                jnp.linalg.solve(
+                    JCf.reshape(2 * a * b, 2 * a * b), toreal(eq_t).reshape(2 * a * b)
+                ).reshape(2, a, b)
+            )
+        else:
+            JCf = jax.jacfwd(lambda cfree: stationary_eq(A, cfree))(Cf)
+            Cf_t = -jnp.linalg.solve(
+                JCf.reshape(a * b, a * b), eq_t.reshape(a * b)
+            ).reshape(a, b)
+
+        return Cf, Cf_t
+
+    # if A is wide, we transpose so our IFT solve through Cfree is as small as possible
+    transpose = A.shape[0] < A.shape[1]
+    if transpose:
+        A = A.T
+    Cf = Cfree(A)
+    C = jnp.hstack([jnp.eye(r, dtype=A.dtype), Cf])
+    # B = lstsq(C.T, A.T).T
+    B = jnp.linalg.solve(C.conj() @ C.T, C.conj() @ A.T).T
+    if transpose:
+        return C.T, B.T
+    else:
+        return B, C
+
+
+# Nearest rank r matrix to A, smoothly defined in a neighborhood of any A for
+# which s_r is separated from s_{r+1}
+def Ahat(A, r):
+    if r == min(A.shape):
+        return A
+    else:
+        B, C = Ahat_factor(A, r)
+        return B @ C
+
+
+# jnp.linalg.lstsq with correct derivatives at rank-deficient points.
+# Explicitly, we pass r and define the following function infinitely
+# differentiably: Pick the nearest rank r matrix Ahat to A in the Frobenius
+# This is the most principled choice of smooth extension out of the rank r
+# locus and agrees with the classical derivative formula for the pseudoinverse
+# implemented by lineax.
+def jnp_lstsq(A, v, r):
+    if r == min(A.shape):
+        if A.shape[0] == A.shape[1]:
+            return jnp.linalg.solve(A, v)
+        elif A.shape[0] > A.shape[1]:
+            return jnp.linalg.solve(A.conj().T @ A, A.conj().T @ v)
+        else:
+            return A.conj().T @ jnp.linalg.solve(A @ A.conj().T, v)
+    else:
+        # We compute lstsq(B @ C, v) as lstsq(C, lstsq(B, v)), but use solve with
+        # the normal equations to avoid implicitly differentiating through an svd
+        # solve
+        B, C = Ahat_factor(A, r)
+        y = jnp.linalg.solve(B.conj().T @ B, B.conj().T @ v)
+        x = C.conj().T @ jnp.linalg.solve(C @ C.conj().T, y)
+        return x
+
+
 # Slightly sketchy approach to finite differences, in that this is pulled out of
 # Numerical Recipes.
 # I also don't know of a handling of the JVP case off the top of my head -- although
@@ -353,174 +551,170 @@ def finite_difference_jvp(fn, primals, tangents):
 
 
 def jvp_jvp_impl(
-    getkey, solver, tags, pseudoinverse, make_operator, use_state, make_matrix, dtype
+    getkey,
+    solver,
+    tags,
+    make_operator,
+    use_state,
+    rows,
+    cols,
+    full_rank,
+    dtype,
 ):
     t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
-    if (make_matrix is construct_matrix) or pseudoinverse:
-        matrix, t_matrix, tt_matrix, tt_t_matrix = construct_matrix(
-            getkey, solver, tags, num=4, dtype=dtype
-        )
+    matrix, t_matrix, tt_matrix, tt_t_matrix = construct_matrix(
+        getkey,
+        solver,
+        tags,
+        num=4,
+        dtype=dtype,
+        rows=rows,
+        cols=cols,
+        full_rank=full_rank,
+    )
 
-        make_op = ft.partial(make_operator, getkey)
-        t_make_operator = lambda p, t_p: eqx.filter_jvp(
-            make_op, (p, tags), (t_p, t_tags)
-        )
-        tt_make_operator = lambda p, t_p, tt_p, tt_t_p: eqx.filter_jvp(
-            t_make_operator, (p, t_p), (tt_p, tt_t_p)
-        )
-        (operator, t_operator), (tt_operator, tt_t_operator) = tt_make_operator(
-            matrix, t_matrix, tt_matrix, tt_t_matrix
-        )
+    make_op = ft.partial(make_operator, getkey)
+    t_make_operator = lambda p, t_p: eqx.filter_jvp(make_op, (p, tags), (t_p, t_tags))
+    tt_make_operator = lambda p, t_p, tt_p, tt_t_p: eqx.filter_jvp(
+        t_make_operator, (p, t_p), (tt_p, tt_t_p)
+    )
+    (operator, t_operator), (tt_operator, tt_t_operator) = tt_make_operator(
+        matrix, t_matrix, tt_matrix, tt_t_matrix
+    )
 
-        out_size, _ = matrix.shape
-        vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-        t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-        tt_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-        tt_t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    out_size, _ = matrix.shape
+    vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    tt_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    tt_t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
-        if use_state:
+    if use_state:
 
-            def linear_solve1(operator, vector):
-                op_dynamic, op_static = eqx.partition(operator, eqx.is_inexact_array)
-                stopped_operator = eqx.combine(lax.stop_gradient(op_dynamic), op_static)
-                state = solver.init(stopped_operator, options={})
+        def linear_solve1(operator, vector):
+            op_dynamic, op_static = eqx.partition(operator, eqx.is_inexact_array)
+            stopped_operator = eqx.combine(lax.stop_gradient(op_dynamic), op_static)
+            state = solver.init(stopped_operator, options={})
 
-                sol = lx.linear_solve(operator, vector, state=state, solver=solver)
-                return sol.value
+            sol = lx.linear_solve(operator, vector, state=state, solver=solver)
+            return sol.value
 
+    else:
+
+        def linear_solve1(operator, vector):
+            sol = lx.linear_solve(operator, vector, solver=solver)
+            return sol.value
+
+    if full_rank and rows == cols:
+        jnp_solve1 = jnp.linalg.solve  # pyright: ignore
+    else:
+        r = min(rows, cols) if full_rank else min(rows, cols) - 1
+        jnp_solve1 = lambda mat, vec: jnp_lstsq(mat, vec, r)
+
+    linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
+    jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
+
+    jnp_primals = (matrix, vec, t_matrix, t_vec)
+
+    def _make_primal_tangents(mode):
+        lx_primals = []
+        lx_tangents = []
+        jnp_tangents = []
+        if "op" in mode:
+            lx_primals.append(operator)
+            lx_tangents.append(tt_operator)
+            jnp_tangents.append(tt_matrix)
         else:
-
-            def linear_solve1(operator, vector):
-                sol = lx.linear_solve(operator, vector, solver=solver)
-                return sol.value
-
-        if pseudoinverse:
-            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
+            jnp_tangents.append(jnp.zeros_like(tt_matrix))
+        if "vec" in mode:
+            lx_primals.append(vec)
+            lx_tangents.append(tt_vec)
+            jnp_tangents.append(tt_vec)
         else:
-            jnp_solve1 = jnp.linalg.solve  # pyright: ignore
+            jnp_tangents.append(jnp.zeros_like(tt_vec))
+        if "t_op" in mode:
+            lx_primals.append(t_operator)
+            lx_tangents.append(tt_t_operator)
+            jnp_tangents.append(tt_t_matrix)
+        else:
+            jnp_tangents.append(jnp.zeros_like(tt_t_matrix))
+        if "t_vec" in mode:
+            lx_primals.append(t_vec)
+            lx_tangents.append(tt_t_vec)
+            jnp_tangents.append(tt_t_vec)
+        else:
+            jnp_tangents.append(jnp.zeros_like(tt_t_vec))
 
-        linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
-        jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
+        lx_out = tuple(lx_primals), tuple(lx_tangents)
+        jnp_out = jnp_primals, tuple(jnp_tangents)
+        return lx_out, jnp_out
 
-        def _make_primal_tangents(mode):
-            lx_args = ([], [], operator, t_operator, tt_operator, tt_t_operator)
-            jnp_args = ([], [], matrix, t_matrix, tt_matrix, tt_t_matrix)
-            for primals, ttangents, op, t_op, tt_op, tt_t_op in (lx_args, jnp_args):
-                if "op" in mode:
-                    primals.append(op)
-                    ttangents.append(tt_op)
-                if "vec" in mode:
-                    primals.append(vec)
-                    ttangents.append(tt_vec)
-                if "t_op" in mode:
-                    primals.append(t_op)
-                    ttangents.append(tt_t_op)
-                if "t_vec" in mode:
-                    primals.append(t_vec)
-                    ttangents.append(tt_t_vec)
-            lx_out = tuple(lx_args[0]), tuple(lx_args[1])
-            jnp_out = tuple(jnp_args[0]), tuple(jnp_args[1])
-            return lx_out, jnp_out
-
-        modes = (
-            {"op"},
-            {"vec"},
-            {"t_op"},
-            {"t_vec"},
-            {"op", "vec"},
-            {"op", "t_op"},
-            {"op", "t_vec"},
-            {"vec", "t_op"},
-            {"vec", "t_vec"},
-            {"op", "vec", "t_op"},
-            {"op", "vec", "t_vec"},
-            {"vec", "t_op", "t_vec"},
-            {"op", "vec", "t_op", "t_vec"},
-        )
-        for mode in modes:
-            if mode == {"op"}:
-                linear_solve3 = lambda op: linear_solve2((op, vec), (t_operator, t_vec))
-                jnp_solve3 = lambda mat: jnp_solve2((mat, vec), (t_matrix, t_vec))
-            elif mode == {"vec"}:
-                linear_solve3 = lambda v: linear_solve2(
-                    (operator, v), (t_operator, t_vec)
-                )
-                jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
-            elif mode == {"op", "vec"}:
-                linear_solve3 = lambda op, v: linear_solve2(
-                    (op, v), (t_operator, t_vec)
-                )
-                jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
-            elif mode == {"t_op"}:
-                linear_solve3 = lambda t_op: linear_solve2(
-                    (operator, vec), (t_op, t_vec)
-                )
-                jnp_solve3 = lambda t_mat: jnp_solve2((matrix, vec), (t_mat, t_vec))
-            elif mode == {"t_vec"}:
-                linear_solve3 = lambda t_v: linear_solve2(
-                    (operator, vec), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda t_v: jnp_solve2((matrix, vec), (t_matrix, t_v))
-            elif mode == {"op", "vec"}:
-                linear_solve3 = lambda op, v: linear_solve2(
-                    (op, v), (t_operator, t_vec)
-                )
-                jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
-            elif mode == {"op", "t_op"}:
-                linear_solve3 = lambda op, t_op: linear_solve2((op, vec), (t_op, t_vec))
-                jnp_solve3 = lambda mat, t_mat: jnp_solve2((mat, vec), (t_mat, t_vec))
-            elif mode == {"op", "t_vec"}:
-                linear_solve3 = lambda op, t_v: linear_solve2(
-                    (op, vec), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda mat, t_v: jnp_solve2((mat, vec), (t_matrix, t_v))
-            elif mode == {"vec", "t_op"}:
-                linear_solve3 = lambda v, t_op: linear_solve2(
-                    (operator, v), (t_op, t_vec)
-                )
-                jnp_solve3 = lambda v, t_mat: jnp_solve2((matrix, v), (t_mat, t_vec))
-            elif mode == {"vec", "t_vec"}:
-                linear_solve3 = lambda v, t_v: linear_solve2(
-                    (operator, v), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda v, t_v: jnp_solve2((matrix, v), (t_matrix, t_v))
-            elif mode == {"op", "vec", "t_op"}:
-                linear_solve3 = lambda op, v, t_op: linear_solve2(
-                    (op, v), (t_op, t_vec)
-                )
-                jnp_solve3 = lambda mat, v, t_mat: jnp_solve2((mat, v), (t_mat, t_vec))
-            elif mode == {"op", "vec", "t_vec"}:
-                linear_solve3 = lambda op, v, t_v: linear_solve2(
-                    (op, v), (t_operator, t_v)
-                )
-                jnp_solve3 = lambda mat, v, t_v: jnp_solve2((mat, v), (t_matrix, t_v))
-            elif mode == {"vec", "t_op", "t_vec"}:
-                linear_solve3 = lambda v, t_op, t_v: linear_solve2(
-                    (operator, v), (t_op, t_v)
-                )
-                jnp_solve3 = lambda v, t_mat, t_v: jnp_solve2((matrix, v), (t_mat, t_v))
-            elif mode == {"op", "vec", "t_op", "t_vec"}:
-                linear_solve3 = lambda op, v, t_op, t_v: linear_solve2(
-                    (op, v), (t_op, t_v)
-                )
-                jnp_solve3 = lambda mat, v, t_mat, t_v: jnp_solve2(
-                    (mat, v), (t_mat, t_v)
-                )
-            else:
-                assert False
-
-            linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
-            linear_solve3 = eqx.filter_jit(linear_solve3)
-            jnp_solve3 = ft.partial(eqx.filter_jvp, jnp_solve3)
-            jnp_solve3 = eqx.filter_jit(jnp_solve3)
-
-            (primal, tangent), (jnp_primal, jnp_tangent) = _make_primal_tangents(mode)
-            (out, t_out), (minus_out, tt_out) = linear_solve3(primal, tangent)
-            (true_out, true_t_out), (minus_true_out, true_tt_out) = jnp_solve3(
-                jnp_primal, jnp_tangent
+    modes = (
+        {"op"},
+        {"vec"},
+        {"t_op"},
+        {"t_vec"},
+        {"op", "vec"},
+        {"op", "t_op"},
+        {"op", "t_vec"},
+        {"vec", "t_op"},
+        {"vec", "t_vec"},
+        {"op", "vec", "t_op"},
+        {"op", "vec", "t_vec"},
+        {"vec", "t_op", "t_vec"},
+        {"op", "vec", "t_op", "t_vec"},
+    )
+    jnp_solve3 = ft.partial(
+        eqx.filter_jvp, lambda op, v, t_op, t_v: jnp_solve2((op, v), (t_op, t_v))
+    )
+    jnp_solve3 = eqx.filter_jit(jnp_solve3)
+    for mode in modes:
+        if mode == {"op"}:
+            linear_solve3 = lambda op: linear_solve2((op, vec), (t_operator, t_vec))
+        elif mode == {"vec"}:
+            linear_solve3 = lambda v: linear_solve2((operator, v), (t_operator, t_vec))
+        elif mode == {"op", "vec"}:
+            linear_solve3 = lambda op, v: linear_solve2((op, v), (t_operator, t_vec))
+        elif mode == {"t_op"}:
+            linear_solve3 = lambda t_op: linear_solve2((operator, vec), (t_op, t_vec))
+        elif mode == {"t_vec"}:
+            linear_solve3 = lambda t_v: linear_solve2(
+                (operator, vec), (t_operator, t_v)
             )
+        elif mode == {"op", "t_op"}:
+            linear_solve3 = lambda op, t_op: linear_solve2((op, vec), (t_op, t_vec))
+        elif mode == {"op", "t_vec"}:
+            linear_solve3 = lambda op, t_v: linear_solve2((op, vec), (t_operator, t_v))
+        elif mode == {"vec", "t_op"}:
+            linear_solve3 = lambda v, t_op: linear_solve2((operator, v), (t_op, t_vec))
+        elif mode == {"vec", "t_vec"}:
+            linear_solve3 = lambda v, t_v: linear_solve2(
+                (operator, v), (t_operator, t_v)
+            )
+        elif mode == {"op", "vec", "t_op"}:
+            linear_solve3 = lambda op, v, t_op: linear_solve2((op, v), (t_op, t_vec))
+        elif mode == {"op", "vec", "t_vec"}:
+            linear_solve3 = lambda op, v, t_v: linear_solve2((op, v), (t_operator, t_v))
+        elif mode == {"vec", "t_op", "t_vec"}:
+            linear_solve3 = lambda v, t_op, t_v: linear_solve2(
+                (operator, v), (t_op, t_v)
+            )
+        elif mode == {"op", "vec", "t_op", "t_vec"}:
+            linear_solve3 = lambda op, v, t_op, t_v: linear_solve2((op, v), (t_op, t_v))
+        else:
+            assert False
 
-            assert tree_allclose(out, true_out, atol=1e-4)
-            assert tree_allclose(t_out, true_t_out, atol=1e-4)
-            assert tree_allclose(tt_out, true_tt_out, atol=1e-4)
-            assert tree_allclose(minus_out, minus_true_out, atol=1e-4)
+        linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
+        linear_solve3 = eqx.filter_jit(linear_solve3)
+
+        (primal, tangent), (jnp_primal, jnp_tangent) = _make_primal_tangents(mode)
+        (out, t_out), (minus_out, tt_out) = linear_solve3(primal, tangent)
+        (true_out, true_t_out), (minus_true_out, true_tt_out) = jnp_solve3(
+            jnp_primal, jnp_tangent
+        )
+
+        assert tree_allclose(eqx.combine(out, true_out), true_out, atol=1e-4)
+        assert tree_allclose(eqx.combine(t_out, true_t_out), true_t_out, atol=1e-4)
+        assert tree_allclose(eqx.combine(tt_out, true_tt_out), true_tt_out, atol=1e-4)
+        assert tree_allclose(
+            eqx.combine(minus_out, minus_true_out), minus_true_out, atol=1e-4
+        )
