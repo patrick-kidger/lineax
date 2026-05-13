@@ -34,7 +34,7 @@ from jaxtyping import (
     ArrayLike,
     Inexact,
     PyTree,  # pyright: ignore
-    Scalar,
+    ScalarLike,
     Shaped,
 )
 
@@ -208,8 +208,7 @@ class AbstractLinearOperator(eqx.Module):
         return AddLinearOperator(self, -other)
 
     def __mul__(self, other) -> "AbstractLinearOperator":
-        other = jnp.asarray(other)
-        if other.shape != ():
+        if np.ndim(other) != 0:
             raise ValueError("Can only multiply AbstractLinearOperators by scalars.")
         return MulLinearOperator(self, other)
 
@@ -222,8 +221,7 @@ class AbstractLinearOperator(eqx.Module):
         return ComposedLinearOperator(self, other)
 
     def __truediv__(self, other) -> "AbstractLinearOperator":
-        other = jnp.asarray(other)
-        if other.shape != ():
+        if np.ndim(other) != 0:
             raise ValueError("Can only divide AbstractLinearOperators by scalars.")
         return DivLinearOperator(self, other)
 
@@ -1043,7 +1041,7 @@ class MulLinearOperator(AbstractLinearOperator):
     """
 
     operator: AbstractLinearOperator
-    scalar: Scalar
+    scalar: ScalarLike
 
     def mv(self, vector):
         return (self.operator.mv(vector) ** ω * self.scalar).ω
@@ -1105,7 +1103,7 @@ class DivLinearOperator(AbstractLinearOperator):
     """
 
     operator: AbstractLinearOperator
-    scalar: Scalar
+    scalar: ScalarLike
 
     def mv(self, vector):
         with jax.numpy_dtype_promotion("standard"):
@@ -2119,12 +2117,20 @@ for check in (
         return check(operator.operator)
 
 
-# has_unit_diagonal is NOT preserved by scaling or negation
-@has_unit_diagonal.register(MulLinearOperator)
+# has_unit_diagonal is NOT preserved by negation
 @has_unit_diagonal.register(NegLinearOperator)
-@has_unit_diagonal.register(DivLinearOperator)
 def _(operator):
     return False
+
+
+# has_unit_diagonal is preserved by scaling/dividing only when scalar == 1
+@has_unit_diagonal.register(MulLinearOperator)
+@has_unit_diagonal.register(DivLinearOperator)
+def _(operator):
+    scalar = operator.scalar
+    if not isinstance(scalar, (int, float, np.ndarray, np.generic)):
+        return False
+    return float(scalar) == 1.0 and has_unit_diagonal(operator.operator)
 
 
 class _ScalarSign(enum.Enum):
@@ -2369,9 +2375,15 @@ def _(operator):
     return conj(operator.operator1) + conj(operator.operator2)
 
 
+def _scalar_conj(scalar):
+    if isinstance(scalar, (int, float, np.ndarray, np.generic)):
+        return np.conj(scalar)
+    return jnp.conj(scalar)
+
+
 @conj.register(MulLinearOperator)
 def _(operator):
-    return conj(operator.operator) * operator.scalar.conj()
+    return conj(operator.operator) * _scalar_conj(operator.scalar)
 
 
 @conj.register(NegLinearOperator)
@@ -2381,7 +2393,7 @@ def _(operator):
 
 @conj.register(DivLinearOperator)
 def _(operator):
-    return conj(operator.operator) / operator.scalar.conj()
+    return conj(operator.operator) / _scalar_conj(operator.scalar)
 
 
 @conj.register(ComposedLinearOperator)
