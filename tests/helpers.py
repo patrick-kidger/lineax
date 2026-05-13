@@ -309,18 +309,62 @@ def make_tridiagonal_operator(getkey, matrix, tags):
 
 
 @_operators_append
+def make_neg_operator(getkey, matrix, tags):
+    negated_tags = ()
+    if tags == lx.negative_semidefinite_tag:
+        tags = ()
+        negated_tags = lx.positive_semidefinite_tag
+    if tags == lx.positive_semidefinite_tag:
+        tags = ()
+        negated_tags = lx.negative_semidefinite_tag
+    return lx.TaggedLinearOperator(
+        -make_matrix_operator(getkey, -matrix, negated_tags), tags
+    )
+
+
+# tags that should be preserved under add and (POSITIVE) sclar mul/div
+PRESERVED_TAGS = {
+    lx.diagonal_tag,
+    lx.diagonal_tag,
+    lx.symmetric_tag,
+    lx.upper_triangular_tag,
+    lx.lower_triangular_tag,
+    lx.negative_semidefinite_tag,
+    lx.positive_semidefinite_tag,
+}
+
+
+@_operators_append
 def make_add_operator(getkey, matrix, tags):
+    preserved = ()
+    if tags in PRESERVED_TAGS:
+        preserved = tags
+        tags = ()
     matrix1 = 0.7 * matrix
     matrix2 = 0.3 * matrix
-    operator = make_matrix_operator(getkey, matrix1, ()) + make_function_operator(
-        getkey, matrix2, ()
-    )
+    operator = make_matrix_operator(
+        getkey, matrix1, preserved
+    ) + make_function_operator(getkey, matrix2, preserved)
+    return lx.TaggedLinearOperator(operator, tags)
+
+
+@_operators_append
+def make_div_operator(getkey, matrix, tags):
+    preserved = ()
+    if tags in PRESERVED_TAGS:
+        preserved = tags
+        tags = ()
+    operator = make_jac_operator(getkey, 0.7 * matrix, preserved) / 0.7
     return lx.TaggedLinearOperator(operator, tags)
 
 
 @_operators_append
 def make_mul_operator(getkey, matrix, tags):
-    operator = make_jac_operator(getkey, 0.7 * matrix, ()) / 0.7
+    preserved = ()
+    if tags in PRESERVED_TAGS:
+        preserved = tags
+        tags = ()
+    operator = make_jac_operator(getkey, 0.5 * matrix, preserved) * 2
     return lx.TaggedLinearOperator(operator, tags)
 
 
