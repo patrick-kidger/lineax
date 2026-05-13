@@ -2376,7 +2376,14 @@ def _(operator):
 
 
 def _scalar_conj(scalar):
-    if isinstance(scalar, (int, float, np.ndarray, np.generic)):
+    # Preserve Python scalar types so that weak-typed Python ints/floats
+    # don't get promoted to numpy generics (which equinox treats as arrays
+    # and thus become strong-typed JAX tracers under strict dtype promotion).
+    if isinstance(scalar, (int, float)):
+        return scalar
+    if isinstance(scalar, complex):
+        return scalar.conjugate()
+    if isinstance(scalar, (np.ndarray, np.generic)):
         return np.conj(scalar)
     return jnp.conj(scalar)
 
