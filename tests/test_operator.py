@@ -133,10 +133,13 @@ def _assert_except_diag(cond_fun, operators, flip_cond):
         _cond_fun = cond_fun
         cond_fun = lambda x: not _cond_fun(x)
     for operator in operators:
+        jitted_identity = eqx.filter_jit(lambda x: x)
         if isinstance(operator, lx.DiagonalLinearOperator):
             assert not cond_fun(operator)
+            assert not cond_fun(jitted_identity(operator))
         else:
             assert cond_fun(operator)
+            assert cond_fun(jitted_identity(operator))
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -283,6 +286,9 @@ def test_has_unit_diagonal(dtype, getkey):
     matrix_unit_diag = matrix.at[jnp.arange(3), jnp.arange(3)].set(1)
     unit_diagonal = _setup(getkey, matrix_unit_diag, lx.unit_diagonal_tag)
     _assert_except_diag(lx.has_unit_diagonal, unit_diagonal, flip_cond=False)
+    assert not lx.has_unit_diagonal(
+        2 * lx.MatrixLinearOperator(matrix, tags=lx.unit_diagonal_tag)
+    )
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
