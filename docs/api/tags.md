@@ -74,7 +74,7 @@ Marks that an operator is symmetric. (As a matrix, $A = A^\intercal$.)
 
 ::: lineax.diagonal_tag
 
-Marks than an operator is diagonal. (As a matrix, it must have zeros in the off-diagonal entries.)
+Marks that an operator is diagonal. (As a matrix, it must have zeros in the off-diagonal entries.)
 
 For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Diagonal`][] as the solver.
 
@@ -82,7 +82,7 @@ For example, the default solver for [`lineax.linear_solve`][] uses this to dispa
 
 ::: lineax.unit_diagonal_tag
 
-Marks than an operator has $1$ for every diagonal element. (As a matrix $A$, then it must have $A_{ii} = 1$ for all $i$.) Note that the whole matrix need not be diagonal.
+Marks that an operator has $1$ for every diagonal element. (As a matrix $A$, then it must have $A_{ii} = 1$ for all $i$.) Note that the whole matrix need not be diagonal.
 
 For example, [`lineax.Triangular`][] uses this to cheapen its solve.
 
@@ -106,7 +106,7 @@ For example, the default solver for [`lineax.linear_solve`][] uses this to dispa
 
 ::: lineax.positive_semidefinite_tag
 
-Marks than operator is positive **semidefinite**.
+Marks that an operator is positive **semidefinite**.
 
 For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Cholesky`][] as the solver.
 
@@ -114,6 +114,6 @@ For example, the default solver for [`lineax.linear_solve`][] uses this to dispa
 
 ::: lineax.negative_semidefinite_tag
 
-Marks than operator is negative **semidefinite**.
+Marks that an operator is negative **semidefinite**.
 
 For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Cholesky`][] as the solver.
