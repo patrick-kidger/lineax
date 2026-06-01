@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 from typing import TYPE_CHECKING
 
 
@@ -35,6 +36,35 @@ lower_triangular_tag = _HasRepr("lower_triangular_tag")
 upper_triangular_tag = _HasRepr("upper_triangular_tag")
 positive_semidefinite_tag = _HasRepr("positive_semidefinite_tag")
 negative_semidefinite_tag = _HasRepr("negative_semidefinite_tag")
+
+
+@dataclasses.dataclass(frozen=True)
+class MaxRankTag:
+    """A tag declaring that a linear operator has rank at most `value`.
+
+    Unlike the boolean presence/absence tags (e.g. :data:`symmetric_tag`),
+    `MaxRankTag` carries an integer payload.  It is stored in the same
+    `frozenset[object]` tag field, relying on the frozen-dataclass
+    `__hash__` / `__eq__` so that `MaxRankTag(5) == MaxRankTag(5)`
+    (idempotent in a frozenset) while `MaxRankTag(5) != MaxRankTag(3)`.
+
+    `value = 0` is valid and represents the zero operator.
+
+    **Arguments:**
+
+    - `value`: non-negative integer upper bound on the rank.
+    """
+
+    value: int
+
+    def __post_init__(self):
+        if not isinstance(self.value, int) or self.value < 0:
+            raise ValueError(
+                f"MaxRankTag.value must be a non-negative integer, got {self.value!r}"
+            )
+
+    def __repr__(self):
+        return f"max_rank_tag({self.value})"
 
 
 def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
@@ -66,9 +96,10 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
         is_symmetric,
         is_tridiagonal,
         is_upper_triangular,
+        max_rank,
     )
 
-    return frozenset(
+    tags: set[object] = {
         tag
         for check, tag in [
             (is_symmetric, symmetric_tag),
@@ -81,7 +112,13 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
             (is_tridiagonal, tridiagonal_tag),
         ]
         if check(operator)
-    )
+    }
+    dim_bound = min(operator.in_size(), operator.out_size())
+    mr = max_rank(operator)
+    # verify that adding a max rank tag wouldn't be redundant
+    if mr < dim_bound:
+        tags.add(MaxRankTag(mr))
+    return frozenset(tags)
 
 
 transpose_tags_rules = []
@@ -112,6 +149,14 @@ def _(tags: frozenset[object]):
 def _(tags: frozenset[object]):
     if upper_triangular_tag in tags:
         return lower_triangular_tag
+
+
+@transpose_tags_rules.append
+def _(tags: frozenset[object]):
+    rank_tags = [t for t in tags if isinstance(t, MaxRankTag)]
+    if rank_tags:
+        # drop redundant tags
+        return min(rank_tags, key=lambda t: t.value)
 
 
 def transpose_tags(tags: frozenset[object]):
@@ -166,6 +211,14 @@ def _(tags: frozenset[object]):
         or upper_triangular_tag in tags
     ):
         return unit_diagonal_tag
+
+
+@invert_tags_rules.append
+def _(tags: frozenset[object]):
+    rank_tags = [t for t in tags if isinstance(t, MaxRankTag)]
+    if rank_tags:
+        # drop redundant tags
+        return min(rank_tags, key=lambda t: t.value)
 
 
 # tridiagonal_tag intentionally absent: inverse of tridiagonal matrix generally dense.

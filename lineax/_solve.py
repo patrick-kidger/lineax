@@ -42,6 +42,7 @@ from ._operator import (
     is_tridiagonal,
     is_upper_triangular,
     linearise,
+    max_rank,
     TangentLinearOperator,
 )
 from ._solution import RESULTS, Solution
@@ -473,6 +474,22 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         """
 
 
+def _check_rank_compat(
+    solver: "AbstractLinearSolver", operator: AbstractLinearOperator
+):
+    if solver.assume_full_rank():
+        dim_bound = min(operator.in_size(), operator.out_size())
+        if max_rank(operator) < dim_bound:
+            raise ValueError(
+                f"Operator is declared to have rank at most {max_rank(operator)}, "
+                f"which is less than its full rank of {dim_bound}. This solver "
+                f"({type(solver).__name__}) assumes the operator is full rank. Use a "
+                "solver with `assume_full_rank() == False` (e.g. "
+                "`AutoLinearSolver(well_posed=False)` or `lineax.SVD()`) to handle "
+                "rank-deficient systems via the pseudoinverse."
+            )
+
+
 _qr_token = eqxi.str2jax("qr_token")
 _diagonal_token = eqxi.str2jax("diagonal_token")
 _well_posed_diagonal_token = eqxi.str2jax("well_posed_diagonal_token")
@@ -776,6 +793,7 @@ def linear_solve(
             stats={},
         )
     if state == sentinel:
+        _check_rank_compat(solver, operator)
         dynamic_operator, static_operator = eqx.partition(operator, eqx.is_array)
         stopped_operator = eqx.combine(
             lax.stop_gradient(dynamic_operator), static_operator
@@ -831,6 +849,7 @@ def invert(
     if options is None:
         options = {}
 
+    _check_rank_compat(solver, operator)
     state = solver.init(operator, options)
 
     def solve_fn(vector):

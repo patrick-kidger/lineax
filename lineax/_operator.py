@@ -48,6 +48,7 @@ from ._misc import (
 from ._tags import (
     diagonal_tag,
     lower_triangular_tag,
+    MaxRankTag,
     negative_semidefinite_tag,
     positive_semidefinite_tag,
     symmetric_tag,
@@ -1929,6 +1930,49 @@ def _(operator):
     return False
 
 
+# max_rank
+
+
+@ft.singledispatch
+def max_rank(operator: AbstractLinearOperator) -> int:
+    """Returns the maximum possible rank of the linear operator.
+
+    Maximum possible rank is inferred from:
+
+    - Shape: `min(out_size, in_size)`
+    - User-provided tags: i.e. `MaxRankTag(r)`
+    - Composition rules: e.g. `max_rank(A @ B) = min(max_rank(A), max_rank(B))`
+
+    The tightest bound is always returned.
+
+    The return value is a plain Python `int` (never a JAX tracer), suitable
+    for use in solver-dispatch control flow.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    A non-negative integer. This is `0` for known zero operators
+    (e.g. multiplication by a static zero scalar).
+    """
+    # Unlike the boolean `is_*` tag-checking functions, this deliberately
+    # does **not** raise `NotImplementedError` for unregistered types.
+    # `min(out_size, in_size)` is a correct (conservative) answer for any
+    # linear operator, so third-party subclasses that do not register a
+    # dispatch still produce a valid result.
+    dim_bound = min(operator.out_size(), operator.in_size())
+    tags = getattr(operator, "tags", ())
+    bounds = [t.value for t in tags if isinstance(t, MaxRankTag)]
+    if bounds:
+        return min(min(bounds), dim_bound)
+    return dim_bound
+
+
+# All public API operators use default max_rank except for TaggedLinearOperator
+
+
 # ops for wrapper operators
 
 
@@ -2094,9 +2138,10 @@ for check in (
     is_tridiagonal,
     is_positive_semidefinite,
     is_negative_semidefinite,
+    max_rank,
 ):
 
-    @check.register(TangentLinearOperator)
+    @check.register(TangentLinearOperator)  # pyright: ignore
     def _(operator, check=check):
         return check(operator.primal)
 
@@ -2213,6 +2258,21 @@ def _(operator):
     return is_positive_semidefinite(operator.operator)
 
 
+# Multiplying an operator by a scalar  preserves its rank
+# unless the scalar is statically known to be zero
+@max_rank.register(MulLinearOperator)
+def _(operator):
+    if _scalar_sign(operator.scalar) is _ScalarSign.zero:
+        return 0
+    return max_rank(operator.operator)
+
+
+@max_rank.register(DivLinearOperator)
+@max_rank.register(NegLinearOperator)
+def _(operator):
+    return max_rank(operator.operator)
+
+
 for check, tag in (
     (is_symmetric, symmetric_tag),
     (is_diagonal, diagonal_tag),
@@ -2227,6 +2287,13 @@ for check, tag in (
     @check.register(TaggedLinearOperator)
     def _(operator, check=check, tag=tag):
         return (tag in operator.tags) or check(operator.operator)
+
+
+@max_rank.register(TaggedLinearOperator)
+def _(operator):
+    inner = max_rank(operator.operator)
+    bounds = [t.value for t in operator.tags if isinstance(t, MaxRankTag)]
+    return min(min(bounds), inner) if bounds else inner
 
 
 for check in (
@@ -2247,6 +2314,14 @@ for check in (
 @has_unit_diagonal.register(AddLinearOperator)
 def _(operator):
     return False
+
+
+@max_rank.register(AddLinearOperator)
+def _(operator):
+    return min(
+        max_rank(operator.operator1) + max_rank(operator.operator2),
+        min(operator.out_size(), operator.in_size()),
+    )
 
 
 # These properties ARE preserved under composition
@@ -2293,6 +2368,11 @@ def _(operator):
     d = has_unit_diagonal(operator.operator1)
     e = has_unit_diagonal(operator.operator2)
     return (a or b or c) and d and e
+
+
+@max_rank.register(ComposedLinearOperator)
+def _(operator):
+    return min(max_rank(operator.operator1), max_rank(operator.operator2))
 
 
 # conj
