@@ -804,6 +804,7 @@ def invert(
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
     options: dict[str, Any] | None = None,
+    state: PyTree[Any] = sentinel,
     throw: bool = True,
 ) -> FunctionLinearOperator:
     r"""Returns a [`lineax.FunctionLinearOperator`][] representing the
@@ -822,6 +823,11 @@ def invert(
     - `solver`: the linear solver to use. Defaults to
         `AutoLinearSolver(well_posed=True)`.
     - `options`: additional options passed to the solver. Defaults to `None`.
+    - `state`: if passed, this should be the state of the solver, as initialised by
+        `solver.init(operator, options)`. This is useful for reusing the result of an
+        already-computed `solver.init` (e.g. a matrix factorisation). If not passed
+        then it will be initialised, with gradients stopped through the operator (as
+        in [`lineax.linear_solve`][]).
     - `throw`: as [`lineax.linear_solve`][]. Defaults to `True`.
 
     **Returns:**
@@ -831,7 +837,12 @@ def invert(
     if options is None:
         options = {}
 
-    state = solver.init(operator, options)
+    if state == sentinel:
+        dynamic_operator, static_operator = eqx.partition(operator, eqx.is_array)
+        stopped_operator = eqx.combine(
+            lax.stop_gradient(dynamic_operator), static_operator
+        )
+        state = solver.init(stopped_operator, options)
 
     def solve_fn(vector):
         return linear_solve(
