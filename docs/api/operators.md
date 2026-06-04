@@ -28,20 +28,6 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
 
 ---
 
-::: lineax.DiagonalLinearOperator
-    options: 
-        members: 
-            - __init__
-
----
-
-::: lineax.TridiagonalLinearOperator
-    options:
-        members:
-            - __init__
-
----
-
 ::: lineax.PyTreeLinearOperator
     options:
         members:
@@ -61,7 +47,9 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
         members:
             - __init__
 
----
+## Structured linear operators
+
+These operators represent matrices with a particular structure, storing only the nonzero entries (for memory efficiency) and using a specialised matrix-vector product (for speed).
 
 ::: lineax.IdentityLinearOperator
     options:
@@ -69,6 +57,22 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
             - __init__
 
 ---
+
+::: lineax.DiagonalLinearOperator
+    options:
+        members:
+            - __init__
+
+---
+
+::: lineax.TridiagonalLinearOperator
+    options:
+        members:
+            - __init__
+
+## Wrapper linear operators
+
+These operators wrap another operator to attach extra information.
 
 ::: lineax.TaggedLinearOperator
     options:
