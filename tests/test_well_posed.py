@@ -23,12 +23,12 @@ from .helpers import (
     make_jacrev_operator,
     ops,
     params,
-    solvers,
+    tol,
     tree_allclose,
 )
 
 
-@pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
+@pytest.mark.parametrize("make_operator,solver,tags", params(only_rank_deficient=False))
 @pytest.mark.parametrize("ops", ops)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
@@ -52,35 +52,46 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
     assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
-@pytest.mark.parametrize("solver", solvers)
+@pytest.mark.parametrize(
+    "solver",
+    (
+        lx.AutoLinearSolver(well_posed=True),
+        lx.AutoLinearSolver(well_posed=None),
+        lx.AutoLinearSolver(well_posed=False),
+        lx.LU(),
+        lx.QR(),
+        lx.SVD(),
+        lx.BiCGStab(rtol=tol, atol=tol),
+        lx.GMRES(rtol=tol, atol=tol),
+        lx.Normal(lx.CG(rtol=tol, atol=tol)),
+        lx.LSMR(atol=tol, rtol=tol),
+        lx.Normal(lx.Cholesky()),
+    ),
+)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_pytree_wellposed(solver, getkey, dtype):
-    if not isinstance(
-        solver,
-        (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Cholesky, lx.CG),
-    ):
-        if jax.config.jax_enable_x64:  # pyright: ignore
-            tol = 1e-10
-        else:
-            tol = 1e-4
+    if jax.config.jax_enable_x64:  # pyright: ignore
+        tol = 1e-10
+    else:
+        tol = 1e-4
 
-        true_x = [
-            jr.normal(getkey(), shape=(2, 4), dtype=dtype),
-            jr.normal(getkey(), (3,), dtype=dtype),
-        ]
-        pytree = [
-            [
-                jr.normal(getkey(), shape=(2, 4, 2, 4), dtype=dtype),
-                jr.normal(getkey(), shape=(2, 4, 3), dtype=dtype),
-            ],
-            [
-                jr.normal(getkey(), shape=(3, 2, 4), dtype=dtype),
-                jr.normal(getkey(), shape=(3, 3), dtype=dtype),
-            ],
-        ]
-        out_structure = jax.eval_shape(lambda: true_x)
+    true_x = [
+        jr.normal(getkey(), shape=(2, 4), dtype=dtype),
+        jr.normal(getkey(), (3,), dtype=dtype),
+    ]
+    pytree = [
+        [
+            jr.normal(getkey(), shape=(2, 4, 2, 4), dtype=dtype),
+            jr.normal(getkey(), shape=(2, 4, 3), dtype=dtype),
+        ],
+        [
+            jr.normal(getkey(), shape=(3, 2, 4), dtype=dtype),
+            jr.normal(getkey(), shape=(3, 3), dtype=dtype),
+        ],
+    ]
+    out_structure = jax.eval_shape(lambda: true_x)
 
-        operator = lx.PyTreeLinearOperator(pytree, out_structure)
-        b = operator.mv(true_x)
-        lx_x = lx.linear_solve(operator, b, solver, throw=False)
-        assert tree_allclose(lx_x.value, true_x, atol=tol, rtol=tol)
+    operator = lx.PyTreeLinearOperator(pytree, out_structure)
+    b = operator.mv(true_x)
+    lx_x = lx.linear_solve(operator, b, solver, throw=False)
+    assert tree_allclose(lx_x.value, true_x, atol=tol, rtol=tol)
