@@ -14,13 +14,14 @@
 
 from typing import Any, TypeAlias
 
+import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
 from .._misc import resolve_rcond
-from .._operator import AbstractLinearOperator
+from .._operator import AbstractLinearOperator, max_rank
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 from .misc import (
@@ -48,9 +49,36 @@ class SVD(AbstractLinearSolver[_SVDState]):
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
-        svd = jsp.linalg.svd(operator.as_matrix(), full_matrices=False)
+        u, s, vt = jsp.linalg.svd(operator.as_matrix(), full_matrices=False)
+        # If the operator is known to have rank at most `r`, the trailing
+        # singular values are mathematically zero, so statically truncate to the
+        # leading `r` components.
+        r = max_rank(operator)
+        if r < s.shape[0]:
+            # `compute` masks out `s_i <= rcond * s[0]`, so dropping the tail is
+            # lossless iff it all sits below that floor (using the same rcond).
+            # Otherwise the `max_rank` claim is false and truncating would change
+            # the solution. `s` is descending, so testing the largest discarded
+            # value `s[r]` certifies the tail.
+            m, n = u.shape[0], vt.shape[1]
+            # s.size > 0 since r < size
+            rcond = resolve_rcond(self.rcond, n, m, s.dtype) * s[0]
+            s = eqx.error_if(
+                s,
+                s[r] > rcond,
+                "lineax.SVD: the operator was declared (via a `MaxRankTag`, or by "
+                f"composition rules) to have rank at most {r}, but it has a singular "
+                "value above the rcond threshold beyond that rank. Truncating to the "
+                "declared rank would change the solution, so the rank claim appears to "
+                "be incorrect. Remove/loosen the rank tag, increase `rcond` if you "
+                "intend a low-rank approximation, or set `EQX_ON_ERROR=off` to skip "
+                "this check.",
+            )
+            u = u[:, :r]
+            s = s[:r]
+            vt = vt[:r, :]
         packed_structures = pack_structures(operator)
-        return svd, packed_structures
+        return (u, s, vt), packed_structures
 
     def compute(
         self,

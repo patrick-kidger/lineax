@@ -40,31 +40,68 @@ negative_semidefinite_tag = _HasRepr("negative_semidefinite_tag")
 
 @dataclasses.dataclass(frozen=True)
 class MaxRankTag:
-    """A tag declaring that a linear operator has rank at most `value`.
+    """Marks that an operator's rank is no more than the value given in its argument
+    (`MaxRankTag(r)`). Use [`lineax.max_rank`][] to query the bound.
 
-    Unlike the boolean presence/absence tags (e.g. :data:`symmetric_tag`),
-    `MaxRankTag` carries an integer payload.  It is stored in the same
-    `frozenset[object]` tag field, relying on the frozen-dataclass
-    `__hash__` / `__eq__` so that `MaxRankTag(5) == MaxRankTag(5)`
-    (idempotent in a frozenset) while `MaxRankTag(5) != MaxRankTag(3)`.
+    `MaxRankTag` is preserved through transposition and inversion (rank is invariant
+    under both). It composes through `@` as `min(rank_A, rank_B)` and through `+` as
+    `min(rank_A + rank_B, in_size, out_size)`.
 
-    `value = 0` is valid and represents the zero operator.
+    `MaxRankTag(0)` is valid, and represents the zero operator.
+
+    !!! Example
+
+        ```python
+        k, n = 5, 100
+        U  = lx.MatrixLinearOperator(jnp.zeros((n, k)), lx.MaxRankTag(k))
+        C  = lx.MatrixLinearOperator(jnp.zeros((k, k)), lx.MaxRankTag(k))
+        Vt = lx.MatrixLinearOperator(jnp.zeros((k, n)), lx.MaxRankTag(k))
+
+        update = U @ C @ Vt
+        assert lx.max_rank(update) == k   # propagated automatically through composition
+        ```
+
+    An operator is considered rank-deficient if
+    `lx.max_rank(operator) < min(operator.in_size(), operator.out_size())`. Full-rank
+    solvers (e.g. `lx.AutoLinearSolver(well_posed=None/True)`) will raise a `ValueError`
+    if asked to solve a rank-deficient system. Rank-deficient solvers MAY make internal
+    optimisations based on [`lineax.max_rank`][]. For example, tagging `MaxRankTag(r)`
+    and solving with [`lineax.SVD`][] will truncate to the `r` largest singular values
+    after decomposition. As such, correctness may be impacted to the extent that an
+    operator's actual rank exceeds `max_rank` (in exactly the same way that specifying
+    an overly high `rcond` in the solver might).
+
+    !!! info
+
+        Any internal optimisations made by rank-deficient direct solvers are essentially
+        [continuous retraction mappings](https://en.wikipedia.org/wiki/Retraction_(topology))
+        of the operator A to another operator Â with rank `<=r`. Therefore, if an
+        operator A exceeds `max_rank` (e.g. due to floating point roundoff error, or
+        an attempt to obtain a low rank approximation of a full rank matrix), the
+        solver solves against Â instead of A. In the case of SVD's singular value
+        truncation the retraction mapping is the Frobenius norm projection.
+
+        When differentiating a rank-deficient solve, the tangent dA is orthogonally
+        projected onto the tangent space of the rank-r locus at Â (this is what the
+        [Moore-Penrose pseudoinverse derivative](https://en.wikipedia.org/wiki/Moore%E2%80%93Penrose_inverse#Derivative)
+        computes). Consequently derivatives are also accurate to the same degree
+        that A is approximately rank r.
 
     **Arguments:**
 
-    - `value`: non-negative integer upper bound on the rank.
+    - `r`: non-negative integer upper bound on the rank.
     """
 
-    value: int
+    r: int
 
     def __post_init__(self):
-        if not isinstance(self.value, int) or self.value < 0:
+        if not isinstance(self.r, int) or self.r < 0:
             raise ValueError(
-                f"MaxRankTag.value must be a non-negative integer, got {self.value!r}"
+                f"MaxRankTag.r must be a non-negative integer, got {self.r!r}"
             )
 
     def __repr__(self):
-        return f"max_rank_tag({self.value})"
+        return f"max_rank_tag({self.r})"
 
 
 def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
@@ -156,7 +193,7 @@ def _(tags: frozenset[object]):
     rank_tags = [t for t in tags if isinstance(t, MaxRankTag)]
     if rank_tags:
         # drop redundant tags
-        return min(rank_tags, key=lambda t: t.value)
+        return min(rank_tags, key=lambda t: t.r)
 
 
 def transpose_tags(tags: frozenset[object]):
@@ -218,7 +255,7 @@ def _(tags: frozenset[object]):
     rank_tags = [t for t in tags if isinstance(t, MaxRankTag)]
     if rank_tags:
         # drop redundant tags
-        return min(rank_tags, key=lambda t: t.value)
+        return min(rank_tags, key=lambda t: t.r)
 
 
 # tridiagonal_tag intentionally absent: inverse of tridiagonal matrix generally dense.

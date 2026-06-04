@@ -1964,7 +1964,7 @@ def max_rank(operator: AbstractLinearOperator) -> int:
     # dispatch still produce a valid result.
     dim_bound = min(operator.out_size(), operator.in_size())
     tags = getattr(operator, "tags", ())
-    bounds = [t.value for t in tags if isinstance(t, MaxRankTag)]
+    bounds = [t.r for t in tags if isinstance(t, MaxRankTag)]
     if bounds:
         return min(min(bounds), dim_bound)
     return dim_bound
@@ -2292,7 +2292,7 @@ for check, tag in (
 @max_rank.register(TaggedLinearOperator)
 def _(operator):
     inner = max_rank(operator.operator)
-    bounds = [t.value for t in operator.tags if isinstance(t, MaxRankTag)]
+    bounds = [t.r for t in operator.tags if isinstance(t, MaxRankTag)]
     return min(min(bounds), inner) if bounds else inner
 
 

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 import lineax as lx
 import pytest
@@ -34,7 +36,7 @@ def test_max_rank_tag_hashable_frozenset_dedup():
 
 def test_max_rank_tag_zero_valid():
     tag = lx.MaxRankTag(0)
-    assert tag.value == 0
+    assert tag.r == 0
 
 
 def test_max_rank_tag_negative_raises():
@@ -204,7 +206,7 @@ def test_max_rank_invert_tags_takes_min():
     result = invert_tags(tags)
     rank_tags = [t for t in result if isinstance(t, lx.MaxRankTag)]
     assert len(rank_tags) == 1
-    assert rank_tags[0].value == 2
+    assert rank_tags[0].r == 2
 
 
 def test_max_rank_invert_tags_absent_when_no_rank_tag():
@@ -213,3 +215,44 @@ def test_max_rank_invert_tags_absent_when_no_rank_tag():
     tags = frozenset({lx.symmetric_tag})
     result = invert_tags(tags)
     assert not any(isinstance(t, lx.MaxRankTag) for t in result)
+
+
+# ---------------------------------------------------------------------------
+# SVD truncation
+# ---------------------------------------------------------------------------
+
+
+def test_svd_truncates_state_to_max_rank():
+    # A genuinely rank-2 matrix, declared rank 2: SVD state is truncated to 2
+    # components, and the solution matches the untruncated solve.
+    u = jax.random.normal(jax.random.PRNGKey(0), (10, 2))
+    v = jax.random.normal(jax.random.PRNGKey(1), (10, 2))
+    matrix = u @ v.T
+    solver = lx.SVD()
+
+    plain = lx.MatrixLinearOperator(matrix)
+    (u_full, s_full, vt_full), _ = solver.init(plain, {})
+    assert s_full.shape == (10,)
+
+    tagged = lx.MatrixLinearOperator(matrix, lx.MaxRankTag(2))
+    (u_t, s_t, vt_t), _ = solver.init(tagged, {})
+    assert u_t.shape == (10, 2)
+    assert s_t.shape == (2,)
+    assert vt_t.shape == (2, 10)
+
+    vector = jnp.arange(10.0) + 0.5
+    x_plain = lx.linear_solve(plain, vector, solver).value
+    x_tagged = lx.linear_solve(tagged, vector, solver).value
+    assert jnp.allclose(x_plain, x_tagged)
+
+
+def test_svd_raises_when_max_rank_too_small():
+    # A genuinely rank-3 matrix declared rank 2: truncation would discard a
+    # singular value above the rcond threshold, so the solve must raise.
+    u = jax.random.normal(jax.random.PRNGKey(0), (10, 3))
+    v = jax.random.normal(jax.random.PRNGKey(1), (10, 3))
+    matrix = u @ v.T
+    operator = lx.MatrixLinearOperator(matrix, lx.MaxRankTag(2))
+    vector = jnp.arange(10.0) + 0.5
+    with pytest.raises(eqx.EquinoxRuntimeError):
+        lx.linear_solve(operator, vector, lx.SVD())

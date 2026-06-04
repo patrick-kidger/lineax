@@ -44,7 +44,7 @@ from jaxtyping import Array, PyTree
 
 from .._misc import complex_to_real_dtype
 from .._norm import two_norm
-from .._operator import AbstractLinearOperator, conj, linearise
+from .._operator import AbstractLinearOperator, conj, linearise, max_rank
 from .._solution import RESULTS
 from .._solve import AbstractLinearSolver
 
@@ -115,18 +115,21 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             *jtu.tree_leaves(operator.in_structure()),
         )
 
-        m, n = operator.out_size(), operator.in_size()
-        # number of singular values
-        min_dim = min([m, n])
+        # The number of iterations is bounded by the rank. `max_rank` is `min(m, n)`
+        # capped by any rank tags, so this matches the old `min(m, n)` default for
+        # full-rank operators while tightening the cap for those declared low-rank.
+        rank_bound = max_rank(operator)
         if self.max_steps is None:
-            # Set max_steps based on the minimum dimension + avoid numerical overflows
+            # Set max_steps based on the rank bound + avoid numerical overflows
             # https://github.com/patrick-kidger/lineax/issues/175
             # https://github.com/patrick-kidger/lineax/issues/177
             int_dtype = jnp.dtype(f"int{complex_to_real_dtype(dtype).itemsize * 8}")
-            if min_dim > (jnp.iinfo(int_dtype).max / 10):
+            if rank_bound > (jnp.iinfo(int_dtype).max / 10):
                 max_steps = jnp.iinfo(int_dtype).max
             else:
-                max_steps = min_dim * 10  # for consistency with other iterative solvers
+                max_steps = (
+                    rank_bound * 10
+                )  # for consistency with other iterative solvers
         else:
             max_steps = self.max_steps
 
