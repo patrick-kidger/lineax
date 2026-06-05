@@ -116,7 +116,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             and self.rtol == 0
         )
         if has_scale:
-            b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
+            b_scale = self.atol + self.rtol * self.norm(vector)
         operator = state
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
@@ -132,11 +132,16 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
             if has_scale:
-                with jax.numpy_dtype_promotion("standard"):
-                    y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-                    norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
-                    norm2 = self.norm((diff**ω / y_scale**ω).ω)
-                return (norm1 > 1) | (norm2 > 1)
+                # Standard relative-residual stopping rule: ‖r‖ ≤ atol + rtol·‖b‖
+                # (and likewise for the increment in the `y` space). Note this uses
+                # scalar norms, *not* an elementwise `atol + rtol·|b|` scale: the
+                # latter is unsatisfiable for wide-dynamic-range `b`, where the
+                # round-off floor of large components exceeds the absolute tolerance
+                # demanded of small ones, yielding spurious non-convergence.
+                y_scale = self.atol + self.rtol * self.norm(y)
+                b_unconverged = self.norm(r) > b_scale  # pyright: ignore
+                y_unconverged = self.norm(diff) > y_scale
+                return b_unconverged | y_unconverged
             else:
                 return True
 
