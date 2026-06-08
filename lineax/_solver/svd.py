@@ -23,7 +23,7 @@ from jaxtyping import Array, PyTree
 from .._misc import resolve_rcond
 from .._operator import AbstractLinearOperator, max_rank
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .._solve import AbstractLinearSolver, projection_mv
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -80,6 +80,16 @@ class SVD(AbstractLinearSolver[_SVDState]):
         packed_structures = pack_structures(operator)
         return (u, s, vt), packed_structures
 
+    def _singular_mask(self, u, s, vt):
+        m = u.shape[0]
+        n = vt.shape[1]
+        rcond = resolve_rcond(self.rcond, n, m, s.dtype)
+        rcond = jnp.array(rcond, dtype=s.dtype)
+        if s.size > 0:
+            rcond = rcond * s[0]
+        # Not >=, or this fails with a matrix of all-zeros.
+        return s > rcond
+
     def compute(
         self,
         state: _SVDState,
@@ -89,14 +99,7 @@ class SVD(AbstractLinearSolver[_SVDState]):
         del options
         (u, s, vt), packed_structures = state
         vector = ravel_vector(vector, packed_structures)
-        m, _ = u.shape
-        _, n = vt.shape
-        rcond = resolve_rcond(self.rcond, n, m, s.dtype)
-        rcond = jnp.array(rcond, dtype=s.dtype)
-        if s.size > 0:
-            rcond = rcond * s[0]
-        # Not >=, or this fails with a matrix of all-zeros.
-        mask = s > rcond
+        mask = self._singular_mask(u, s, vt)
         rank = mask.sum()
         safe_s = jnp.where(mask, s, 1)
         s_inv = jnp.where(mask, jnp.array(1.0) / safe_s, 0).astype(u.dtype)
@@ -130,3 +133,15 @@ SVD.__init__.__doc__ = """**Arguments**:
     precision times `max(N, M)`, where `(N, M)` is the shape of the operator. (I.e.
     `N` is the output size and `M` is the input size.)
 """
+
+
+@projection_mv.register(SVD)
+def _(solver, state, vector, options):
+    # O'Leary 1990: A A^† v = U U^H v, due to unitarity of V
+    del options
+    (u, s, vt), packed = state  # u already truncated to max_rank if tagged
+    v = ravel_vector(vector, packed)  # out-space -> flat
+    mask = solver._singular_mask(u, s, vt).astype(u.dtype)
+    uHv = jnp.matmul(u.conj().T, v, precision=lax.Precision.HIGHEST)
+    pv = jnp.matmul(u, mask * uHv, precision=lax.Precision.HIGHEST)
+    return unravel_solution(pv, transpose_packed_structures(packed))  # flat -> out

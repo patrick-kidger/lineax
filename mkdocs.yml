@@ -97,6 +97,7 @@ nav:
     - Examples:
         - 'examples/classical_solve.ipynb'
         - 'examples/least_squares.ipynb'
+        - 'examples/variable_projection.ipynb'
         - 'examples/structured_matrices.ipynb'
         - 'examples/no_materialisation.ipynb'
         - 'examples/operators.ipynb'

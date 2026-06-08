@@ -261,6 +261,53 @@ def _(tags: frozenset[object]):
 # tridiagonal_tag intentionally absent: inverse of tridiagonal matrix generally dense.
 
 
+project_tags_rules = []
+
+
+@project_tags_rules.append
+def _(tags: frozenset[object]):
+    return positive_semidefinite_tag  # P is always Hermitian PSD
+
+
+@project_tags_rules.append
+def _(tags: frozenset[object]):
+    if diagonal_tag in tags:  # projection of a diagonal op is diagonal
+        return diagonal_tag
+
+
+@project_tags_rules.append
+def _(tags: frozenset[object]):
+    rank_tags = [t for t in tags if isinstance(t, MaxRankTag)]
+    if rank_tags:
+        # tightest bound, drop redundant tags
+        return min(rank_tags, key=lambda t: t.r)
+
+
+def project_tags(tags: frozenset[object]) -> frozenset[object]:
+    """Lineax uses "tags" to declare that a particular linear operator exhibits some
+    property, e.g. symmetry.
+
+    This function takes in a collection of tags representing a linear operator `A`, and
+    returns a collection of tags that should be associated with the orthogonal projector
+    `P = A A^†` onto `range(A)`. Specifically, `P` is always Hermitian positive
+    semidefinite, has max rank equal to that of `A`, and is diagonal if `A` is diagonal.
+
+    **Arguments:**
+
+    - `tags`: a `frozenset` of tags.
+
+    **Returns:**
+
+    A `frozenset` of tags.
+    """
+    new_tags = []
+    for rule in project_tags_rules:
+        out = rule(tags)
+        if out is not None:
+            new_tags.append(out)
+    return frozenset(new_tags)
+
+
 def invert_tags(tags: frozenset[object]) -> frozenset[object]:
     """Lineax uses "tags" to declare that a particular linear operator exhibits some
     property, e.g. symmetry.

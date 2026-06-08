@@ -46,12 +46,14 @@ from ._operator import (
     tridiagonal as tridiagonal,
     TridiagonalLinearOperator as TridiagonalLinearOperator,
 )
+from ._project import project as project
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solve import (
     AbstractLinearSolver as AbstractLinearSolver,
     AutoLinearSolver as AutoLinearSolver,
     invert as invert,
     linear_solve as linear_solve,
+    projection_mv as projection_mv,
 )
 from ._solver import (
     BiCGStab as BiCGStab,
@@ -76,6 +78,8 @@ from ._tags import (
     MaxRankTag as MaxRankTag,
     negative_semidefinite_tag as negative_semidefinite_tag,
     positive_semidefinite_tag as positive_semidefinite_tag,
+    project_tags as project_tags,
+    project_tags_rules as project_tags_rules,
     symmetric_tag as symmetric_tag,
     tags_from_checks as tags_from_checks,
     transpose_tags as transpose_tags,
