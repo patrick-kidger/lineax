@@ -15,6 +15,7 @@
 
 import equinox as eqx
 import jax
+import jax.core
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, ArrayLike, Bool, PyTree  # pyright:ignore
@@ -25,6 +26,16 @@ def tree_where(
 ) -> PyTree[Array]:
     keep = lambda a, b: jnp.where(pred, a, b)
     return jtu.tree_map(keep, true, false)
+
+
+def to_shapedarray(x):
+    """Convert a `jax.ShapeDtypeStruct` leaf to a `jax.core.ShapedArray` (the abstract
+    value a primitive's `abstract_eval` rule must return); pass other leaves through.
+    """
+    if isinstance(x, jax.ShapeDtypeStruct):
+        return jax.core.ShapedArray(x.shape, x.dtype)
+    else:
+        return x
 
 
 def resolve_rcond(rcond, n, m, dtype):

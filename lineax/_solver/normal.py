@@ -20,7 +20,7 @@ from jaxtyping import Array, PyTree
 
 from .._operator import conj, linearise, materialise, TaggedLinearOperator
 from .._solution import RESULTS
-from .._solve import AbstractLinearOperator, AbstractLinearSolver
+from .._solve import AbstractLinearOperator, AbstractLinearSolver, projection_mv
 from .._tags import positive_semidefinite_tag
 from .cholesky import Cholesky
 
@@ -186,3 +186,14 @@ Normal.__init__.__doc__ = """**Arguments:**
 - `inner_solver`: The solver to wrap. It should support solving positive
   definite systems or positive semidefinite systems
 """
+
+
+@projection_mv.register(Normal)
+def _(solver, state, vector, options):
+    del options
+    inner_state, tall, _op_conj_T, inner_options = state
+    if tall.value:
+        return NotImplemented  # A A^†  = A (A^H A)^† A^H - no fast path
+    # only reachable for rank-deficient inner solvers
+    # A A^† = A A^H (A A^H)^† = inner inner^†
+    return projection_mv(solver.inner_solver, inner_state, vector, inner_options)

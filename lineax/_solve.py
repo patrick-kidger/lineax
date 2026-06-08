@@ -14,6 +14,7 @@
 
 import abc
 import functools as ft
+from types import NotImplementedType
 from typing import Any, Generic, TypeAlias, TypeVar
 
 import equinox as eqx
@@ -29,7 +30,7 @@ from jax._src.ad_util import stop_gradient_p
 from jaxtyping import Array, ArrayLike, PyTree
 
 from ._custom_types import sentinel
-from ._misc import inexact_asarray, strip_weak_dtype
+from ._misc import inexact_asarray, strip_weak_dtype, to_shapedarray
 from ._operator import (
     AbstractLinearOperator,
     conj,
@@ -55,13 +56,6 @@ from ._tags import (
 #
 # _linear_solve_p
 #
-
-
-def _to_shapedarray(x):
-    if isinstance(x, jax.ShapeDtypeStruct):
-        return jax.core.ShapedArray(x.shape, x.dtype)
-    else:
-        return x
 
 
 def _to_struct(x):
@@ -138,7 +132,7 @@ def _linear_solve_abstract_eval(operator, state, vector, options, solver, throw)
         throw,
         check_closure=False,
     )
-    out = jtu.tree_map(_to_shapedarray, out)
+    out = jtu.tree_map(to_shapedarray, out)
     return out
 
 
@@ -239,11 +233,34 @@ def _linear_solve_jvp(primals, tangents):
                 True,
             )
             tmp2 = t_operator_conj_transpose.mv(tmp1)  # pyright: ignore
-            # tmp2 is the y term
-            tmp3 = operator.mv(tmp2)
-            tmp4 = (-(tmp3**ω)).ω
-            # tmp4 is the Ay term
-            vecs.append(tmp4)
+            # tmp2 is the y term. The remaining contribution is -A^†A y, where A^†A
+            # is the row-space projector = the column-space projector of A^H.
+            #
+            # When `solver` provides a projection fast path (e.g. VVᴴ for SVD, QQᴴ
+            # for QR), route this through `project`: its custom primitive carries
+            # the efficient Golub-Pereyra gradient of the projector, which (unlike a
+            # bare `projection_mv` matvec on the frozen factorisation)
+            # gives correct *higher-order* derivatives of the projector.
+            projection_fast_path = eqx.filter_eval_shape(
+                projection_mv,
+                solver,
+                state_conj_transpose,  # pyright: ignore
+                tmp2,
+                options_conj_transpose,  # pyright: ignore
+            )
+            if projection_fast_path is not NotImplemented:
+                from ._project import project
+
+                P = project(
+                    operator_conj_transpose,  # pyright: ignore
+                    solver,
+                    state=state_conj_transpose,  # pyright: ignore
+                )
+                sols.append((-(P.mv(tmp2) ** ω)).ω)
+            else:
+                tmp3 = operator.mv(tmp2)
+                # tmp3 is the A y term; -A^†A y is recovered by the final A^† solve
+                vecs.append((-(tmp3**ω)).ω)
             sols.append(tmp2)
     vecs = jtu.tree_map(_sum, *vecs)
     # the A^ term at the very beginning
@@ -474,9 +491,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         """
 
 
-def _check_rank_compat(
-    solver: "AbstractLinearSolver", operator: AbstractLinearOperator
-):
+def check_rank_compat(solver: "AbstractLinearSolver", operator: AbstractLinearOperator):
     if solver.assume_full_rank():
         dim_bound = min(operator.in_size(), operator.out_size())
         if max_rank(operator) < dim_bound:
@@ -488,6 +503,77 @@ def _check_rank_compat(
                 "`AutoLinearSolver(well_posed=False)` or `lineax.SVD()`) to handle "
                 "rank-deficient systems via the pseudoinverse."
             )
+
+
+@ft.singledispatch
+def projection_mv(
+    solver: "AbstractLinearSolver",
+    state: Any,
+    vector: PyTree[ArrayLike],
+    options: dict[str, Any],
+) -> PyTree[Array] | NotImplementedType:
+    """Solver-specific fast path for the projection matvec ``P @ v = A A^† @ v``,
+    where `A` is the operator that `state` factorises, used by [`lineax.project`][].
+
+    A `functools.singledispatch` function dispatching on `type(solver)`. The base
+    implementation returns `NotImplemented`, signalling "no fast path -- use the
+    generic ``A (A^† @ v)`` solve". Register fast paths with
+    `@projection_mv.register(MySolver)`.
+
+    !!! warning
+
+        This is a *primal-value* fast path: it applies `P` using the **frozen**
+        factorisation in `state`, so it must not be differentiated directly (its
+        result is marked non-differentiable, so accidental autodiff raises rather than
+        returning a wrong gradient). To differentiate a projection, use
+        [`lineax.project`][], which supplies the correct gradient.
+
+    **Arguments:**
+
+    - `solver`: the (concrete) lineax solver.
+    - `state`: the solver state (factorisation) computed by `solver.init`.
+    - `vector`: the input vector `v`, a PyTree matching the factorised operator's
+      output structure.
+    - `options`: solver options (unused by the built-in fast paths).
+
+    **Returns:**
+
+    ``P @ v`` as a (non-differentiable) PyTree, or `NotImplemented`.
+    """
+    del solver, state, vector, options
+    return NotImplemented
+
+
+_register_projection_mv = projection_mv.register
+_projection_mv_msg = (
+    "Cannot autodifferentiate `lineax.projection_mv`: it applies the projector using "
+    "the frozen factorisation, so its derivative would be incorrect. Use "
+    "`lineax.project` to differentiate a projection."
+)
+
+
+def _guarded_register(cls):
+    # `@projection_mv.register(Cls)` decorator that wraps the implementation's
+    # (non-`NotImplemented`) output in `eqxi.nondifferentiable` -- see the
+    # `projection_mv` warning. Baking the guard in at registration means there is no
+    # unguarded path to it (registry/dispatch all return the guarded form).
+    def register(func):
+        @ft.wraps(func)
+        def guarded(solver, state, vector, options):
+            out = func(solver, state, vector, options)
+            if out is NotImplemented:
+                return out
+            return eqxi.nondifferentiable(out, msg=_projection_mv_msg)
+
+        return _register_projection_mv(cls, guarded)
+
+    return register
+
+
+# Overriding the overloaded `singledispatch.register` attribute is not expressible to
+# the type checker, so we suppress here (the call sites `@projection_mv.register(Cls)`
+# are themselves fully type-checked).
+projection_mv.register = _guarded_register  # pyright: ignore[reportAttributeAccessIssue]
 
 
 _qr_token = eqxi.str2jax("qr_token")
@@ -793,7 +879,7 @@ def linear_solve(
             stats={},
         )
     if state == sentinel:
-        _check_rank_compat(solver, operator)
+        check_rank_compat(solver, operator)
         dynamic_operator, static_operator = eqx.partition(operator, eqx.is_array)
         stopped_operator = eqx.combine(
             lax.stop_gradient(dynamic_operator), static_operator
@@ -855,7 +941,7 @@ def invert(
     if options is None:
         options = {}
 
-    _check_rank_compat(solver, operator)
+    check_rank_compat(solver, operator)
     if state == sentinel:
         dynamic_operator, static_operator = eqx.partition(operator, eqx.is_array)
         stopped_operator = eqx.combine(

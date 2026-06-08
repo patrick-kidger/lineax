@@ -2,6 +2,16 @@
 
 We define a number of functions on [linear operators](./operators.md).
 
+## Transformations
+
+These functions transform an operator to a new one (e.g. representing its inverse or column-space projection).
+
+::: lineax.invert
+
+---
+
+::: lineax.project
+
 ## Computational changes
 
 These do not change the mathematical meaning of the operator; they simply change how it is stored computationally. (E.g. to materialise the whole operator.)

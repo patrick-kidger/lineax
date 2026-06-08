@@ -12,12 +12,14 @@ dev = [
 docs = [
   "hippogriffe==0.2.2",
   "griffe==1.7.3",
+  "matplotlib==3.10.9",
   "mkdocs==1.6.1",
   "mkdocs-include-exclude-files==0.1.0",
   "mkdocs-ipynb==0.1.1",
   "mkdocs-material==9.6.7",
   "mkdocstrings==0.28.3",
   "mkdocstrings-python==1.16.8",
+  "optimistix==0.1.0",
   "pygments==2.20.0",
   "pymdown-extensions==10.21.2"
 ]

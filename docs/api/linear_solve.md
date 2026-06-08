@@ -6,6 +6,4 @@ This is the main entry point.
 
 ## invert
 
-A convenience function for obtaining the inverse of an operator as a [`lineax.FunctionLinearOperator`][].
-
-::: lineax.invert
+A convenience function for obtaining the inverse of an operator as a [`lineax.FunctionLinearOperator`][]; see [`lineax.invert`][].

@@ -21,7 +21,7 @@ import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .._solve import AbstractLinearSolver, projection_mv
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -122,3 +122,18 @@ QR.__init__.__doc__ = """**Arguments:**
 
 Nothing.
 """
+
+
+@projection_mv.register(QR)
+def _(solver, state, vector, options):
+    # A A^† v = Q Q^H v due to R being non-singular, computed using`ormqr`
+    del solver, options
+    (a, taus), transpose, packed = state
+    if transpose.value:
+        return NotImplemented  # A A^† = I in wide case, should be unreachable
+    v = ravel_vector(vector, packed)
+    n_full, n_min = a.shape
+    qHv = jll.ormqr(a, taus, v[:, None], transpose=True)[:n_min, 0]  # Q_thin^H v
+    padded = jnp.concatenate([qHv, jnp.zeros((n_full - n_min,), dtype=qHv.dtype)])
+    pv = jll.ormqr(a, taus, padded[:, None], transpose=False)[:, 0]  # Q_thin (.)
+    return unravel_solution(pv, transpose_packed_structures(packed))
