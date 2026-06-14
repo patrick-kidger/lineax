@@ -40,7 +40,8 @@ SQUARE_DET_CASES = [
     (lx.Cholesky(), lx.negative_semidefinite_tag),
     (lx.Triangular(), lx.lower_triangular_tag),
     (lx.Triangular(), lx.upper_triangular_tag),
-    (lx.Diagonal(), lx.diagonal_tag),
+    (lx.Diagonal(well_posed=True), lx.diagonal_tag),
+    (lx.Diagonal(well_posed=False), lx.diagonal_tag),
     (lx.Tridiagonal(), lx.tridiagonal_tag),
 ]
 
