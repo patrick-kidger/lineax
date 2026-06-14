@@ -522,7 +522,7 @@ _svd_token = eqxi.str2jax("svd_token")
 # Ugly delayed import because we have the dependency chain
 # linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
 # but we want linear_solver and AbstractLinearSolver in the same file.
-def _lookup(token) -> AbstractLinearSolver:
+def _lookup(token) -> AbstractDirectLinearSolver:
     from . import _solver
 
     # pyright doesn't know that these keys are hashable
@@ -544,7 +544,7 @@ def _lookup(token) -> AbstractLinearSolver:
 _AutoLinearSolverState: TypeAlias = tuple[Any, Any]
 
 
-class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
+class AutoLinearSolver(AbstractDirectLinearSolver[_AutoLinearSolverState]):
     """Automatically determines a good linear solver based on the structure of the
     operator.
 
@@ -669,6 +669,12 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         conj_state, conj_options = solver.conj(state, options)
         conj_state = (token, conj_state)
         return conj_state, conj_options
+
+    def slogdet(
+        self, state: _AutoLinearSolverState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        token, inner_state = state
+        return _lookup(token).slogdet(inner_state, options)
 
     def assume_full_rank(self):
         return self.well_posed is not False
