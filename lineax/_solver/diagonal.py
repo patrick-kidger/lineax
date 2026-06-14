@@ -106,8 +106,17 @@ class Diagonal(AbstractDirectLinearSolver[_DiagonalState]):
         diag, _ = state
         if diag is None:
             return jnp.ones(()), jnp.zeros(())
-        sign = jnp.prod(jnp.sign(diag)).real
-        lad = jnp.sum(jnp.log(jnp.abs(diag)))
+        if not self.well_posed:
+            (size,) = diag.shape
+            rcond = resolve_rcond(self.rcond, size, size, diag.dtype)
+            abs_diag = jnp.abs(diag)
+            mask = abs_diag > rcond * jnp.max(abs_diag)
+            safe_diag = jnp.where(mask, diag, 1.0)
+            sign = jnp.prod(jnp.sign(safe_diag)).real
+            lad = jnp.sum(jnp.where(mask, jnp.log(abs_diag), 0.0))
+        else:
+            sign = jnp.prod(jnp.sign(diag)).real
+            lad = jnp.sum(jnp.log(jnp.abs(diag)))
         return sign, lad
 
     def assume_full_rank(self):

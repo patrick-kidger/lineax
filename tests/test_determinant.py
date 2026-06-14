@@ -130,6 +130,17 @@ def test_svd_slogdet_lad_fullrank(getkey):
     assert jnp.allclose(lad, ref_lad, atol=1e-10)
 
 
+def test_diagonal_slogdet_rankdeficient(getkey):
+    """Diagonal(well_posed=False): zero entry excluded from pseudodeterminant."""
+    diag = jr.normal(getkey(), (4,), dtype=jnp.float64)
+    diag = diag.at[1].set(0.0)
+    op = lx.DiagonalLinearOperator(diag)
+    sign, lad = lx.slogdet(op, lx.Diagonal(well_posed=False))
+    nonzero = diag[jnp.abs(diag) > 1e-10]
+    assert jnp.allclose(sign, jnp.prod(jnp.sign(nonzero)).real, atol=1e-10)
+    assert jnp.allclose(lad, jnp.sum(jnp.log(jnp.abs(nonzero))), atol=1e-10)
+
+
 def test_svd_slogdet_lad_rankdeficient(getkey):
     """Rank-deficient: lad = sum of log(nonzero singular values)."""
     matrix = jr.normal(getkey(), (3, 3), dtype=jnp.float64)
