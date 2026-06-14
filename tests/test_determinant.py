@@ -43,6 +43,8 @@ SQUARE_DET_CASES = [
     (lx.Diagonal(well_posed=True), lx.diagonal_tag),
     (lx.Diagonal(well_posed=False), lx.diagonal_tag),
     (lx.Tridiagonal(), lx.tridiagonal_tag),
+    (lx.AutoLinearSolver(well_posed=True), ()),
+    (lx.AutoLinearSolver(well_posed=None), ()),
 ]
 
 
