@@ -29,10 +29,6 @@ from ._solve import AbstractDirectLinearSolver, linear_solve
 from ._solver.normal import Normal
 
 
-def _is_none(x):
-    return x is None
-
-
 def _det_sign_error_msg(
     solver: "AbstractDirectLinearSolver | Normal",
     operator: AbstractLinearOperator,
@@ -70,34 +66,25 @@ def _slogdet_jvp(primals, tangents):
     operator, solver, options, state = primals
     t_operator, _, _, _ = tangents
 
-    # Primal — state is already stop-gradiented by the caller
     sign, lad = solver.slogdet(state, options)
 
-    # Tangent: d(lad)/dA = trace(A† dA), where A† is the pseudoinverse
-    has_t_op = any(
-        t is not None for t in jtu.tree_leaves(t_operator, is_leaf=_is_none)
-    )
-    if has_t_op:
-        dA = TangentLinearOperator(operator, t_operator).as_matrix()  # (m, n)
+    # d(lad)/dA = trace(A† dA), where A† is the pseudoinverse.
+    # operator is the only differentiable argument, so t_operator is always present.
+    dA = TangentLinearOperator(operator, t_operator).as_matrix()  # (m, n)
 
-        def solve_col(col):
-            # Reuse the stopped state for efficiency
-            return linear_solve(operator, col, solver, state=state, throw=False).value
+    def solve_col(col):
+        return linear_solve(operator, col, solver, state=state, throw=False).value
 
-        # vmap over the n columns of dA; each solve gives an n-vector
-        # X[i] = A† dA[:,i], so trace(A† dA) = trace(X)
-        X = jax.vmap(solve_col)(dA.T)  # (n, n)
-        lad_dot = jnp.trace(X)
+    # vmap over the n columns of dA; X[i] = A† dA[:,i], trace(A† dA) = trace(X)
+    X = jax.vmap(solve_col)(dA.T)  # (n, n)
+    lad_dot = jnp.trace(X)
 
-        if jnp.issubdtype(dA.dtype, jnp.complexfloating):
-            # For complex A: sign carries the imaginary part of the trace
-            sign_dot = (lad_dot - jnp.real(lad_dot).astype(lad_dot.dtype)) * sign
-            lad_dot = jnp.real(lad_dot)
-        else:
-            sign_dot = jnp.zeros_like(sign)
+    if jnp.issubdtype(dA.dtype, jnp.complexfloating):
+        # For complex A: sign carries the imaginary part of the trace
+        sign_dot = (lad_dot - jnp.real(lad_dot).astype(lad_dot.dtype)) * sign
+        lad_dot = jnp.real(lad_dot)
     else:
         sign_dot = jnp.zeros_like(sign)
-        lad_dot = jnp.zeros_like(lad)
 
     return (sign, lad), (sign_dot, lad_dot)
 
