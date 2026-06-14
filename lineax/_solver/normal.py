@@ -190,7 +190,7 @@ class Normal(
             raise TypeError(
                 f"`Normal.slogdet` requires a direct inner solver, "
                 f"got {type(self.inner_solver).__name__}. "
-                f"Use a direct solver such as `lx.Cholesky()` or `lx.LU()`."
+                f"Use a direct solver such as `lx.Cholesky()`."
             )
         inner_state, _, _, inner_options = state
         # log|det(A^H A)| = 2 * log|det(A)| for tall A (m >= n)

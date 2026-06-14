@@ -109,13 +109,6 @@ def slogdet(
         calling `solver.init`. Allows multiple determinant computations to share
         the same factorisation.
 
-        !!! warning
-
-            Do **not** apply `lax.stop_gradient` to this state. `slogdet` applies
-            it internally (like [`lineax.linear_solve`][]) and uses an analytic JVP
-            rule for differentiation. Manually stopping gradients before passing the
-            state will break the JVP.
-
     **Returns:**
 
     A 2-tuple of `(sign, logabsdet)`. `sign` is `nan` when the solver cannot
@@ -157,13 +150,6 @@ def determinant(
     - `state`: if provided, use this pre-computed factorised state instead of
         calling `solver.init`. Allows multiple determinant computations to share
         the same factorisation.
-
-        !!! warning
-
-            Do **not** apply `lax.stop_gradient` to this state. `determinant`
-            applies it internally (like [`lineax.linear_solve`][]) and uses an
-            analytic JVP rule for differentiation. Manually stopping gradients
-            before passing the state will break the JVP.
 
     - `throw`: if `True` (the default), raise an error when the sign of the
         determinant is not available (e.g. when using [`lineax.Normal`][] or
