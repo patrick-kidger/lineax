@@ -43,9 +43,10 @@ def _det_sign_error_msg(
     return (
         f"`lx.determinant` with `{type(solver).__name__}`: sign of the determinant "
         "is not available from this solver's factorisation. "
-        "Use `lx.LU()` for full-rank square matrices, `lx.QR()` for full-rank "
-        "rectangular matrices, or `lx.HEVD()` for Hermitian matrices (including "
-        "rank-deficient ones, where it returns the pseudodeterminant sign)."
+        "For Hermitian matrices (including rank-deficient ones) use `lx.HEVD()`, "
+        "which returns the pseudodeterminant sign. "
+        "For non-Hermitian rank-deficient matrices, lineax does not support "
+        "pseudodeterminant sign recovery; use `jnp.linalg.eig` directly."
     )
 
 
