@@ -68,7 +68,13 @@ lx.is_positive_semidefinite(lx.IdentityLinearOperator(...))  # True
 
 ::: lineax.symmetric_tag
 
-Marks that an operator is symmetric. (As a matrix, $A = A^\intercal$.)
+Marks that an operator is symmetric. (As a matrix, $A = A^\intercal$.) For real operators this coincides with `lineax.hermitian_tag`.
+
+---
+
+::: lineax.hermitian_tag
+
+Marks that an operator is Hermitian (self-adjoint). (As a matrix, $A = A^*$, the conjugate transpose.) For real operators this coincides with `lineax.symmetric_tag`.
 
 ---
 

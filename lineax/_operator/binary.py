@@ -23,8 +23,10 @@ from .base import (
     AbstractLinearOperator,
     conj,
     diagonal,
+    has_real_dtype,
     has_unit_diagonal,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
@@ -203,6 +205,7 @@ def _(operator):
 
 for check in (
     is_symmetric,
+    is_hermitian,
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
@@ -245,6 +248,17 @@ for check in (
 @is_symmetric.register(ComposedLinearOperator)
 def _(operator):
     return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
+
+
+# is_hermitian: as above, diagonal matrices commute. A product of diagonals is itself
+# diagonal, which is Hermitian only when its (complex) entries are real-valued.
+@is_hermitian.register(ComposedLinearOperator)
+def _(operator):
+    return (
+        is_diagonal(operator.operator1)
+        and is_diagonal(operator.operator2)
+        and has_real_dtype(operator)
+    )
 
 
 # is_tridiagonal: tridiagonal @ tridiagonal = pentadiagonal, but

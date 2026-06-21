@@ -250,6 +250,55 @@ def test_is_symmetric(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_hermitian(dtype, getkey):
+    matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+    hermitian_operators = _setup(getkey, matrix + matrix.conj().T, lx.hermitian_tag)
+    for operator in hermitian_operators:
+        assert lx.is_hermitian(operator)
+
+    not_hermitian_operators = _setup(getkey, matrix)
+    _assert_except_diag(lx.is_hermitian, not_hermitian_operators, flip_cond=True)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_hermitian_implications(dtype, getkey):
+    matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+    real = jnp.issubdtype(dtype, jnp.floating)
+
+    # PSD/NSD are Hermitian for both real and complex dtypes.
+    psd = matrix @ matrix.conj().T
+    assert lx.is_hermitian(lx.MatrixLinearOperator(psd, lx.positive_semidefinite_tag))
+    assert lx.is_hermitian(lx.MatrixLinearOperator(-psd, lx.negative_semidefinite_tag))
+
+    # Symmetric (A = Aᵀ) and diagonal operators are Hermitian iff real-valued.
+    sym = lx.MatrixLinearOperator(matrix + matrix.T, lx.symmetric_tag)
+    assert lx.is_hermitian(sym) == real
+    assert lx.is_hermitian(lx.DiagonalLinearOperator(jnp.diag(matrix))) == real
+
+    # Conversely a Hermitian operator is symmetric iff real-valued.
+    herm = lx.MatrixLinearOperator(matrix + matrix.conj().T, lx.hermitian_tag)
+    assert lx.is_hermitian(herm)
+    assert lx.is_symmetric(herm) == real
+
+
+def test_hermitian_tag_propagation(getkey):
+    # Hermitian-ness is preserved through transpose and inversion, addition, and real
+    # (but not complex) scaling.
+    assert lx.hermitian_tag in lx.transpose_tags(frozenset({lx.hermitian_tag}))
+    assert lx.hermitian_tag in lx.invert_tags(frozenset({lx.hermitian_tag}))
+
+    def herm_op():
+        m = jr.normal(getkey(), (3, 3), dtype=jnp.complex128)
+        return lx.MatrixLinearOperator(m + m.conj().T, lx.hermitian_tag)
+
+    op = herm_op()
+    assert lx.is_hermitian(op + herm_op())  # sum of Hermitian is Hermitian
+    assert lx.is_hermitian(-op)  # negation preserves
+    assert lx.is_hermitian(op * 2.0)  # real scaling preserves
+    assert not lx.is_hermitian(op * (1.0 + 1j))  # complex scaling does not
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     diagonal_operators = _setup(getkey, jnp.diag(jnp.diag(matrix)), lx.diagonal_tag)

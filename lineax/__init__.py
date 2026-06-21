@@ -27,6 +27,7 @@ from ._operator import (
     has_unit_diagonal as has_unit_diagonal,
     IdentityLinearOperator as IdentityLinearOperator,
     is_diagonal as is_diagonal,
+    is_hermitian as is_hermitian,
     is_lower_triangular as is_lower_triangular,
     is_negative_semidefinite as is_negative_semidefinite,
     is_positive_semidefinite as is_positive_semidefinite,
@@ -59,6 +60,7 @@ from ._solver import (
     Cholesky as Cholesky,
     Diagonal as Diagonal,
     GMRES as GMRES,
+    HEVD as HEVD,
     LSMR as LSMR,
     LU as LU,
     Normal as Normal,
@@ -70,6 +72,7 @@ from ._solver import (
 )
 from ._tags import (
     diagonal_tag as diagonal_tag,
+    hermitian_tag as hermitian_tag,
     invert_tags as invert_tags,
     invert_tags_rules as invert_tags_rules,
     lower_triangular_tag as lower_triangular_tag,
