@@ -20,7 +20,7 @@ from jaxtyping import Array, PyTree
 from .._misc import resolve_rcond
 from .._operator import AbstractLinearOperator, diagonal, has_unit_diagonal, is_diagonal
 from .._solution import RESULTS
-from .._solve import AbstractDirectLinearSolver
+from .base import AbstractDirectLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,

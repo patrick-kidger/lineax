@@ -25,7 +25,7 @@ from jaxtyping import Array, PyTree
 from .._norm import max_norm, tree_dot
 from .._operator import AbstractLinearOperator, conj, linearise
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .base import AbstractLinearSolver
 from .misc import preconditioner_and_y0
 
 

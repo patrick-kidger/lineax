@@ -33,13 +33,6 @@ def _det_sign_error_msg(
     solver: "AbstractDirectLinearSolver | Normal",
     operator: AbstractLinearOperator,
 ) -> str:
-    if not solver.assume_full_rank():
-        return (
-            f"`lx.determinant` with `{type(solver).__name__}`: sign of the "
-            "determinant is not available from this solver's factorisation. "
-            "Use `lx.LU()` for full-rank square matrices, or `lx.QR()` for "
-            "full-rank rectangular matrices."
-        )
     if isinstance(solver, Normal):
         return (
             "`lx.determinant` with `Normal`: sign of the determinant is not "
@@ -50,8 +43,9 @@ def _det_sign_error_msg(
     return (
         f"`lx.determinant` with `{type(solver).__name__}`: sign of the determinant "
         "is not available from this solver's factorisation. "
-        "Use `lx.LU()` for full-rank square matrices, or `lx.QR()` for "
-        "full-rank rectangular matrices."
+        "Use `lx.LU()` for full-rank square matrices, `lx.QR()` for full-rank "
+        "rectangular matrices, or `lx.HEVD()` for Hermitian matrices (including "
+        "rank-deficient ones, where it returns the pseudodeterminant sign)."
     )
 
 

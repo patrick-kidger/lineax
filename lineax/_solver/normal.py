@@ -19,10 +19,17 @@ import equinox.internal as eqxi
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
-from .._operator import conj, linearise, materialise, TaggedLinearOperator
+from .._operator import (
+    AbstractLinearOperator,
+    conj,
+    linearise,
+    materialise,
+    TaggedLinearOperator,
+)
 from .._solution import RESULTS
-from .._solve import AbstractDirectLinearSolver, AbstractLinearOperator, AbstractLinearSolver
 from .._tags import positive_semidefinite_tag
+from .base import AbstractDirectLinearSolver, AbstractLinearSolver
+from .cholesky import Cholesky
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")

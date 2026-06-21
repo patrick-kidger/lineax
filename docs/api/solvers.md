@@ -51,6 +51,13 @@ These are capable of solving ill-posed linear problems.
 
 ---
 
+::: lineax.HEVD
+    options:
+        members:
+            - __init__
+
+---
+
 ::: lineax.Normal
     options:
         members:

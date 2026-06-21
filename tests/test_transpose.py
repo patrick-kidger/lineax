@@ -60,3 +60,38 @@ class TestTranspose:
         in_vec = [a(1.0), 2.0, 3.0]
         solver = lx.AutoLinearSolver(well_posed=False)
         assert_transpose_fixture(operator, out_vec, in_vec, solver)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_H_property(getkey, dtype):
+    # `.H` is the conjugate transpose `conj(A)ᵀ`, but a no-op for Hermitian operators.
+    m = jr.normal(getkey(), (4, 3), dtype=dtype)
+    op = lx.MatrixLinearOperator(m)
+    assert op.H is not op
+    assert tree_allclose(op.H.as_matrix(), m.conj().T)
+
+    herm = jr.normal(getkey(), (3, 3), dtype=dtype)
+    herm = herm + herm.conj().T
+    hop = lx.MatrixLinearOperator(herm, lx.hermitian_tag)
+    assert hop.H is hop
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize("solver_cls", (lx.HEVD, lx.Cholesky, lx.LU))
+def test_hermitian_adjoint_state_reuses_init(getkey, dtype, solver_cls):
+    # For a Hermitian operator (`Aᴴ = A`), `init(A.H) == init(A)`, so the linear-solve
+    # JVP reuses the original state as the adjoint state -- this holds for any solver.
+    m = jr.normal(getkey(), (4, 4), dtype=dtype)
+    m = m + m.conj().T
+    if solver_cls is lx.Cholesky:
+        m = m @ m.conj().T  # PSD, still Hermitian
+        op = lx.MatrixLinearOperator(m, lx.positive_semidefinite_tag)
+    else:
+        op = lx.MatrixLinearOperator(m, lx.hermitian_tag)
+    solver = solver_cls()
+    assert op.H is op
+    state = solver.init(op, {})
+    adjoint_state = solver.init(op.H, {})
+    assert tree_allclose(
+        eqx.filter(state, eqx.is_array), eqx.filter(adjoint_state, eqx.is_array)
+    )

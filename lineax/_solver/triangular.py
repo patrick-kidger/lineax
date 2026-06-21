@@ -26,7 +26,7 @@ from .._operator import (
     is_upper_triangular,
 )
 from .._solution import RESULTS
-from .._solve import AbstractDirectLinearSolver
+from .base import AbstractDirectLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
