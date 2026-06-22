@@ -15,6 +15,10 @@
 import importlib.metadata
 
 from . import internal as internal
+from ._determinant import (
+    determinant as determinant,
+    slogdet as slogdet,
+)
 from ._operator import (
     AbstractLinearOperator as AbstractLinearOperator,
     AddLinearOperator as AddLinearOperator,
@@ -48,10 +52,6 @@ from ._operator import (
     TridiagonalLinearOperator as TridiagonalLinearOperator,
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
-from ._determinant import (
-    determinant as determinant,
-    slogdet as slogdet,
-)
 from ._solve import (
     AbstractDirectLinearSolver as AbstractDirectLinearSolver,
     AbstractLinearSolver as AbstractLinearSolver,
