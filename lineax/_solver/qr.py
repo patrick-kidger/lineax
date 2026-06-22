@@ -124,9 +124,9 @@ class QR(AbstractDirectLinearSolver):
         # sign(det(Q))  = prod(-1 for each non-trivial Householder, +1 for trivial)
         # A Householder reflector is trivial iff tau == 0
         # This holds for any shape since QR assumes full rank.
-        sign_R = jnp.prod(jnp.sign(jnp.diag(a))).real
+        sign_R = jnp.prod(jnp.sign(jnp.diag(a)))
         sign_Q = jnp.prod(jnp.where(taus != 0, -1.0, 1.0))
-        sign = (sign_R * sign_Q).astype(a.real.dtype)
+        sign = sign_R * sign_Q
         return sign, lad
 
     def assume_full_rank(self):

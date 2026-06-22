@@ -156,7 +156,7 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
             threshold = jnp.array(rcond, dtype=w.dtype)
         mask = abs_w > threshold
         safe_w = jnp.where(mask, w, 1.0)
-        sign = jnp.prod(jnp.sign(safe_w)).real.astype(w.real.dtype)
+        sign = jnp.prod(jnp.sign(safe_w))
         lad = jnp.sum(jnp.where(mask, jnp.log(abs_w), 0.0))
         return sign, lad
 

@@ -96,7 +96,7 @@ class Tridiagonal(AbstractDirectLinearSolver[_TridiagonalState]):
         pivot0 = diagonal[0]
         _, pivots_rest = lax.scan(step, pivot0, jnp.arange(1, n))
         pivots = jnp.concatenate([pivot0[None], pivots_rest])
-        sign = jnp.prod(jnp.sign(pivots)).real
+        sign = jnp.prod(jnp.sign(pivots))
         lad = jnp.sum(jnp.log(jnp.abs(pivots)))
         return sign, lad
 

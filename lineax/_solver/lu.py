@@ -101,7 +101,7 @@ class LU(AbstractDirectLinearSolver[_LUState]):
         num_swaps = jnp.sum(piv != jnp.arange(n, dtype=piv.dtype))
         perm_sign = jnp.where(num_swaps % 2 == 0, 1, -1)
         diag_sign = jnp.prod(jnp.sign(jnp.diag(lu)))
-        sign = (perm_sign * diag_sign).astype(lu.real.dtype)
+        sign = perm_sign * diag_sign
         lad = jnp.sum(jnp.log(jnp.abs(jnp.diag(lu))))
         return sign, lad
 

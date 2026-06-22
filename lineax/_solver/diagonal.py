@@ -112,10 +112,10 @@ class Diagonal(AbstractDirectLinearSolver[_DiagonalState]):
             abs_diag = jnp.abs(diag)
             mask = abs_diag > rcond * jnp.max(abs_diag)
             safe_diag = jnp.where(mask, diag, 1.0)
-            sign = jnp.prod(jnp.sign(safe_diag)).real
+            sign = jnp.prod(jnp.sign(safe_diag))
             lad = jnp.sum(jnp.where(mask, jnp.log(abs_diag), 0.0))
         else:
-            sign = jnp.prod(jnp.sign(diag)).real
+            sign = jnp.prod(jnp.sign(diag))
             lad = jnp.sum(jnp.log(jnp.abs(diag)))
         return sign, lad
 

@@ -116,11 +116,11 @@ class Triangular(AbstractDirectLinearSolver[_TriangularState]):
         del options
         matrix, _, unit_diagonal, _, _ = state
         if unit_diagonal.value:
-            sign = jnp.ones((), dtype=matrix.real.dtype)
+            sign = jnp.ones((), dtype=matrix.dtype)
             lad = jnp.zeros((), dtype=matrix.real.dtype)
         else:
             d = jnp.diag(matrix)
-            sign = jnp.prod(jnp.sign(d)).real
+            sign = jnp.prod(jnp.sign(d))
             lad = jnp.sum(jnp.log(jnp.abs(d)))
         return sign, lad
 
