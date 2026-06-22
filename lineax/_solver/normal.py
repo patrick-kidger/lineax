@@ -115,7 +115,7 @@ class Normal(
         # For iterative solvers we only linearise to avoid eager materialisation.
         lin_op = (
             materialise(operator)
-            if is_direct(self.inner_solver)
+            if _is_direct(self.inner_solver)
             else linearise(operator)
         )
         if tall:
@@ -196,7 +196,7 @@ class Normal(
         ],
         options: dict[str, Any],
     ) -> tuple[Array, Array]:
-        if not is_direct(self.inner_solver):
+        if not _is_direct(self.inner_solver):
             raise TypeError(
                 f"`Normal.slogdet` requires a direct inner solver, "
                 f"got {type(self.inner_solver).__name__}. "
@@ -220,7 +220,7 @@ Normal.__init__.__doc__ = """**Arguments:**
 """
 
 
-def is_direct(solver: AbstractLinearSolver) -> bool:
+def _is_direct(solver: AbstractLinearSolver) -> bool:
     """Returns `True` if `solver` is a direct solver that supports `slogdet`.
 
     Direct solvers (e.g. [`lineax.LU`][], [`lineax.Cholesky`][],
@@ -231,5 +231,5 @@ def is_direct(solver: AbstractLinearSolver) -> bool:
     [`lineax.Normal`][] with a direct inner solver also satisfies this check.
     """
     if isinstance(solver, Normal):
-        return is_direct(solver.inner_solver)
+        return _is_direct(solver.inner_solver)
     return isinstance(solver, AbstractDirectLinearSolver)
