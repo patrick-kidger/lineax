@@ -84,13 +84,17 @@ class Tridiagonal(AbstractDirectLinearSolver[_TridiagonalState]):
         conj_state = (conj_diagonals, packed_structures)
         return conj_state, options
 
-    def slogdet(self, state: _TridiagonalState, options: dict[str, Any]) -> tuple[Array, Array]:
+    def slogdet(
+        self, state: _TridiagonalState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
         del options
         (diagonal, lower_diagonal, upper_diagonal), _ = state
         n = diagonal.shape[0]
 
         def step(pivot_prev, i):
-            pivot = diagonal[i] - lower_diagonal[i - 1] * upper_diagonal[i - 1] / pivot_prev
+            pivot = (
+                diagonal[i] - lower_diagonal[i - 1] * upper_diagonal[i - 1] / pivot_prev
+            )
             return pivot, pivot
 
         pivot0 = diagonal[0]

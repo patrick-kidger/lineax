@@ -101,7 +101,9 @@ class Diagonal(AbstractDirectLinearSolver[_DiagonalState]):
         conj_state = conj_diag, packed_structures
         return conj_state, conj_options
 
-    def slogdet(self, state: _DiagonalState, options: dict[str, Any]) -> tuple[Array, Array]:
+    def slogdet(
+        self, state: _DiagonalState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
         del options
         diag, _ = state
         if diag is None:

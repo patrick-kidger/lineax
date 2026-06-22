@@ -144,7 +144,9 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
         conj_options = {}
         return conj_state, conj_options
 
-    def slogdet(self, state: _HEVDState, options: dict[str, Any]) -> tuple[Array, Array]:
+    def slogdet(
+        self, state: _HEVDState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
         del options
         (w, v), _ = state
         m = v.shape[0]

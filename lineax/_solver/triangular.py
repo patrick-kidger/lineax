@@ -112,7 +112,9 @@ class Triangular(AbstractDirectLinearSolver[_TriangularState]):
         conj_options = {}
         return conj_state, conj_options
 
-    def slogdet(self, state: _TriangularState, options: dict[str, Any]) -> tuple[Array, Array]:
+    def slogdet(
+        self, state: _TriangularState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
         del options
         matrix, _, unit_diagonal, _, _ = state
         if unit_diagonal.value:

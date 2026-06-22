@@ -24,7 +24,11 @@ from jaxtyping import Array
 
 from ._custom_types import sentinel
 from ._misc import default_floating_dtype
-from ._operator import AbstractLinearOperator, IdentityLinearOperator, TangentLinearOperator
+from ._operator import (
+    AbstractLinearOperator,
+    IdentityLinearOperator,
+    TangentLinearOperator,
+)
 from ._solve import AbstractDirectLinearSolver, linear_solve
 from ._solver.normal import Normal
 
@@ -48,7 +52,6 @@ def _det_sign_error_msg(
         "For non-Hermitian rank-deficient matrices, lineax does not support "
         "pseudodeterminant sign recovery; use `jnp.linalg.eig` directly."
     )
-
 
 
 @eqx.filter_custom_jvp
@@ -115,7 +118,11 @@ def slogdet(
     if isinstance(operator, IdentityLinearOperator):
         leaves = jtu.tree_leaves(operator.in_structure())
         with jax.numpy_dtype_promotion("standard"):
-            dtype = default_floating_dtype() if len(leaves) == 0 else jnp.result_type(*leaves)
+            dtype = (
+                default_floating_dtype()
+                if len(leaves) == 0
+                else jnp.result_type(*leaves)
+            )
         return jnp.ones((), dtype=dtype), jnp.zeros((), dtype=dtype)
     if state is sentinel:
         dynamic_op, static_op = eqx.partition(operator, eqx.is_array)
