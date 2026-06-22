@@ -21,7 +21,7 @@ from .gmres import GMRES as GMRES
 from .hevd import HEVD as HEVD
 from .lsmr import LSMR as LSMR
 from .lu import LU as LU
-from .normal import is_direct as is_direct, Normal as Normal
+from .normal import Normal as Normal
 from .qr import QR as QR
 from .svd import SVD as SVD
 from .triangular import Triangular as Triangular

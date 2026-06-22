@@ -66,7 +66,6 @@ from ._solver import (
     Diagonal as Diagonal,
     GMRES as GMRES,
     HEVD as HEVD,
-    is_direct as is_direct,
     LSMR as LSMR,
     LU as LU,
     Normal as Normal,
