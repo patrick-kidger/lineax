@@ -119,13 +119,15 @@ class QR(AbstractDirectLinearSolver):
         (a, taus), transpose, _ = state
         # diag(a) = diag(h.mT) = diag(h) = diag(R) for both tall and wide inputs
         lad = jnp.sum(jnp.log(jnp.abs(jnp.diag(a))))
-        # sign(det(A)) = sign(det(Q)) * sign(det(R))
-        # sign(det(R))  = prod(sign(diag(R)))
-        # sign(det(Q))  = prod(-1 for each non-trivial Householder, +1 for trivial)
-        # A Householder reflector is trivial iff tau == 0
-        # This holds for any shape since QR assumes full rank.
+        # det(Q) = prod over k of det(H_k) where H_k = I - tau_k * v_k * v_k^H.
+        # By the matrix determinant lemma: det(I - tau*v*v^H) = 1 - tau*||v||^2,
+        # where ||v_k||^2 = 1 + ||a[k+1:, k]||^2 (v[0]=1, rest stored below diag).
+        # For real tau: 1 - tau*(1+s^2) = 1 - 2 = -1 (since tau = 2/(1+s^2)).
+        # For complex tau: yields the correct complex unit.
+        col_norms_sq = jnp.sum(jnp.abs(jnp.tril(a, -1)) ** 2, axis=0)
+        v_norms_sq = 1.0 + col_norms_sq
         sign_R = jnp.prod(jnp.sign(jnp.diag(a)))
-        sign_Q = jnp.prod(jnp.where(taus != 0, -1.0, 1.0))
+        sign_Q = jnp.prod(jnp.where(taus != 0, 1.0 - taus * v_norms_sq, 1.0))
         sign = sign_R * sign_Q
         return sign, lad
 
