@@ -92,7 +92,9 @@ class Cholesky(AbstractDirectLinearSolver[_CholeskyState]):
         factor, is_nsd = state
         return (factor.conj(), is_nsd), options
 
-    def slogdet(self, state: _CholeskyState, options: dict[str, Any]) -> tuple[Array, Array]:
+    def slogdet(
+        self, state: _CholeskyState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
         del options
         factor, is_nsd = state
         n = factor.shape[0]

@@ -48,7 +48,10 @@ from ._solver import (
     QR,
     SVD,
 )
-from ._solver.base import AbstractDirectLinearSolver as AbstractDirectLinearSolver, AbstractLinearSolver as AbstractLinearSolver
+from ._solver.base import (
+    AbstractDirectLinearSolver as AbstractDirectLinearSolver,
+    AbstractLinearSolver as AbstractLinearSolver,
+)
 from ._solver.misc import pack_structures
 from ._tags import (
     invert_tags,
@@ -453,8 +456,6 @@ eqxi.register_impl_finalisation(linear_solve_p)
 #
 # linear_solve
 #
-
-
 
 
 def _check_rank_compat(

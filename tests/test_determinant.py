@@ -75,6 +75,7 @@ def test_slogdet_square(make_operator, solver, tags, getkey):
 # Normal(Cholesky): sign=nan, lad = sum(log(singular values)) for rectangular A
 # ----------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("shape", [(5, 3), (3, 5)])
 def test_normal_cholesky_slogdet_rectangular(shape, getkey):
     A = jr.normal(getkey(), shape, dtype=jnp.float64)
@@ -89,10 +90,14 @@ def test_normal_cholesky_slogdet_rectangular(shape, getkey):
 # sign=nan: throw kwarg
 # ----------------------------------------------------------------------------
 
-@pytest.mark.parametrize("solver,tags", [
-    (lx.SVD(), ()),
-    (lx.Normal(lx.Cholesky()), lx.positive_semidefinite_tag),
-])
+
+@pytest.mark.parametrize(
+    "solver,tags",
+    [
+        (lx.SVD(), ()),
+        (lx.Normal(lx.Cholesky()), lx.positive_semidefinite_tag),
+    ],
+)
 def test_slogdet_sign_is_nan(solver, tags, getkey):
     (matrix,) = construct_matrix(getkey, solver, tags)
     op = lx.MatrixLinearOperator(matrix, tags)
@@ -100,10 +105,13 @@ def test_slogdet_sign_is_nan(solver, tags, getkey):
     assert jnp.isnan(sign)
 
 
-@pytest.mark.parametrize("solver,tags", [
-    (lx.SVD(), ()),
-    (lx.Normal(lx.Cholesky()), lx.positive_semidefinite_tag),
-])
+@pytest.mark.parametrize(
+    "solver,tags",
+    [
+        (lx.SVD(), ()),
+        (lx.Normal(lx.Cholesky()), lx.positive_semidefinite_tag),
+    ],
+)
 def test_determinant_throw_true_raises(solver, tags, getkey):
     (matrix,) = construct_matrix(getkey, solver, tags)
     op = lx.MatrixLinearOperator(matrix, tags)
@@ -111,10 +119,13 @@ def test_determinant_throw_true_raises(solver, tags, getkey):
         lx.determinant(op, solver, throw=True)
 
 
-@pytest.mark.parametrize("solver,tags", [
-    (lx.SVD(), ()),
-    (lx.Normal(lx.Cholesky()), lx.positive_semidefinite_tag),
-])
+@pytest.mark.parametrize(
+    "solver,tags",
+    [
+        (lx.SVD(), ()),
+        (lx.Normal(lx.Cholesky()), lx.positive_semidefinite_tag),
+    ],
+)
 def test_determinant_throw_false_nan(solver, tags, getkey):
     (matrix,) = construct_matrix(getkey, solver, tags)
     op = lx.MatrixLinearOperator(matrix, tags)
@@ -125,6 +136,7 @@ def test_determinant_throw_false_nan(solver, tags, getkey):
 # ----------------------------------------------------------------------------
 # SVD slogdet: log-pseudodeterminant
 # ----------------------------------------------------------------------------
+
 
 def test_svd_slogdet_lad_fullrank(getkey):
     (matrix,) = construct_matrix(getkey, lx.SVD(), ())
@@ -160,6 +172,7 @@ def test_svd_slogdet_lad_rankdeficient(getkey):
 # QR rectangular: lad, sign=±1, sign vs explicit full-QR
 # ----------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("shape", [(4, 3), (3, 4)])
 def test_qr_rectangular_lad(shape, getkey):
     A = jr.normal(getkey(), shape, dtype=jnp.float64)
@@ -190,7 +203,9 @@ def test_qr_rectangular_sign_vs_full_qr(shape, getkey):
     Q_full, R_full = jnp.linalg.qr(B, mode="complete")
     n = min(B.shape)
     R_sq = R_full[:n, :n]
-    sign_ref = (jnp.sign(jnp.linalg.det(Q_full)) * jnp.prod(jnp.sign(jnp.diag(R_sq)))).astype(jnp.float64)
+    sign_ref = (
+        jnp.sign(jnp.linalg.det(Q_full)) * jnp.prod(jnp.sign(jnp.diag(R_sq)))
+    ).astype(jnp.float64)
     assert jnp.allclose(sign, sign_ref, atol=1e-10), f"sign {sign} vs ref {sign_ref}"
 
 
@@ -200,12 +215,16 @@ def test_qr_rectangular_sign_vs_full_qr(shape, getkey):
 # through TangentLinearOperator.as_matrix() for a JacobianLinearOperator.
 # ----------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
-@pytest.mark.parametrize("solver,tags,use_state", [
-    (lx.LU(), (), False),
-    (lx.LU(), (), True),
-    (lx.QR(), (), False),
-])
+@pytest.mark.parametrize(
+    "solver,tags,use_state",
+    [
+        (lx.LU(), (), False),
+        (lx.LU(), (), True),
+        (lx.QR(), (), False),
+    ],
+)
 def test_slogdet_jvp_lad(make_operator, solver, tags, use_state, getkey):
     (matrix, t_matrix) = construct_matrix(getkey, solver, tags, num=2)
 
@@ -231,10 +250,13 @@ def test_slogdet_jvp_lad(make_operator, solver, tags, use_state, getkey):
 
 
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
-@pytest.mark.parametrize("solver,tags", [
-    (lx.LU(), ()),
-    (lx.QR(), ()),
-])
+@pytest.mark.parametrize(
+    "solver,tags",
+    [
+        (lx.LU(), ()),
+        (lx.QR(), ()),
+    ],
+)
 def test_slogdet_grad(make_operator, solver, tags, getkey):
     (matrix,) = construct_matrix(getkey, solver, tags)
 
@@ -256,10 +278,14 @@ def test_slogdet_grad(make_operator, solver, tags, getkey):
 # Second-order AD: JVP of JVP, compared against jnp.linalg.slogdet
 # ----------------------------------------------------------------------------
 
-@pytest.mark.parametrize("solver,tags", [
-    (lx.LU(), ()),
-    (lx.QR(), ()),
-])
+
+@pytest.mark.parametrize(
+    "solver,tags",
+    [
+        (lx.LU(), ()),
+        (lx.QR(), ()),
+    ],
+)
 def test_slogdet_jvp_jvp(solver, tags, getkey):
     (matrix, t1, t2) = construct_matrix(getkey, solver, tags, num=3)
 

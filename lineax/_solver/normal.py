@@ -29,7 +29,6 @@ from .._operator import (
 from .._solution import RESULTS
 from .._tags import positive_semidefinite_tag
 from .base import AbstractDirectLinearSolver, AbstractLinearSolver
-from .cholesky import Cholesky
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")
@@ -114,7 +113,11 @@ class Normal(
         # Direct solvers materialise the operator; materialise first to avoid
         # computing (op^H @ op).as_matrix() twice via the two branches.
         # For iterative solvers we only linearise to avoid eager materialisation.
-        lin_op = materialise(operator) if is_direct(self.inner_solver) else linearise(operator)
+        lin_op = (
+            materialise(operator)
+            if is_direct(self.inner_solver)
+            else linearise(operator)
+        )
         if tall:
             inner_operator = conj(lin_op.transpose()) @ lin_op
         else:

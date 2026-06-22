@@ -27,7 +27,7 @@ from .._operator import (
     is_upper_triangular,
 )
 from .._solution import RESULTS
-from .base import AbstractDirectLinearSolver, AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 from .cholesky import Cholesky
 from .diagonal import Diagonal
 from .hevd import HEVD
@@ -79,7 +79,9 @@ class AutoLinearSolver(AbstractDirectLinearSolver[_AutoLinearSolverState]):
 
     well_posed: bool | None
 
-    def _select_solver(self, operator: AbstractLinearOperator) -> AbstractDirectLinearSolver:
+    def _select_solver(
+        self, operator: AbstractLinearOperator
+    ) -> AbstractDirectLinearSolver:
         if self.well_posed is True:
             if operator.in_size() != operator.out_size():
                 raise ValueError(
@@ -130,7 +132,9 @@ class AutoLinearSolver(AbstractDirectLinearSolver[_AutoLinearSolverState]):
             raise ValueError(f"Invalid value `well_posed={self.well_posed}`.")
         return solver
 
-    def select_solver(self, operator: AbstractLinearOperator) -> AbstractDirectLinearSolver:
+    def select_solver(
+        self, operator: AbstractLinearOperator
+    ) -> AbstractDirectLinearSolver:
         """Check which solver that [`lineax.AutoLinearSolver`][] will dispatch to.
 
         **Arguments:**
