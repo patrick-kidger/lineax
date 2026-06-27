@@ -342,8 +342,6 @@ def _check_rank_compat(
             )
 
 
-# TODO(kidger): gmres, bicgstab
-# TODO(kidger): support auxiliary outputs
 @eqx.filter_jit
 def linear_solve(
     operator: AbstractLinearOperator,
