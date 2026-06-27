@@ -49,11 +49,11 @@ from ._operator import (
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solve import (
     AbstractLinearSolver as AbstractLinearSolver,
-    AutoLinearSolver as AutoLinearSolver,
     invert as invert,
     linear_solve as linear_solve,
 )
 from ._solver import (
+    AutoLinearSolver as AutoLinearSolver,
     BiCGStab as BiCGStab,
     CG as CG,
     Cholesky as Cholesky,

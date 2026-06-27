@@ -34,7 +34,7 @@ from .._operator import (
     linearise,
 )
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .base import AbstractLinearSolver
 from .misc import preconditioner_and_y0
 from .normal import Normal
 

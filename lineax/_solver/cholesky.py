@@ -25,7 +25,7 @@ from .._operator import (
     is_positive_semidefinite,
 )
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .base import AbstractLinearSolver
 
 
 _CholeskyState: TypeAlias = tuple[Array, eqxi.Static]

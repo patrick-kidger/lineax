@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .auto import AutoLinearSolver as AutoLinearSolver
 from .bicgstab import BiCGStab as BiCGStab
 from .cg import CG as CG, NormalCG as NormalCG
 from .cholesky import Cholesky as Cholesky

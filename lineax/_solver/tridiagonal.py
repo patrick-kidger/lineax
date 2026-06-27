@@ -20,7 +20,7 @@ from jaxtyping import Array, PyTree
 
 from .._operator import AbstractLinearOperator, is_tridiagonal, tridiagonal
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .base import AbstractLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
