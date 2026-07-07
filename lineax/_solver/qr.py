@@ -30,8 +30,7 @@ from .misc import (
     unravel_solution,
 )
 
-
-_QRState: TypeAlias = tuple[tuple[Array, Array], eqxi.Static, PackedStructures]
+_QRState: TypeAlias = tuple[tuple[Array, Array, Array], eqxi.Static, PackedStructures]
 
 
 class QR(AbstractLinearSolver):
@@ -59,10 +58,21 @@ class QR(AbstractLinearSolver):
         transpose = n > m
         if transpose:
             matrix = matrix.T
-        h, taus = jnp.linalg.qr(matrix, mode="raw")  # pyright: ignore
+        # Householder QR computes reflector norms via `sqrt(sum(x**2))`, which
+        # overflows to `inf` (and subsequently `nan`) whenever an entry of
+        # `matrix` approaches `sqrt(dtype_max)` -- e.g. a Tikhonov-damped
+        # operator `A + lambda * I` with `lambda` near the max representable
+        # value. Scaling by the matrix's own max-abs entry keeps every value
+        # passed to `jnp.linalg.qr` safely within [~0, 1], which avoids the
+        # overflow without changing the result for well-scaled operators
+        # (scaling a linear system by a nonzero constant doesn't change its
+        # solution). `scale` is corrected back out in `compute`.
+        scale = jnp.max(jnp.abs(matrix))
+        scale = jnp.where(scale == 0, jnp.ones_like(scale), scale)
+        h, taus = jnp.linalg.qr(matrix / scale, mode="raw")  # pyright: ignore
         a = h.mT
         packed_structures = pack_structures(operator)
-        return (a, taus), eqxi.Static(transpose), packed_structures
+        return (a, taus, scale), eqxi.Static(transpose), packed_structures
 
     def compute(
         self,
@@ -70,17 +80,24 @@ class QR(AbstractLinearSolver):
         vector: PyTree[Array],
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        (a, taus), transpose, packed_structures = state
+        (a, taus, scale), transpose, packed_structures = state
         transpose = transpose.value
         del state, options
         vector = ravel_vector(vector, packed_structures)
         n_full, n_min = a.shape
         r = a[:n_min]
+        # `a` (and thus `r`) was computed from `matrix / scale`, so `r` is R
+        # for the *scaled* operator. Dividing the right-hand side by `scale`
+        # here (rather than multiplying `r` back up) keeps every intermediate
+        # value in the well-scaled regime established in `init`, instead of
+        # reintroducing the same overflow risk we scaled away from.
         if transpose:
             # Minimal norm solution if underdetermined: x = Q.conj() @ R^{-T} @ b.
             # Use Q.conj() @ z = (z^T @ Q^H)^T to avoid explicit `conj` calls,
             # and pad `y` along the row axis to absorb the discarded columns of Q.
-            y = jsp.linalg.solve_triangular(r, vector, trans="T", unit_diagonal=False)
+            y = jsp.linalg.solve_triangular(
+                r, vector / scale, trans="T", unit_diagonal=False
+            )
             zeros = jnp.zeros((1, n_full - n_min), dtype=y.dtype)
             y_pad = jnp.concatenate([y[None, :], zeros], axis=1)
             solution = jll.ormqr(a, taus, y_pad, left=False, transpose=True)[0]
@@ -88,16 +105,16 @@ class QR(AbstractLinearSolver):
             # Least squares solution if overdetermined.
             qHv = jll.ormqr(a, taus, vector[:, None], transpose=True)[:n_min, 0]
             solution = jsp.linalg.solve_triangular(
-                r, qHv, trans="N", unit_diagonal=False
+                r, qHv / scale, trans="N", unit_diagonal=False
             )
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
     def transpose(self, state: _QRState, options: dict[str, Any]):
-        (a, taus), transpose, structures = state
+        (a, taus, scale), transpose, structures = state
         transposed_packed_structures = transpose_packed_structures(structures)
         transpose_state = (
-            (a, taus),
+            (a, taus, scale),
             eqxi.Static(not transpose.value),
             transposed_packed_structures,
         )
@@ -105,9 +122,9 @@ class QR(AbstractLinearSolver):
         return transpose_state, transpose_options
 
     def conj(self, state: _QRState, options: dict[str, Any]):
-        (a, taus), transpose, structures = state
+        (a, taus, scale), transpose, structures = state
         conj_state = (
-            (a.conj(), taus.conj()),
+            (a.conj(), taus.conj(), scale),
             transpose,
             structures,
         )

@@ -259,3 +259,51 @@ def test_nonfinite_input():
     vector = (jnp.nan, jnp.inf)
     sol = lx.linear_solve(operator, vector, throw=False)
     assert sol.result == lx.RESULTS.nonfinite_input
+
+
+def test_qr_tikhonov_extreme_dampening(getkey):
+    # Regression test for https://github.com/patrick-kidger/lineax/issues/98
+    #
+    # `QR`'s Householder factorization computes reflector norms via
+    # sqrt(sum(x**2)), which overflows to inf (and then propagates to nan)
+    # once an entry of the operator approaches sqrt(dtype_max). This arises
+    # in Optimistix's Levenberg-Marquardt when the damping factor grows very
+    # large as the step size goes to zero.
+    vector = jnp.ones(100)
+    dense_operator = lx.MatrixLinearOperator(0.1 * jr.normal(getkey(), (100, 100)))
+    dampening = jnp.finfo(jnp.asarray(0.0)).max
+    tikhonov_operator = dense_operator + dampening * lx.IdentityLinearOperator(
+        jax.eval_shape(lambda: vector)
+    )
+    linear_sol = lx.linear_solve(tikhonov_operator, vector, solver=lx.QR(), throw=False)
+    assert jnp.all(jnp.isfinite(linear_sol.value))
+    # At this dampening scale the operator is (I * dampening) to working
+    # precision, so the solution should match vector / dampening closely.
+    expected = vector / dampening
+    assert tree_allclose(linear_sol.value, expected, rtol=1e-6, atol=0.0)
+
+
+def test_qr_matches_direct_solve_normal_case(getkey):
+    # The scaling fix in QR.init/compute must not change results for
+    # well-conditioned operators.
+    matrix = jr.normal(getkey(), (50, 50)) + 5 * jnp.eye(50)
+    true_x = jr.normal(getkey(), (50,))
+    b = matrix @ true_x
+    operator = lx.MatrixLinearOperator(matrix)
+    sol = lx.linear_solve(operator, b, solver=lx.QR())
+    assert tree_allclose(sol.value, true_x, atol=1e-8, rtol=1e-8)
+
+
+def test_qr_underdetermined_extreme_dampening(getkey):
+    # The same overflow risk exists in QR's transpose (underdetermined)
+    # branch; check it's regularized the same way, on a rectangular operator
+    # with a Tikhonov-like damping term on its leading diagonal block.
+    m, n = 5, 20
+    matrix = 0.1 * jr.normal(getkey(), (m, n))
+    dampening = jnp.finfo(jnp.asarray(0.0)).max
+    matrix = matrix.at[jnp.arange(m), jnp.arange(m)].add(dampening)
+    operator = lx.MatrixLinearOperator(matrix)
+    vector = jr.normal(getkey(), (m,))
+    sol = lx.linear_solve(operator, vector, solver=lx.QR(), throw=False)
+    assert jnp.all(jnp.isfinite(sol.value))
+    assert tree_allclose(matrix @ sol.value, vector, atol=1e-6, rtol=1e-6)
