@@ -508,24 +508,6 @@ def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
 
 
 @ft.singledispatch
-def is_circulant(operator: AbstractLinearOperator) -> bool:
-    """Returns whether an operator is marked as circulant.
-
-    See [the documentation on linear operator tags](../api/tags.md) for more
-    information.
-
-    **Arguments:**
-
-    - `operator`: a linear operator.
-
-    **Returns:**
-
-    Either `True` or `False.`
-    """
-    _default_not_implemented("is_circulant", operator)
-
-
-@ft.singledispatch
 def is_positive_semidefinite(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as positive semidefinite.
 
