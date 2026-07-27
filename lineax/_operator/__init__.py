@@ -41,6 +41,7 @@ from .core import (
 )
 from .structured import (
     DiagonalLinearOperator as DiagonalLinearOperator,
+    CirculantLinearOperator as CirculantLinearOperator,
     IdentityLinearOperator as IdentityLinearOperator,
     TridiagonalLinearOperator as TridiagonalLinearOperator,
 )

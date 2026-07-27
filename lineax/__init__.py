@@ -18,6 +18,7 @@ from . import internal as internal
 from ._operator import (
     AbstractLinearOperator as AbstractLinearOperator,
     AddLinearOperator as AddLinearOperator,
+    CirculantLinearOperator as CirculantLinearOperator,
     ComposedLinearOperator as ComposedLinearOperator,
     conj as conj,
     diagonal as diagonal,
