@@ -35,8 +35,19 @@ from .._misc import (
     inexact_asarray,
     strip_weak_dtype,
 )
+from .._tags import (
+    diagonal_tag,
+    lower_triangular_tag,
+    negative_semidefinite_tag,
+    positive_semidefinite_tag,
+    symmetric_tag,
+    tridiagonal_tag,
+    unit_diagonal_tag,
+    upper_triangular_tag,
+)
 from .base import (
     AbstractLinearOperator,
+    as_frozenset,
     conj,
     diagonal,
     FlatPyTree,
@@ -53,6 +64,20 @@ from .base import (
     materialise,
     tridiagonal,
 )
+
+
+def _has_real_dtype(operator) -> bool:
+    """Check if all dtypes in an operator's structure are real (not complex)."""
+    leaves = jtu.tree_leaves((operator.in_structure(), operator.out_structure()))
+    dtype = jnp.result_type(*leaves)
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        return False
+    elif jnp.issubdtype(dtype, jnp.floating):
+        return True
+    else:
+        assert False, (
+            "Only `jnp.floating` and `jnp.complexfloating` dtypes are understood."
+        )
 
 
 # `structure` must be static as with `JacobianLinearOperator`
@@ -245,11 +270,57 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
+class CirculantLinearOperator(AbstractLinearOperator):
+    column: Inexact[Array, " size"]
+    tags: frozenset[object] = eqx.field(static=True)
+
+    def __init__(
+        self,
+        column: Inexact[Array, " size"],
+        tags: object | frozenset[object] = (),
+    ):
+        self.column = inexact_asarray(column)
+        if self.column.ndim != 1:
+            raise ValueError("Circulant must have exactly 1 dimension.")
+        self.tags = as_frozenset(tags)
+
+    def mv(self, vector):
+        if jnp.issubdtype(self.column.dtype, jnp.complexfloating):
+            freq_circulant = jnp.fft.fft(self.column)
+            freq_vector = jnp.fft.fft(vector)
+            result = jnp.fft.ifft(freq_circulant * freq_vector)
+        else:
+            freq_circulant = jnp.fft.rfft(self.column)
+            freq_vector = jnp.fft.rfft(vector)
+            (size,) = self.column.shape
+            result = jnp.fft.irfft(freq_circulant * freq_vector, n=size)
+        return result
+
+    def transpose(self):
+        return CirculantLinearOperator(
+            jnp.concatenate([self.column[:1], self.column[1:][::-1]]),
+        )
+
+    def as_matrix(self):
+        (size,) = jnp.shape(self.column)
+        # static indices, use numpy
+        i, j = np.ogrid[:size, :size]
+        return self.column[(i - j) % size]
+
+    def in_structure(self):
+        (size,) = jnp.shape(self.column)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.column.dtype)
+
+    def out_structure(self):
+        return self.in_structure()
+
+
 for transform in (linearise, materialise):
 
     @transform.register(IdentityLinearOperator)
     @transform.register(DiagonalLinearOperator)
     @transform.register(TridiagonalLinearOperator)
+    @transform.register(CirculantLinearOperator)
     def _(operator):
         return operator
 
@@ -268,6 +339,11 @@ def _(operator):
 @diagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return operator.diagonal
+
+
+@diagonal.register(CirculantLinearOperator)
+def _(operator):
+    return jnp.full_like(operator.column, operator.column[0])
 
 
 @tridiagonal.register(IdentityLinearOperator)
@@ -291,6 +367,18 @@ def _(operator):
     return operator.diagonal, operator.lower_diagonal, operator.upper_diagonal
 
 
+@tridiagonal.register(CirculantLinearOperator)
+def _(operator):
+    diag = diagonal(operator)
+    if diag.size == 1:
+        upper_diag = jnp.zeros(0, dtype=diag.dtype)
+        lower_diag = jnp.zeros(0, dtype=diag.dtype)
+    else:
+        upper_diag = jnp.full(diag.size - 1, operator.column[-1], dtype=diag.dtype)
+        lower_diag = jnp.full(diag.size - 1, operator.column[1], dtype=diag.dtype)
+    return diag, lower_diag, upper_diag
+
+
 @is_symmetric.register(IdentityLinearOperator)
 def _(operator):
     return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
@@ -306,6 +394,20 @@ def _(operator):
     return False
 
 
+@is_symmetric.register(CirculantLinearOperator)
+def _(operator):
+    # Symmetric (A = A^T) if explicitly tagged symmetric or diagonal
+    if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
+        return True
+    # PSD/NSD implies symmetric only for real dtypes; for complex, it's Hermitian
+    if (
+        positive_semidefinite_tag in operator.tags
+        or negative_semidefinite_tag in operator.tags
+    ):
+        return _has_real_dtype(operator)
+    return False
+
+
 @is_diagonal.register(IdentityLinearOperator)
 @is_diagonal.register(DiagonalLinearOperator)
 def _(operator):
@@ -315,6 +417,11 @@ def _(operator):
 @is_diagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return operator.in_size() == 1
+
+
+@is_diagonal.register(CirculantLinearOperator)
+def _(operator):
+    return diagonal_tag in operator.tags or (operator.in_size() == 1)
 
 
 for check in (is_lower_triangular, is_upper_triangular):
@@ -329,11 +436,33 @@ for check in (is_lower_triangular, is_upper_triangular):
         return False
 
 
+for check, tag in (
+    (has_unit_diagonal, unit_diagonal_tag),
+    (is_lower_triangular, lower_triangular_tag),
+    (is_upper_triangular, upper_triangular_tag),
+    (is_positive_semidefinite, positive_semidefinite_tag),
+    (is_negative_semidefinite, negative_semidefinite_tag),
+):
+
+    @check.register(CirculantLinearOperator)  # pyright: ignore
+    def _(operator, tag=tag):
+        return tag in operator.tags
+
+
 @is_tridiagonal.register(IdentityLinearOperator)
 @is_tridiagonal.register(DiagonalLinearOperator)
 @is_tridiagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return True
+
+
+@is_tridiagonal.register(CirculantLinearOperator)
+def _(operator):
+    return (
+        operator.in_size() < 3
+        or tridiagonal_tag in operator.tags
+        or diagonal_tag in operator.tags
+    )
 
 
 @has_unit_diagonal.register(IdentityLinearOperator)
@@ -378,4 +507,11 @@ def _(operator):
         operator.diagonal.conj(),
         operator.lower_diagonal.conj(),
         operator.upper_diagonal.conj(),
+    )
+
+
+@conj.register(CirculantLinearOperator)
+def _(operator):
+    return CirculantLinearOperator(
+        operator.column.conj(),
     )

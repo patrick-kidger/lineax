@@ -66,7 +66,11 @@ from .base import (
     materialise,
     tridiagonal,
 )
-from .structured import DiagonalLinearOperator, TridiagonalLinearOperator
+from .structured import (
+    _has_real_dtype,
+    DiagonalLinearOperator,
+    TridiagonalLinearOperator,
+)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
@@ -722,20 +726,6 @@ def _(operator):
 
 
 # checks
-
-
-def _has_real_dtype(operator) -> bool:
-    """Check if all dtypes in an operator's structure are real (not complex)."""
-    leaves = jtu.tree_leaves((operator.in_structure(), operator.out_structure()))
-    dtype = jnp.result_type(*leaves)
-    if jnp.issubdtype(dtype, jnp.complexfloating):
-        return False
-    elif jnp.issubdtype(dtype, jnp.floating):
-        return True
-    else:
-        assert False, (
-            "Only `jnp.floating` and `jnp.complexfloating` dtypes are understood."
-        )
 
 
 @is_symmetric.register(MatrixLinearOperator)

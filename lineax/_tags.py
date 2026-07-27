@@ -36,6 +36,7 @@ lower_triangular_tag = _HasRepr("lower_triangular_tag")
 upper_triangular_tag = _HasRepr("upper_triangular_tag")
 positive_semidefinite_tag = _HasRepr("positive_semidefinite_tag")
 negative_semidefinite_tag = _HasRepr("negative_semidefinite_tag")
+circulant_tag = _HasRepr("circulant_tag")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -168,6 +169,7 @@ for tag in (
     positive_semidefinite_tag,
     negative_semidefinite_tag,
     tridiagonal_tag,
+    circulant_tag,
 ):
 
     @transpose_tags_rules.append
@@ -232,6 +234,7 @@ for tag in (
     upper_triangular_tag,
     positive_semidefinite_tag,
     negative_semidefinite_tag,
+    circulant_tag,
 ):
 
     @invert_tags_rules.append
