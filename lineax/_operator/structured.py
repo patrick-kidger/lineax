@@ -48,11 +48,13 @@ from .._tags import (
 from .base import (
     AbstractLinearOperator,
     as_frozenset,
+    circulant_column,
     conj,
     diagonal,
     FlatPyTree,
     has_unit_diagonal,
     inexact_structure,
+    is_circulant,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -379,6 +381,18 @@ def _(operator):
     return diag, lower_diag, upper_diag
 
 
+@circulant_column.register(IdentityLinearOperator)
+def _(operator):
+    size = operator.in_size()
+    dtype = jtu.tree_leaves(operator.in_structure())[0].dtype
+    return jnp.zeros(size, dtype).at[0].set(1)
+
+
+@circulant_column.register(CirculantLinearOperator)
+def _(operator):
+    return operator.column
+
+
 @is_symmetric.register(IdentityLinearOperator)
 def _(operator):
     return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
@@ -463,6 +477,27 @@ def _(operator):
         or tridiagonal_tag in operator.tags
         or diagonal_tag in operator.tags
     )
+
+
+@is_circulant.register(IdentityLinearOperator)
+def _(operator):
+    # A non-square `IdentityLinearOperator` is not circulant.
+    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
+
+
+@is_circulant.register(CirculantLinearOperator)
+def _(operator):
+    return True
+
+
+# A diagonal matrix is circulant iff every diagonal entry is equal, and a tridiagonal
+# matrix is circulant only for sizes below three (larger ones need the wrap-around
+# corners). Neither can be checked at trace time, so we conservatively report circulance
+# only in the size-one case, where it holds unconditionally.
+@is_circulant.register(DiagonalLinearOperator)
+@is_circulant.register(TridiagonalLinearOperator)
+def _(operator):
+    return operator.in_size() == 1
 
 
 @has_unit_diagonal.register(IdentityLinearOperator)

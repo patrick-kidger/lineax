@@ -400,6 +400,48 @@ def tridiagonal(
 
 
 @ft.singledispatch
+def circulant_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
+    """Extracts the first column from a circulant linear operator, and returns a
+    vector.
+
+    A circulant matrix is completely determined by its first column `c`, via
+    `matrix[i, j] = c[(i - j) % size]`, so this is the circulant analogue of
+    [`lineax.diagonal`][] and [`lineax.tridiagonal`][].
+
+    This is only meaningful for operators that are actually circulant; use
+    [`lineax.is_circulant`][] to check.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    A rank-1 JAX array. (That is, it has shape `(a,)` for some integer `a`.)
+
+    For most operators this is computed as a single matrix-vector product against the
+    first basis vector, as `C e_0` is by definition the first column. Some operators
+    (e.g. [`lineax.CirculantLinearOperator`][]) can have more efficient
+    implementations. If you don't know what kind of operator you might have, then this
+    function ensures that you always get the most efficient implementation.
+    """
+    # Unlike the boolean `is_*` tag-checking functions, this deliberately does **not**
+    # raise `NotImplementedError` for unregistered types: one matvec against `e_0` is a
+    # correct (if unoptimised) answer for any operator over a flat vector space, so
+    # third-party subclasses that do not register a dispatch still work.
+    in_structure = operator.in_structure()
+    if (
+        not isinstance(in_structure, jax.ShapeDtypeStruct)
+        or len(in_structure.shape) != 1
+    ):
+        # Circulance is not defined for PyTree-structured spaces.
+        _default_not_implemented("circulant_column", operator)
+    (size,) = in_structure.shape
+    basis = jnp.zeros(size, in_structure.dtype).at[0].set(1)
+    return operator.mv(basis)
+
+
+@ft.singledispatch
 def is_symmetric(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as symmetric.
 
@@ -505,6 +547,24 @@ def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
     Either `True` or `False.`
     """
     _default_not_implemented("is_upper_triangular", operator)
+
+
+@ft.singledispatch
+def is_circulant(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as circulant.
+
+    See [the documentation on linear operator tags](../api/tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
+    _default_not_implemented("is_circulant", operator)
 
 
 @ft.singledispatch

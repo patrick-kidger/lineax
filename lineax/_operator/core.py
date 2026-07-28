@@ -37,6 +37,7 @@ from .._misc import (
     strip_weak_dtype,
 )
 from .._tags import (
+    circulant_tag,
     diagonal_tag,
     lower_triangular_tag,
     negative_semidefinite_tag,
@@ -55,6 +56,7 @@ from .base import (
     FlatPyTree,
     has_unit_diagonal,
     inexact_structure,
+    is_circulant,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -761,6 +763,14 @@ def _(operator):
 @is_tridiagonal.register(FunctionLinearOperator)
 def _(operator):
     return tridiagonal_tag in operator.tags or diagonal_tag in operator.tags
+
+
+@is_circulant.register(MatrixLinearOperator)
+@is_circulant.register(PyTreeLinearOperator)
+@is_circulant.register(JacobianLinearOperator)
+@is_circulant.register(FunctionLinearOperator)
+def _(operator):
+    return circulant_tag in operator.tags
 
 
 # The remaining checks are true iff the operator carries the corresponding tag.

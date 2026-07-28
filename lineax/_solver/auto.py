@@ -18,6 +18,7 @@ from jaxtyping import Array, PyTree
 
 from .._operator import (
     AbstractLinearOperator,
+    is_circulant,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -28,6 +29,7 @@ from .._operator import (
 from .._solution import RESULTS
 from .base import AbstractLinearSolver
 from .cholesky import Cholesky
+from .circulant import Circulant
 from .diagonal import Diagonal
 from .lu import LU
 from .qr import QR
@@ -90,6 +92,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Diagonal(well_posed=True)
             elif is_tridiagonal(operator):
                 solver = Tridiagonal()
+            elif is_circulant(operator):
+                solver = Circulant()
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(
@@ -111,6 +115,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Diagonal()
             elif is_tridiagonal(operator):
                 solver = Tridiagonal()
+            elif is_circulant(operator):
+                solver = Circulant()
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(

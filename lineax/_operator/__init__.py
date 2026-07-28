@@ -14,9 +14,11 @@
 
 from .base import (
     AbstractLinearOperator as AbstractLinearOperator,
+    circulant_column as circulant_column,
     conj as conj,
     diagonal as diagonal,
     has_unit_diagonal as has_unit_diagonal,
+    is_circulant as is_circulant,
     is_diagonal as is_diagonal,
     is_lower_triangular as is_lower_triangular,
     is_negative_semidefinite as is_negative_semidefinite,
@@ -40,8 +42,8 @@ from .core import (
     PyTreeLinearOperator as PyTreeLinearOperator,
 )
 from .structured import (
-    DiagonalLinearOperator as DiagonalLinearOperator,
     CirculantLinearOperator as CirculantLinearOperator,
+    DiagonalLinearOperator as DiagonalLinearOperator,
     IdentityLinearOperator as IdentityLinearOperator,
     TridiagonalLinearOperator as TridiagonalLinearOperator,
 )

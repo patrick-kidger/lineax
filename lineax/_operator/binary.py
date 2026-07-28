@@ -24,6 +24,7 @@ from .base import (
     conj,
     diagonal,
     has_unit_diagonal,
+    is_circulant,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -209,6 +210,7 @@ for check in (
     is_positive_semidefinite,
     is_negative_semidefinite,
     is_tridiagonal,
+    is_circulant,
 ):
 
     @check.register(AddLinearOperator)
@@ -229,11 +231,14 @@ def _(operator):
     )
 
 
-# These properties ARE preserved under composition
+# These properties ARE preserved under composition. (Circulant matrices are all
+# simultaneously diagonalised by the DFT, so they commute and their product is again
+# circulant.)
 for check in (
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
+    is_circulant,
 ):
 
     @check.register(ComposedLinearOperator)
