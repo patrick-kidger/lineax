@@ -27,6 +27,7 @@ from .helpers import (
     make_operators,
     make_tridiagonal_operator,
     make_trivial_diagonal_operator,
+    make_circulant_operator,
     tree_allclose,
 )
 
@@ -43,6 +44,11 @@ def test_ops(make_operator, getkey, dtype):
     elif make_operator is make_tridiagonal_operator:
         matrix = jnp.eye(3, dtype=dtype)
         tags = lx.tridiagonal_tag
+    elif make_operator is make_circulant_operator:
+        column = jr.normal(getkey(), (3, ), dtype=dtype)
+        i, j = jnp.ogrid[:3, :3]
+        matrix = column[(i - j) % 3]
+        tags = lx.circulant_tag
     else:
         matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
         tags = ()
@@ -96,6 +102,12 @@ def test_structures_vector(make_operator, getkey):
         matrix = jnp.eye(4)
         tags = lx.tridiagonal_tag
         in_size = out_size = 4
+    elif make_operator is make_circulant_operator:
+        column = jr.normal(getkey(), (4, ))
+        i, j = jnp.ogrid[:4, :4]
+        matrix = column[(i - j) % 4]
+        tags = lx.circulant_tag
+        in_size = out_size = 4
     else:
         matrix = jr.normal(getkey(), (3, 5))
         tags = ()
@@ -117,6 +129,8 @@ def _setup(getkey, matrix, tag: object | frozenset[object] = frozenset()):
             lx.diagonal_tag,
             lx.symmetric_tag,
         ):
+            continue
+        if make_operator is make_circulant_operator and tag is not lx.circulant_tag:
             continue
         if make_operator is make_identity_operator and tag not in (
             lx.tridiagonal_tag,
@@ -239,6 +253,17 @@ def test_tridiagonal(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant(dtype, getkey):
+    column = jr.normal(getkey(), (5, ), dtype=dtype)
+    i, j = jnp.ogrid[:5, :5]
+    circulant_matrix = column[(i - j) % 5]
+    operators = _setup(getkey, circulant_matrix, lx.circulant_tag)
+    for operator in operators:
+        col = lx.circulant_column(operator)
+        assert jnp.allclose(col, column)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_symmetric(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     symmetric_operators = _setup(getkey, matrix.T @ matrix, lx.symmetric_tag)
@@ -273,6 +298,13 @@ def test_is_diagonal_tridiagonal(dtype, getkey):
     diag1 = jr.normal(getkey(), (1,), dtype=dtype)
     diag2 = jnp.zeros((0,), dtype=dtype)
     op1 = lx.TridiagonalLinearOperator(diag1, diag2, diag2)
+    assert lx.is_diagonal(op1)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_circulant(dtype, getkey):
+    column = jr.normal(getkey(), (1, ), dtype=dtype)
+    op1 = lx.CirculantLinearOperator(column)
     assert lx.is_diagonal(op1)
 
 
@@ -355,6 +387,11 @@ def test_is_tridiagonal(dtype, getkey):
     assert lx.is_tridiagonal(op2)
     assert not lx.is_tridiagonal(op3)
 
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_circulant(dtype, getkey):
+    column = jr.normal(getkey(), (5,), dtype=dtype)
+    op = lx.CirculantLinearOperator(column)
+    assert lx.is_circulant(op)
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_tangent_as_matrix(dtype, getkey):
