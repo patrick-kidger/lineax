@@ -41,10 +41,10 @@ from .._tags import (
     negative_semidefinite_tag,
     positive_semidefinite_tag,
     symmetric_tag,
+    transpose_tags,
     tridiagonal_tag,
     unit_diagonal_tag,
     upper_triangular_tag,
-    transpose_tags,
 )
 from .base import (
     AbstractLinearOperator,
