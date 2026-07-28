@@ -325,8 +325,8 @@ def make_neg_operator(getkey, matrix, tags):
 @_operators_append
 def make_circulant_operator(getkey, matrix, tags):
     column = matrix[:, 0]
-    if tags == lx.circulant_tag:
-        return lx.CirculantLinearOperator(column)
+    if has_tag(tags, lx.circulant_tag):
+        return lx.CirculantLinearOperator(column, tags=tags)
     else:
         assert False, tags
 

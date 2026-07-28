@@ -22,12 +22,12 @@ import lineax as lx
 import pytest
 
 from .helpers import (
+    make_circulant_operator,
     make_identity_operator,
     make_jacrev_operator,
     make_operators,
     make_tridiagonal_operator,
     make_trivial_diagonal_operator,
-    make_circulant_operator,
     tree_allclose,
 )
 
@@ -45,7 +45,7 @@ def test_ops(make_operator, getkey, dtype):
         matrix = jnp.eye(3, dtype=dtype)
         tags = lx.tridiagonal_tag
     elif make_operator is make_circulant_operator:
-        column = jr.normal(getkey(), (3, ), dtype=dtype)
+        column = jr.normal(getkey(), (3,), dtype=dtype)
         i, j = jnp.ogrid[:3, :3]
         matrix = column[(i - j) % 3]
         tags = lx.circulant_tag
@@ -103,7 +103,7 @@ def test_structures_vector(make_operator, getkey):
         tags = lx.tridiagonal_tag
         in_size = out_size = 4
     elif make_operator is make_circulant_operator:
-        column = jr.normal(getkey(), (4, ))
+        column = jr.normal(getkey(), (4,))
         i, j = jnp.ogrid[:4, :4]
         matrix = column[(i - j) % 4]
         tags = lx.circulant_tag
@@ -254,7 +254,7 @@ def test_tridiagonal(dtype, getkey):
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_circulant(dtype, getkey):
-    column = jr.normal(getkey(), (5, ), dtype=dtype)
+    column = jr.normal(getkey(), (5,), dtype=dtype)
     i, j = jnp.ogrid[:5, :5]
     circulant_matrix = column[(i - j) % 5]
     operators = _setup(getkey, circulant_matrix, lx.circulant_tag)
@@ -303,9 +303,13 @@ def test_is_diagonal_tridiagonal(dtype, getkey):
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_diagonal_circulant(dtype, getkey):
-    column = jr.normal(getkey(), (1, ), dtype=dtype)
+    column = jr.normal(getkey(), (1,), dtype=dtype)
     op1 = lx.CirculantLinearOperator(column)
     assert lx.is_diagonal(op1)
+
+    column = jnp.zeros(3, dtype=dtype).at[0].set(2.0)
+    op2 = lx.CirculantLinearOperator(column, tags=lx.diagonal_tag)
+    assert lx.is_diagonal(op2)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -387,11 +391,33 @@ def test_is_tridiagonal(dtype, getkey):
     assert lx.is_tridiagonal(op2)
     assert not lx.is_tridiagonal(op3)
 
+
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_circulant(dtype, getkey):
-    column = jr.normal(getkey(), (5,), dtype=dtype)
-    op = lx.CirculantLinearOperator(column)
-    assert lx.is_circulant(op)
+    column1 = jr.normal(getkey(), (5,), dtype=dtype)
+    op1 = lx.CirculantLinearOperator(column1)
+    assert lx.is_circulant(op1)
+
+    # C1 + C2 is circulant
+    column2 = jr.normal(getkey(), (5,), dtype=dtype)
+    op2 = lx.CirculantLinearOperator(column2)
+    assert lx.is_circulant(op1 + op2)
+    assert jnp.allclose(lx.circulant_column(op1 + op2), column1 + column2)
+
+    # C1 @ C2 is Circulant
+    assert lx.is_circulant(op1 @ op2)
+    assert jnp.allclose(
+        lx.circulant_column(op1 @ op2), (op1.as_matrix() @ op2.as_matrix())[:, 0]
+    )
+
+    # C1 @ Diag is not circulant
+    op3 = lx.DiagonalLinearOperator(column2)
+    assert not lx.is_circulant(op1 @ op3)
+
+    # Untagged
+    op4 = lx.MatrixLinearOperator(op1.as_matrix())
+    assert not lx.is_circulant(op4)
+
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_tangent_as_matrix(dtype, getkey):
@@ -573,3 +599,19 @@ def test_jacrev_operator():
         fwd_op.mv(y)
     with pytest.raises(TypeError, match="can't apply forward-mode autodiff"):
         lx.materialise(fwd_op)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_tags_preserved(dtype, getkey):
+    # Palindromic column -> symmetric, and eigenvalues [6.5, 3.5, 2.5, 3.5] > 0,
+    # so the tags below are truthful rather than merely asserted.
+    column = jnp.array([4.0, 1.0, 0.5, 1.0], dtype=dtype)
+
+    op = lx.CirculantLinearOperator(column, tags=lx.positive_semidefinite_tag)
+    assert lx.is_positive_semidefinite(op.T)
+    assert lx.is_positive_semidefinite(lx.conj(op))
+    assert lx.is_circulant(op.T)
+    assert lx.is_circulant(lx.conj(op))
+
+    op_sym = lx.CirculantLinearOperator(column, tags=lx.symmetric_tag)
+    assert lx.is_symmetric(op_sym.T)
