@@ -44,6 +44,7 @@ from .._tags import (
     tridiagonal_tag,
     unit_diagonal_tag,
     upper_triangular_tag,
+    transpose_tags,
 )
 from .base import (
     AbstractLinearOperator,
@@ -301,6 +302,7 @@ class CirculantLinearOperator(AbstractLinearOperator):
     def transpose(self):
         return CirculantLinearOperator(
             jnp.concatenate([self.column[:1], self.column[1:][::-1]]),
+            transpose_tags(self.tags),
         )
 
     def as_matrix(self):
@@ -549,4 +551,5 @@ def _(operator):
 def _(operator):
     return CirculantLinearOperator(
         operator.column.conj(),
+        operator.tags,
     )

@@ -321,6 +321,13 @@ def make_neg_operator(getkey, matrix, tags):
         -make_matrix_operator(getkey, -matrix, negated_tags), tags
     )
 
+@_operators_append
+def make_circulant_operator(getkey, matrix, tags):
+    column = matrix[:, 0]
+    if tags == lx.circulant_tag:
+        return lx.CirculantLinearOperator(column)
+    else:
+        assert False, tags
 
 # tags that should be preserved under add and (POSITIVE) sclar mul/div
 PRESERVED_TAGS = {
