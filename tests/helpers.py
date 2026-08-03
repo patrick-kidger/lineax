@@ -325,8 +325,12 @@ def make_neg_operator(getkey, matrix, tags):
 @_operators_append
 def make_circulant_operator(getkey, matrix, tags):
     column = matrix[:, 0]
-    if has_tag(tags, lx.circulant_tag):
-        return lx.CirculantLinearOperator(column, tags=tags)
+    if tags == lx.circulant_tag:
+        return lx.CirculantLinearOperator(column)
+    elif has_tag(tags, lx.circulant_tag):
+        # `CirculantLinearOperator` takes no tags of its own, so any additional
+        # properties are declared by wrapping, as with the tridiagonal maker above.
+        return lx.TaggedLinearOperator(lx.CirculantLinearOperator(column), tags)
     else:
         assert False, tags
 

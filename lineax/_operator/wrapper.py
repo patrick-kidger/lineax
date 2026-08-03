@@ -44,6 +44,7 @@ from .base import (
     as_frozenset,
     conj,
     diagonal,
+    first_column,
     has_unit_diagonal,
     is_circulant,
     is_diagonal,
@@ -271,6 +272,11 @@ def _(operator):
 @tridiagonal.register(TaggedLinearOperator)
 def _(operator):
     return tridiagonal(operator.operator)
+
+
+@first_column.register(TaggedLinearOperator)
+def _(operator):
+    return first_column(operator.operator)
 
 
 for transform in (linearise, materialise, diagonal):

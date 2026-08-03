@@ -308,7 +308,7 @@ def test_is_diagonal_circulant(dtype, getkey):
     assert lx.is_diagonal(op1)
 
     column = jnp.zeros(3, dtype=dtype).at[0].set(2.0)
-    op2 = lx.CirculantLinearOperator(column, tags=lx.diagonal_tag)
+    op2 = lx.TaggedLinearOperator(lx.CirculantLinearOperator(column), lx.diagonal_tag)
     assert lx.is_diagonal(op2)
 
 
@@ -607,11 +607,20 @@ def test_circulant_tags_preserved(dtype, getkey):
     # so the tags below are truthful rather than merely asserted.
     column = jnp.array([4.0, 1.0, 0.5, 1.0], dtype=dtype)
 
-    op = lx.CirculantLinearOperator(column, tags=lx.positive_semidefinite_tag)
+    # `CirculantLinearOperator` takes no tags of its own, so extra properties are
+    # declared by wrapping. `TaggedLinearOperator` unions its tags with the inner
+    # operator's checks, so circulance survives alongside the declared tag.
+    op = lx.TaggedLinearOperator(
+        lx.CirculantLinearOperator(column), lx.positive_semidefinite_tag
+    )
     assert lx.is_positive_semidefinite(op.T)
     assert lx.is_positive_semidefinite(lx.conj(op))
     assert lx.is_circulant(op.T)
     assert lx.is_circulant(lx.conj(op))
+    # The wrapper must not cost us the cheap first-column extraction.
+    assert jnp.allclose(lx.first_column(op), column)
 
-    op_sym = lx.CirculantLinearOperator(column, tags=lx.symmetric_tag)
+    op_sym = lx.TaggedLinearOperator(
+        lx.CirculantLinearOperator(column), lx.symmetric_tag
+    )
     assert lx.is_symmetric(op_sym.T)

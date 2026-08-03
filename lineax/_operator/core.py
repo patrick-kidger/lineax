@@ -735,6 +735,15 @@ def _(operator):
     return main_diagonal, lower_diagonal, upper_diagonal
 
 
+# first_column
+
+
+@first_column.register(MatrixLinearOperator)
+@first_column.register(PyTreeLinearOperator)
+def _(operator):
+    return operator.as_matrix()[:, 0]
+
+
 # checks
 
 

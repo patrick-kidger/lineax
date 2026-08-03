@@ -35,20 +35,8 @@ from .._misc import (
     inexact_asarray,
     strip_weak_dtype,
 )
-from .._tags import (
-    diagonal_tag,
-    lower_triangular_tag,
-    negative_semidefinite_tag,
-    positive_semidefinite_tag,
-    symmetric_tag,
-    transpose_tags,
-    tridiagonal_tag,
-    unit_diagonal_tag,
-    upper_triangular_tag,
-)
 from .base import (
     AbstractLinearOperator,
-    as_frozenset,
     conj,
     diagonal,
     first_column,
@@ -275,17 +263,11 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
 
 class CirculantLinearOperator(AbstractLinearOperator):
     column: Inexact[Array, " size"]
-    tags: frozenset[object] = eqx.field(static=True)
 
-    def __init__(
-        self,
-        column: Inexact[Array, " size"],
-        tags: object | frozenset[object] = (),
-    ):
+    def __init__(self, column: Inexact[Array, " size"]):
         self.column = inexact_asarray(column)
         if self.column.ndim != 1:
             raise ValueError("Circulant must have exactly 1 dimension.")
-        self.tags = as_frozenset(tags)
 
     def mv(self, vector):
         if jnp.issubdtype(self.column.dtype, jnp.complexfloating):
@@ -301,8 +283,7 @@ class CirculantLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return CirculantLinearOperator(
-            jnp.concatenate([self.column[:1], jnp.flip(self.column[1:])]),
-            transpose_tags(self.tags),
+            jnp.concatenate([self.column[:1], jnp.flip(self.column[1:])])
         )
 
     def as_matrix(self):
@@ -375,8 +356,8 @@ def _(operator):
 def _(operator):
     diag = diagonal(operator)
     if diag.size == 1:
-        upper_diag = jnp.zeros(0, dtype=diag.dtype)
-        lower_diag = jnp.zeros(0, dtype=diag.dtype)
+        upper_diag = jnp.array([], dtype=diag.dtype)
+        lower_diag = jnp.array([], dtype=diag.dtype)
     else:
         upper_diag = jnp.full(diag.size - 1, operator.column[-1], dtype=diag.dtype)
         lower_diag = jnp.full(diag.size - 1, operator.column[1], dtype=diag.dtype)
@@ -399,21 +380,8 @@ def _(operator):
 
 
 @is_symmetric.register(TridiagonalLinearOperator)
-def _(operator):
-    return False
-
-
 @is_symmetric.register(CirculantLinearOperator)
 def _(operator):
-    # Symmetric (A = A^T) if explicitly tagged symmetric or diagonal
-    if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
-        return True
-    # PSD/NSD implies symmetric only for real dtypes; for complex, it's Hermitian
-    if (
-        positive_semidefinite_tag in operator.tags
-        or negative_semidefinite_tag in operator.tags
-    ):
-        return _has_real_dtype(operator)
     return False
 
 
@@ -424,13 +392,9 @@ def _(operator):
 
 
 @is_diagonal.register(TridiagonalLinearOperator)
-def _(operator):
-    return operator.in_size() == 1
-
-
 @is_diagonal.register(CirculantLinearOperator)
 def _(operator):
-    return diagonal_tag in operator.tags or (operator.in_size() == 1)
+    return operator.in_size() == 1
 
 
 for check in (is_lower_triangular, is_upper_triangular):
@@ -441,21 +405,9 @@ for check in (is_lower_triangular, is_upper_triangular):
         return True
 
     @check.register(TridiagonalLinearOperator)  # pyright: ignore
+    @check.register(CirculantLinearOperator)  # pyright: ignore
     def _(operator):
         return False
-
-
-for check, tag in (
-    (has_unit_diagonal, unit_diagonal_tag),
-    (is_lower_triangular, lower_triangular_tag),
-    (is_upper_triangular, upper_triangular_tag),
-    (is_positive_semidefinite, positive_semidefinite_tag),
-    (is_negative_semidefinite, negative_semidefinite_tag),
-):
-
-    @check.register(CirculantLinearOperator)  # pyright: ignore
-    def _(operator, tag=tag):
-        return tag in operator.tags
 
 
 @is_tridiagonal.register(IdentityLinearOperator)
@@ -465,13 +417,12 @@ def _(operator):
     return True
 
 
+# A matrix of size three or above cannot be both tridiagonal and circulant: zeroing the
+# wrap-around corners forces both off-diagonals to vanish. So the two never need
+# prioritising against each other.
 @is_tridiagonal.register(CirculantLinearOperator)
 def _(operator):
-    return (
-        operator.in_size() < 3
-        or tridiagonal_tag in operator.tags
-        or diagonal_tag in operator.tags
-    )
+    return operator.in_size() < 3
 
 
 @is_circulant.register(IdentityLinearOperator)
@@ -510,12 +461,13 @@ def _(operator):
     return False
 
 
-# TODO: refine these. For now we conservatively report Diagonal and Tridiagonal
-# operators as not having unit diagonal and as not being (semi)definite.
+# TODO: refine these. For now we conservatively report Diagonal, Tridiagonal and
+# Circulant operators as not having unit diagonal and as not being (semi)definite.
 for check in (has_unit_diagonal, is_positive_semidefinite, is_negative_semidefinite):
 
     @check.register(DiagonalLinearOperator)
     @check.register(TridiagonalLinearOperator)
+    @check.register(CirculantLinearOperator)
     def _(operator):
         return False
 
@@ -542,7 +494,4 @@ def _(operator):
 
 @conj.register(CirculantLinearOperator)
 def _(operator):
-    return CirculantLinearOperator(
-        operator.column.conj(),
-        operator.tags,
-    )
+    return CirculantLinearOperator(operator.column.conj())

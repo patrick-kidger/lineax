@@ -23,6 +23,7 @@ from .base import (
     AbstractLinearOperator,
     conj,
     diagonal,
+    first_column,
     has_unit_diagonal,
     is_circulant,
     is_diagonal,
@@ -158,6 +159,11 @@ def _(operator):
     return (diag1 + diag2, lower1 + lower2, upper1 + upper2)
 
 
+@first_column.register(AddLinearOperator)
+def _(operator):
+    return first_column(operator.operator1) + first_column(operator.operator2)
+
+
 @linearise.register(ComposedLinearOperator)
 def _(operator):
     return linearise(operator.operator1) @ linearise(operator.operator2)
@@ -200,6 +206,12 @@ def _(operator):
     upper_diagonal = jnp.diagonal(matrix, offset=1)
     lower_diagonal = jnp.diagonal(matrix, offset=-1)
     return main_diagonal, lower_diagonal, upper_diagonal
+
+
+@first_column.register(ComposedLinearOperator)
+def _(operator):
+    # The first column of `A @ B` is `A @ (B e_0)`.
+    return operator.operator1.mv(first_column(operator.operator2))
 
 
 for check in (
