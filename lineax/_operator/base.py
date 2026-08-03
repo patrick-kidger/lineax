@@ -20,6 +20,7 @@ from typing import NoReturn, TypeVar
 
 import equinox as eqx
 import jax
+import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -417,17 +418,13 @@ def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     then this function ensures that you always get the most efficient implementation.
     """
     # Unlike the `is_*` functions, this does not raise for unregistered types: the
-    # matvec is a correct answer for any operator over a flat vector space.
-    in_structure = operator.in_structure()
-    if (
-        not isinstance(in_structure, jax.ShapeDtypeStruct)
-        or len(in_structure.shape) != 1
-    ):
-        _default_not_implemented("first_column", operator)
-    (size,) = in_structure.shape
+    # matvec is a correct answer for any operator.
     with jax.ensure_compile_time_eval():
-        basis = jnp.zeros(size, in_structure.dtype).at[0].set(1)
-    return operator.mv(basis)
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
+        basis = unravel(jnp.zeros(flat.size, flat.dtype).at[0].set(1))
+    return jfu.ravel_pytree(operator.mv(basis))[0]
 
 
 @ft.singledispatch
