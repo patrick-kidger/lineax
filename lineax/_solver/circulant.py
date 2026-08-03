@@ -31,7 +31,7 @@ from .misc import (
 )
 
 
-_CirculantState: TypeAlias = tuple[tuple[Array, bool, int], PackedStructures]
+_CirculantState: TypeAlias = tuple[Array, PackedStructures]
 
 
 class Circulant(AbstractLinearSolver[_CirculantState]):
@@ -59,12 +59,11 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
                 "`Circulant` may only be used for linear solves with circulant matrices"
             )
         column = first_column(operator)
-        is_complex = jnp.iscomplexobj(column)
-        if is_complex:
-            fft_column = jnp.fft.fft(column)
+        if jnp.iscomplexobj(column):
+            eigenvalues = jnp.fft.fft(column)
         else:
-            fft_column = jnp.fft.rfft(column)
-        return (fft_column, is_complex, len(column)), pack_structures(operator)
+            eigenvalues = jnp.fft.rfft(column)
+        return eigenvalues, pack_structures(operator)
 
     def compute(
         self,
@@ -72,42 +71,43 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
         vector: PyTree[Array],
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        (fft_column, is_complex, n), packed_structures = state
+        eigenvalues, packed_structures = state
         del state, options
         vector = ravel_vector(vector, packed_structures)
-        if is_complex:
+
+        if jnp.iscomplexobj(eigenvalues):
             fft_fn = jnp.fft.fft
             ifft_fn = jnp.fft.ifft
         else:
             fft_fn = jnp.fft.rfft
-            ifft_fn = ft.partial(jnp.fft.irfft, n=n)
+            ifft_fn = ft.partial(jnp.fft.irfft, n=len(eigenvalues) * 2 - 1)
         vector_fft = fft_fn(vector)
 
         if not self.well_posed:
-            (size,) = fft_column.shape
-            rcond = resolve_rcond(self.rcond, size, size, fft_column.dtype)
-            abs_fft = jnp.abs(fft_column)
-            fft_column = jnp.where(
-                abs_fft > rcond * jnp.max(abs_fft), fft_column, jnp.inf
+            (size,) = eigenvalues.shape
+            rcond = resolve_rcond(self.rcond, size, size, eigenvalues.dtype)
+            abs_fft = jnp.abs(eigenvalues)
+            eigenvalues = jnp.where(
+                abs_fft > rcond * jnp.max(abs_fft), eigenvalues, jnp.inf
             )  # pyright: ignore
 
-        solution = ifft_fn(vector_fft / fft_column)
+        solution = ifft_fn(vector_fft / eigenvalues)
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
     def transpose(self, state: _CirculantState, options: dict[str, Any]):
         del options
-        (column_fft, is_complex, n), packed_structures = state
+        eigenvalues, packed_structures = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
         # Transposing reverses the column, `c[(-k) % n]`, and reversal negates the
         # frequency index: `λ_k -> λ_{-k}`. `rfft` keeps only half the spectrum, on
         # which that reindexing acts as conjugation.
-        if is_complex:
-            transpose_freq = jnp.concatenate([column_fft[:1], jnp.flip(column_fft[1:])])
+        if jnp.iscomplexobj(eigenvalues):
+            transpose_eig = jnp.concatenate([eigenvalues[:1], jnp.flip(eigenvalues[1:])])
         else:
-            transpose_freq = jnp.conjugate(column_fft)
+            transpose_eig = jnp.conjugate(eigenvalues)
         transpose_state = (
-            (transpose_freq, is_complex, n),
+            transpose_eig,
             transposed_packed_structures,
         )
         transpose_options = {}
@@ -115,13 +115,13 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
 
     def conj(self, state: _CirculantState, options: dict[str, Any]):
         del options
-        (column_fft, is_complex, n), packed_structures = state
+        eigenvalues, packed_structures = state
         # Conjugating the column conjugates the eigenvalues and, as in `transpose`,
         # negates the frequency index. A real column is its own conjugate.
-        if is_complex:
-            conj_freq = jnp.conjugate(column_fft)
-            conj_freq = jnp.concatenate([conj_freq[:1], jnp.flip(conj_freq[1:])])
-            conj_state = ((conj_freq, is_complex, n), packed_structures)
+        if jnp.iscomplexobj(eigenvalues):
+            conj_eig = jnp.conjugate(eigenvalues)
+            conj_eig = jnp.concatenate([conj_eig[:1], jnp.flip(conj_eig[1:])])
+            conj_state = (conj_eig, packed_structures)
         else:
             conj_state = state
         conj_options = {}
