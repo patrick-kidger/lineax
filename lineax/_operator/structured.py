@@ -31,6 +31,7 @@ from jaxtyping import (
 
 from .._custom_types import sentinel
 from .._misc import (
+    cyclic_reverse,
     default_floating_dtype,
     inexact_asarray,
     strip_weak_dtype,
@@ -293,9 +294,7 @@ class CirculantLinearOperator(AbstractLinearOperator):
         return result
 
     def transpose(self):
-        return CirculantLinearOperator(
-            jnp.concatenate([self.column[:1], jnp.flip(self.column[1:])])
-        )
+        return CirculantLinearOperator(cyclic_reverse(self.column))
 
     def as_matrix(self):
         (size,) = jnp.shape(self.column)

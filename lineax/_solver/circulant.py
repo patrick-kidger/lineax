@@ -19,7 +19,7 @@ import equinox.internal as eqxi
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
-from .._misc import resolve_rcond
+from .._misc import cyclic_reverse, resolve_rcond
 from .._operator import AbstractLinearOperator, first_column, is_circulant
 from .._solution import RESULTS
 from .base import AbstractLinearSolver
@@ -104,9 +104,7 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
         # frequency index: `λ_k -> λ_{-k}`. `rfft` keeps only half the spectrum, on
         # which that reindexing acts as conjugation.
         if is_complex.value:
-            transpose_freq = jnp.concatenate(
-                [eigenvalues[:1], jnp.flip(eigenvalues[1:])]
-            )
+            transpose_freq = cyclic_reverse(eigenvalues)
         else:
             transpose_freq = jnp.conjugate(eigenvalues)
         transpose_state = (
@@ -122,8 +120,7 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
         # Conjugating the column conjugates the eigenvalues and, as in `transpose`,
         # negates the frequency index. A real column is its own conjugate.
         if is_complex.value:
-            conj_eig = jnp.conjugate(eigenvalues)
-            conj_eig = jnp.concatenate([conj_eig[:1], jnp.flip(conj_eig[1:])])
+            conj_eig = cyclic_reverse(jnp.conjugate(eigenvalues))
             conj_state = ((conj_eig, is_complex), packed_structures)
         else:
             conj_state = state
