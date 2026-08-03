@@ -282,14 +282,14 @@ class CirculantLinearOperator(AbstractLinearOperator):
 
     def mv(self, vector):
         if jnp.issubdtype(self.column.dtype, jnp.complexfloating):
-            freq_circulant = jnp.fft.fft(self.column)
-            freq_vector = jnp.fft.fft(vector)
-            result = jnp.fft.ifft(freq_circulant * freq_vector)
+            eigenvalues = jnp.fft.fft(self.column)
+            fft_vector = jnp.fft.fft(vector)
+            result = jnp.fft.ifft(eigenvalues * fft_vector)
         else:
-            freq_circulant = jnp.fft.rfft(self.column)
-            freq_vector = jnp.fft.rfft(vector)
+            eigenvalues = jnp.fft.rfft(self.column)
+            fft_vector = jnp.fft.rfft(vector)
             (size,) = self.column.shape
-            result = jnp.fft.irfft(freq_circulant * freq_vector, n=size)
+            result = jnp.fft.irfft(eigenvalues * fft_vector, n=size)
         return result
 
     def transpose(self):
