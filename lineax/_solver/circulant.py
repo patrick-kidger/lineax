@@ -81,7 +81,7 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
             ifft_fn = jnp.fft.ifft
         else:
             fft_fn = jnp.fft.rfft
-            ifft_fn = ft.partial(jnp.fft.irfft, n=vector.shape[0])
+            ifft_fn = ft.partial(jnp.fft.irfft, n=len(vector))
         vector_fft = fft_fn(vector)
 
         if not self.well_posed:
