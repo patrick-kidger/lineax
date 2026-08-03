@@ -288,8 +288,7 @@ class CirculantLinearOperator(AbstractLinearOperator):
 
     def as_matrix(self):
         (size,) = jnp.shape(self.column)
-        # static indices, use numpy
-        i, j = np.ogrid[:size, :size]
+        i, j = jnp.ogrid[:size, :size]
         return self.column[(i - j) % size]
 
     def in_structure(self):
