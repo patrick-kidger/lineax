@@ -268,3 +268,39 @@ def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtyp
 
     with pytest.raises(Exception):
         linear_solve(operator, vec, solver)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_singular(getkey, dtype):
+    # A column summing to zero gives a zero eigenvalue at the zero frequency, so the
+    # operator is singular but still circulant.
+    column = jnp.array([1.0, -1.0, 2.0, -2.0], dtype=dtype)
+    operator = lx.CirculantLinearOperator(column)
+    matrix = operator.as_matrix()
+    vec = jr.normal(getkey(), (4,), dtype=dtype)
+
+    # The DFT diagonalises, so zeroing the vanishing eigenvalue is exactly the
+    # pseudoinverse.
+    expected = jnp.linalg.pinv(matrix) @ vec
+    assert tree_allclose(lx.linear_solve(operator, vec, lx.Circulant()).value, expected)
+    auto = lx.AutoLinearSolver(well_posed=False)
+    assert tree_allclose(lx.linear_solve(operator, vec, auto).value, expected)
+
+    # `well_posed=True` promises nonsingularity, so the zero eigenvalue is not filtered
+    # and the solve is reported as failing rather than silently returning a
+    # pseudoinverse solution.
+    for solver in (lx.Circulant(well_posed=True), lx.AutoLinearSolver(well_posed=True)):
+        sol = lx.linear_solve(operator, vec, solver, throw=False)
+        assert sol.result != lx.RESULTS.successful
+        with pytest.raises(Exception):
+            lx.linear_solve(operator, vec, solver)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_auto_dispatch(dtype):
+    column = jnp.array([1.0, -1.0, 2.0, -2.0], dtype=dtype)
+    operator = lx.CirculantLinearOperator(column)
+    for well_posed in (True, False, None):
+        solver = lx.AutoLinearSolver(well_posed=well_posed).select_solver(operator)
+        assert isinstance(solver, lx.Circulant), (well_posed, solver)
+        assert solver.well_posed is (well_posed is True)
