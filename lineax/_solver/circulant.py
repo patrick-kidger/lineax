@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools as ft
 from typing import Any, TypeAlias
 
 import jax.numpy as jnp
@@ -79,7 +80,7 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
             ifft_fn = jnp.fft.ifft
         else:
             fft_fn = jnp.fft.rfft
-            ifft_fn = lambda x: jnp.fft.irfft(x, n=n)
+            ifft_fn = ft.partial(jnp.fft.irfft, n=n)
         vector_fft = fft_fn(vector)
 
         if not self.well_posed:
