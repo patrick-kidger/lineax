@@ -48,6 +48,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     - If `well_posed=True`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
+        - If the operator is circulant, then use [`lineax.Circulant`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
@@ -58,6 +59,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
 
     - If `well_posed=False`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
+        - If the operator is circulant, then use [`lineax.Circulant`][].
         - Else use [`lineax.SVD`][].
 
     This is a good choice if you want to be certain that you can handle ill-posed
@@ -67,6 +69,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         - If the operator is non-square, then use [`lineax.QR`][].
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
+        - If the operator is circulant, then use [`lineax.Circulant`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
@@ -93,7 +96,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
             elif is_tridiagonal(operator):
                 solver = Tridiagonal()
             elif is_circulant(operator):
-                solver = Circulant()
+                solver = Circulant(well_posed=True)
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(
@@ -105,6 +108,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         elif self.well_posed is False:
             if is_diagonal(operator):
                 solver = Diagonal()
+            elif is_circulant(operator):
+                solver = Circulant()
             else:
                 # TODO: use rank-revealing QR instead.
                 solver = SVD()
