@@ -253,7 +253,7 @@ def test_tridiagonal(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_circulant(dtype, getkey):
+def test_first_column(dtype, getkey):
     column = jr.normal(getkey(), (5,), dtype=dtype)
     i, j = jnp.ogrid[:5, :5]
     circulant_matrix = column[(i - j) % 5]
