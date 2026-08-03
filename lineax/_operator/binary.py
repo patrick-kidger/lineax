@@ -231,9 +231,7 @@ def _(operator):
     )
 
 
-# These properties ARE preserved under composition. (Circulant matrices are all
-# simultaneously diagonalised by the DFT, so they commute and their product is again
-# circulant.)
+# These properties ARE preserved under composition.
 for check in (
     is_diagonal,
     is_lower_triangular,
