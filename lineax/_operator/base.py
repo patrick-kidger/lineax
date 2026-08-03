@@ -425,7 +425,8 @@ def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     ):
         _default_not_implemented("first_column", operator)
     (size,) = in_structure.shape
-    basis = jnp.zeros(size, in_structure.dtype).at[0].set(1)
+    with jax.ensure_compile_time_eval():
+        basis = jnp.zeros(size, in_structure.dtype).at[0].set(1)
     return operator.mv(basis)
 
 
