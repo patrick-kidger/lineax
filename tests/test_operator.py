@@ -259,7 +259,7 @@ def test_circulant(dtype, getkey):
     circulant_matrix = column[(i - j) % 5]
     operators = _setup(getkey, circulant_matrix, lx.circulant_tag)
     for operator in operators:
-        col = lx.circulant_column(operator)
+        col = lx.first_column(operator)
         assert jnp.allclose(col, column)
 
 
@@ -402,12 +402,12 @@ def test_is_circulant(dtype, getkey):
     column2 = jr.normal(getkey(), (5,), dtype=dtype)
     op2 = lx.CirculantLinearOperator(column2)
     assert lx.is_circulant(op1 + op2)
-    assert jnp.allclose(lx.circulant_column(op1 + op2), column1 + column2)
+    assert jnp.allclose(lx.first_column(op1 + op2), column1 + column2)
 
     # C1 @ C2 is Circulant
     assert lx.is_circulant(op1 @ op2)
     assert jnp.allclose(
-        lx.circulant_column(op1 @ op2), (op1.as_matrix() @ op2.as_matrix())[:, 0]
+        lx.first_column(op1 @ op2), (op1.as_matrix() @ op2.as_matrix())[:, 0]
     )
 
     # C1 @ Diag is not circulant

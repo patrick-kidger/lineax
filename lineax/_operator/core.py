@@ -53,6 +53,7 @@ from .base import (
     as_frozenset,
     conj,
     diagonal,
+    first_column,
     FlatPyTree,
     has_unit_diagonal,
     inexact_structure,
@@ -70,6 +71,7 @@ from .base import (
 )
 from .structured import (
     _has_real_dtype,
+    CirculantLinearOperator,
     DiagonalLinearOperator,
     TridiagonalLinearOperator,
 )
@@ -543,6 +545,12 @@ def try_structured_materialise(
         and isinstance(operator.out_structure(), jax.ShapeDtypeStruct)
     ):
         return TridiagonalLinearOperator(*tridiagonal(operator))
+    if (
+        is_circulant(operator)
+        and isinstance(operator.in_structure(), jax.ShapeDtypeStruct)
+        and isinstance(operator.out_structure(), jax.ShapeDtypeStruct)
+    ):
+        return CirculantLinearOperator(first_column(operator))
     return operator
 
 

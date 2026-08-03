@@ -49,9 +49,9 @@ from .._tags import (
 from .base import (
     AbstractLinearOperator,
     as_frozenset,
-    circulant_column,
     conj,
     diagonal,
+    first_column,
     FlatPyTree,
     has_unit_diagonal,
     inexact_structure,
@@ -301,7 +301,7 @@ class CirculantLinearOperator(AbstractLinearOperator):
 
     def transpose(self):
         return CirculantLinearOperator(
-            jnp.concatenate([self.column[:1], self.column[1:][::-1]]),
+            jnp.concatenate([self.column[:1], jnp.flip(self.column[1:])]),
             transpose_tags(self.tags),
         )
 
@@ -383,14 +383,7 @@ def _(operator):
     return diag, lower_diag, upper_diag
 
 
-@circulant_column.register(IdentityLinearOperator)
-def _(operator):
-    size = operator.in_size()
-    dtype = jtu.tree_leaves(operator.in_structure())[0].dtype
-    return jnp.zeros(size, dtype).at[0].set(1)
-
-
-@circulant_column.register(CirculantLinearOperator)
+@first_column.register(CirculantLinearOperator)
 def _(operator):
     return operator.column
 

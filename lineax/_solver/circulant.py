@@ -17,7 +17,8 @@ from typing import Any, TypeAlias
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
-from .._operator import AbstractLinearOperator, circulant_column, is_circulant
+from .._misc import resolve_rcond
+from .._operator import AbstractLinearOperator, first_column, is_circulant
 from .._solution import RESULTS
 from .base import AbstractLinearSolver
 from .misc import (
@@ -33,6 +34,17 @@ _CirculantState: TypeAlias = tuple[tuple[Array, bool, int], PackedStructures]
 
 
 class Circulant(AbstractLinearSolver[_CirculantState]):
+    """Circulant solver for linear systems.
+
+    Requires that the operator be circulant. Then $Ax = b$, with $A$ circulant, is
+    solved by .
+
+    This solver can handle singular operators.
+    """
+
+    well_posed: bool = False
+    rcond: float | None = None
+
     def init(
         self, operator: AbstractLinearOperator, options: dict[str, Any]
     ) -> _CirculantState:
@@ -45,7 +57,7 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
             raise ValueError(
                 "`Circulant` may only be used for linear solves with circulant matrices"
             )
-        column = circulant_column(operator)
+        column = first_column(operator)
         is_complex = jnp.iscomplexobj(column)
         if is_complex:
             fft_column = jnp.fft.fft(column)
@@ -69,6 +81,15 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
             fft_fn = jnp.fft.rfft
             ifft_fn = lambda x: jnp.fft.irfft(x, n=n)
         vector_fft = fft_fn(vector)
+
+        if not self.well_posed:
+            (size,) = fft_column.shape
+            rcond = resolve_rcond(self.rcond, size, size, fft_column.dtype)
+            abs_fft = jnp.abs(fft_column)
+            fft_column = jnp.where(
+                abs_fft > rcond * jnp.max(abs_fft), fft_column, jnp.inf
+            )  # pyright: ignore
+
         solution = ifft_fn(vector_fft / fft_column)
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
@@ -106,4 +127,4 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
         return conj_state, conj_options
 
     def assume_full_rank(self):
-        return True
+        return self.well_posed

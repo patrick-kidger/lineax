@@ -400,7 +400,7 @@ def tridiagonal(
 
 
 @ft.singledispatch
-def circulant_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
+def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     """Extracts the first column from a circulant linear operator, and returns a
     vector.
 
@@ -435,7 +435,7 @@ def circulant_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]
         or len(in_structure.shape) != 1
     ):
         # Circulance is not defined for PyTree-structured spaces.
-        _default_not_implemented("circulant_column", operator)
+        _default_not_implemented("first_column", operator)
     (size,) = in_structure.shape
     basis = jnp.zeros(size, in_structure.dtype).at[0].set(1)
     return operator.mv(basis)

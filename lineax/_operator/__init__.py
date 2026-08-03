@@ -14,9 +14,9 @@
 
 from .base import (
     AbstractLinearOperator as AbstractLinearOperator,
-    circulant_column as circulant_column,
     conj as conj,
     diagonal as diagonal,
+    first_column as first_column,
     has_unit_diagonal as has_unit_diagonal,
     is_circulant as is_circulant,
     is_diagonal as is_diagonal,
