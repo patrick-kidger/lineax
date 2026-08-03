@@ -297,9 +297,7 @@ class CirculantLinearOperator(AbstractLinearOperator):
         return CirculantLinearOperator(cyclic_reverse(self.column))
 
     def as_matrix(self):
-        (size,) = jnp.shape(self.column)
-        i, j = jnp.ogrid[:size, :size]
-        return self.column[(i - j) % size]
+        return jax.scipy.linalg.circulant(self.column)
 
     def in_structure(self):
         (size,) = jnp.shape(self.column)
