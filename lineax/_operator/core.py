@@ -782,14 +782,6 @@ def _(operator):
     return tridiagonal_tag in operator.tags or diagonal_tag in operator.tags
 
 
-@is_circulant.register(MatrixLinearOperator)
-@is_circulant.register(PyTreeLinearOperator)
-@is_circulant.register(JacobianLinearOperator)
-@is_circulant.register(FunctionLinearOperator)
-def _(operator):
-    return circulant_tag in operator.tags
-
-
 # The remaining checks are true iff the operator carries the corresponding tag.
 for check, tag in (
     (has_unit_diagonal, unit_diagonal_tag),
@@ -797,6 +789,7 @@ for check, tag in (
     (is_upper_triangular, upper_triangular_tag),
     (is_positive_semidefinite, positive_semidefinite_tag),
     (is_negative_semidefinite, negative_semidefinite_tag),
+    (is_circulant, circulant_tag),
 ):
 
     @check.register(MatrixLinearOperator)
