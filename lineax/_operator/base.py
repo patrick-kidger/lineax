@@ -401,15 +401,7 @@ def tridiagonal(
 
 @ft.singledispatch
 def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
-    """Extracts the first column from a circulant linear operator, and returns a
-    vector.
-
-    A circulant matrix is completely determined by its first column `c`, via
-    `matrix[i, j] = c[(i - j) % size]`, so this is the circulant analogue of
-    [`lineax.diagonal`][] and [`lineax.tridiagonal`][].
-
-    This is only meaningful for operators that are actually circulant; use
-    [`lineax.is_circulant`][] to check.
+    """Extracts the first column from a linear operator, and returns a vector.
 
     **Arguments:**
 
@@ -419,22 +411,18 @@ def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
     A rank-1 JAX array. (That is, it has shape `(a,)` for some integer `a`.)
 
-    For most operators this is computed as a single matrix-vector product against the
-    first basis vector, as `C e_0` is by definition the first column. Some operators
-    (e.g. [`lineax.CirculantLinearOperator`][]) can have more efficient
-    implementations. If you don't know what kind of operator you might have, then this
-    function ensures that you always get the most efficient implementation.
+    For most operators this is just `operator.mv(e_0)`, for `e_0` the first basis
+    vector. Some operators (e.g. [`lineax.CirculantLinearOperator`][]) can have more
+    efficient implementations. If you don't know what kind of operator you might have,
+    then this function ensures that you always get the most efficient implementation.
     """
-    # Unlike the boolean `is_*` tag-checking functions, this deliberately does **not**
-    # raise `NotImplementedError` for unregistered types: one matvec against `e_0` is a
-    # correct (if unoptimised) answer for any operator over a flat vector space, so
-    # third-party subclasses that do not register a dispatch still work.
+    # Unlike the `is_*` functions, this does not raise for unregistered types: the
+    # matvec is a correct answer for any operator over a flat vector space.
     in_structure = operator.in_structure()
     if (
         not isinstance(in_structure, jax.ShapeDtypeStruct)
         or len(in_structure.shape) != 1
     ):
-        # Circulance is not defined for PyTree-structured spaces.
         _default_not_implemented("first_column", operator)
     (size,) = in_structure.shape
     basis = jnp.zeros(size, in_structure.dtype).at[0].set(1)

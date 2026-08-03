@@ -262,9 +262,20 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
 
 
 class CirculantLinearOperator(AbstractLinearOperator):
+    """As [`lineax.MatrixLinearOperator`][], but for specifically a circulant matrix.
+
+    Only the first column is stored (for memory efficiency). Matrix-vector products are
+    computed via the FFT, rather than a full matrix @ vector (for speed).
+    """
+
     column: Inexact[Array, " size"]
 
     def __init__(self, column: Inexact[Array, " size"]):
+        """**Arguments:**
+
+        - `column`: A rank-one JAX array. This is the first column of the matrix, which
+            determines it in full: `matrix[i, j] = column[(i - j) % size]`.
+        """
         self.column = inexact_asarray(column)
         if self.column.ndim != 1:
             raise ValueError("Circulant must have exactly 1 dimension.")

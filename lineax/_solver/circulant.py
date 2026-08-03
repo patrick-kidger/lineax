@@ -37,10 +37,10 @@ _CirculantState: TypeAlias = tuple[tuple[Array, bool, int], PackedStructures]
 class Circulant(AbstractLinearSolver[_CirculantState]):
     """Circulant solver for linear systems.
 
-    Requires that the operator be circulant. Then $Ax = b$, with $A$ circulant, is
-    solved by .
+    Requires that the operator be circulant. Then $Ax = b$ is solved by dividing by the
+    eigenvalues of $A$, which are the FFT of its first column.
 
-    This solver can handle singular operators.
+    This solver can handle singular operators (i.e. zero eigenvalues).
     """
 
     well_posed: bool = False
@@ -129,3 +129,14 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
 
     def assume_full_rank(self):
         return self.well_posed
+
+
+Circulant.__init__.__doc__ = """**Arguments**:
+
+- `well_posed`: if `False`, then singular operators are accepted, and the pseudoinverse
+    solution is returned. If `True` then passing a singular operator will cause an error
+    to be raised instead.
+- `rcond`: the cutoff for handling zero eigenvalues. Defaults to machine precision times
+    `N`, where `N` is the input (or output) size of the operator. Only used if
+    `well_posed=False`
+"""
