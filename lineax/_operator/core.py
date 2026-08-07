@@ -529,13 +529,11 @@ def try_structured_materialise(
 ) -> AbstractLinearOperator:
     """Try to materialise to a structured operator.
 
-    Returns a (Tri)DiagonalLinearOperator if the operator is tagged as (tri)diagonal,
+    Returns a structured operator
+    (`DiagonalLinearOperator`/`TridiagonalLinearOperator`/`CirculantLinearOperator`)
+    if the operator is known to have the required structure (e.g through tags),
     otherwise returns the original operator unchanged. The resulting operator
-   Returns a structured operator
-   (`DiagonalLinearOperator`/`TridiagonalLinearOperator`/`CirculantLinearOperator`)
-   if the operator is known to have the required structure (e.g through tags),
-   otherwise returns the original operator unchanged. The resulting operator
-   preserves the input/output structure of the original operator.
+    preserves the input/output structure of the original operator.
     """
     if is_diagonal(operator):
         diag_flat = diagonal(operator)
