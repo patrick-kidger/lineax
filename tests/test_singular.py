@@ -309,10 +309,17 @@ def test_circulant_singular_rcond_size():
     # Midway between the two thresholds, so only the correct one filters it.
     tiny = 13 * eps * max_abs
     eigenvalues = jnp.concatenate([tiny.astype(jnp.complex128)[None], tail])
-    assert 2 * eps * eigenvalues.size * max_abs < tiny < 2 * eps * size * max_abs
 
     column = jnp.fft.irfft(eigenvalues, n=size)
     assert tree_allclose(jnp.fft.rfft(column), eigenvalues)
+    # Bracket the round-tripped eigenvalue rather than the ideal `tiny`: `irfft`/`rfft`
+    # perturbs it by ~`eps * max_abs`, and the `tree_allclose` above is far too loose to
+    # notice at this magnitude. These are the two candidate thresholds, so the assert
+    # pins the test's discriminating power rather than assuming it.
+    realised = jnp.abs(jnp.fft.rfft(column))
+    max_realised = jnp.max(realised)
+    assert 2 * eps * realised.size * max_realised < realised[0]
+    assert realised[0] < 2 * eps * size * max_realised
     operator = lx.CirculantLinearOperator(column)
     # A nonzero mean gives a component along the near-null zero-frequency eigenvector.
     vec = jnp.linspace(0.5, 2.0, size, dtype=jnp.float64)
