@@ -266,35 +266,31 @@ def test_first_column(dtype, getkey):
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 @pytest.mark.parametrize(
-    "tree_shapes",
-    # (shape1, shape2), (shape2, shape3)  ..., (shape_nm1, shape_n)
+    "tree_sizes",
+    # (size1, size2), (size2, size3)  ..., (size_nm1, size_n)
     [
-        ([(4,), {"a": (2,), "b": (2,)}], [{"a": (2,), "b": (2,)}, (3,)]),
-        ([{"a": (2,), "b": (2,)}, (4,)], [(4,), {"a": (2,), "b": (1,)}]),
-        ([[(2,), (1,)], [(2,), (3,)]], [[(2,), (3,)], (3,)]),
-        ([(4,), (5,)], [(5,), (2,)]),
+        ([4, {"a": 2, "b": 2}], [{"a": 2, "b": 2}, 3]),
+        ([{"a": 2, "b": 2}, 4], [4, {"a": 2, "b": 1}]),
+        ([[2, 1], [2, 3]], [[2, 3], 3]),
+        ([4, 5], [5, 2]),
         (
-            [(4,), {"a": (2,), "b": (2,)}],
-            [{"a": (2,), "b": (2,)}, {"a": (2,), "b": (1,)}],
-            [{"a": (2,), "b": (1,)}, {"a": (1,), "b": (1,)}],
+            [4, {"a": 2, "b": 2}],
+            [{"a": 2, "b": 2}, {"a": 2, "b": 1}],
+            [{"a": 2, "b": 1}, {"a": 1, "b": 1}],
         ),
     ],
 )
-def test_first_column_composite(dtype, tree_shapes, getkey):
+def test_first_column_composite(dtype, tree_sizes, getkey):
     operators = []
-    is_leaf = lambda x: isinstance(x, tuple)
-    for out_shape, inp_shape in tree_shapes:
+    for out_size, inp_size in tree_sizes:
         out_struct = jax.tree_util.tree_map(
-            lambda shape: jax.ShapeDtypeStruct(shape, dtype), out_shape, is_leaf=is_leaf
+            lambda size: jax.ShapeDtypeStruct((size,), dtype), out_size
         )
         pytree = jax.tree_util.tree_map(
             lambda out: jax.tree_util.tree_map(
-                lambda inp: jr.normal(getkey(), (*out, *inp), dtype=dtype),
-                inp_shape,
-                is_leaf=is_leaf,
+                lambda inp: jr.normal(getkey(), (out, inp), dtype=dtype), inp_size
             ),
-            out_shape,
-            is_leaf=is_leaf,
+            out_size,
         )
         operators.append(lx.PyTreeLinearOperator(pytree, out_struct))
 
