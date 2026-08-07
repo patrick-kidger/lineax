@@ -85,7 +85,7 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
         vector_fft = fft_fn(vector)
 
         if not self.well_posed:
-            (size,) = eigenvalues.shape
+            size = len(vector)
             rcond = resolve_rcond(self.rcond, size, size, eigenvalues.dtype)
             abs_eig = jnp.abs(eigenvalues)
             eigenvalues = jnp.where(

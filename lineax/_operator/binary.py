@@ -211,7 +211,12 @@ def _(operator):
 @first_column.register(ComposedLinearOperator)
 def _(operator):
     # The first column of `A @ B` is `A @ (B e_0)`.
-    return operator.operator1.mv(first_column(operator.operator2))
+    _, unravel = eqx.filter_eval_shape(
+        jfu.ravel_pytree, operator.operator1.in_structure()
+    )
+    column = first_column(operator.operator2)
+    out, _ = jfu.ravel_pytree(operator.operator1.mv(unravel(column)))
+    return out
 
 
 for check in (
