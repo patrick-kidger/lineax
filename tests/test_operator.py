@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools as ft
 from typing import cast
 
 import equinox as eqx
@@ -22,6 +23,7 @@ import lineax as lx
 import pytest
 
 from .helpers import (
+    make_circulant_operator,
     make_identity_operator,
     make_jacrev_operator,
     make_operators,
@@ -43,6 +45,11 @@ def test_ops(make_operator, getkey, dtype):
     elif make_operator is make_tridiagonal_operator:
         matrix = jnp.eye(3, dtype=dtype)
         tags = lx.tridiagonal_tag
+    elif make_operator is make_circulant_operator:
+        column = jr.normal(getkey(), (3,), dtype=dtype)
+        i, j = jnp.ogrid[:3, :3]
+        matrix = column[(i - j) % 3]
+        tags = lx.circulant_tag
     else:
         matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
         tags = ()
@@ -96,6 +103,12 @@ def test_structures_vector(make_operator, getkey):
         matrix = jnp.eye(4)
         tags = lx.tridiagonal_tag
         in_size = out_size = 4
+    elif make_operator is make_circulant_operator:
+        column = jr.normal(getkey(), (4,))
+        i, j = jnp.ogrid[:4, :4]
+        matrix = column[(i - j) % 4]
+        tags = lx.circulant_tag
+        in_size = out_size = 4
     else:
         matrix = jr.normal(getkey(), (3, 5))
         tags = ()
@@ -117,6 +130,8 @@ def _setup(getkey, matrix, tag: object | frozenset[object] = frozenset()):
             lx.diagonal_tag,
             lx.symmetric_tag,
         ):
+            continue
+        if make_operator is make_circulant_operator and tag is not lx.circulant_tag:
             continue
         if make_operator is make_identity_operator and tag not in (
             lx.tridiagonal_tag,
@@ -239,6 +254,54 @@ def test_tridiagonal(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_first_column(dtype, getkey):
+    column = jr.normal(getkey(), (5,), dtype=dtype)
+    i, j = jnp.ogrid[:5, :5]
+    circulant_matrix = column[(i - j) % 5]
+    operators = _setup(getkey, circulant_matrix, lx.circulant_tag)
+    for operator in operators:
+        col = lx.first_column(operator)
+        assert jnp.allclose(col, column)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize(
+    "tree_sizes",
+    # (size1, size2), (size2, size3)  ..., (size_nm1, size_n)
+    [
+        ([4, {"a": 2, "b": 2}], [{"a": 2, "b": 2}, 3]),
+        ([{"a": 2, "b": 2}, 4], [4, {"a": 2, "b": 1}]),
+        ([[2, 1], [2, 3]], [[2, 3], 3]),
+        ([4, 5], [5, 2]),
+        (
+            [4, {"a": 2, "b": 2}],
+            [{"a": 2, "b": 2}, {"a": 2, "b": 1}],
+            [{"a": 2, "b": 1}, {"a": 1, "b": 1}],
+        ),
+    ],
+)
+def test_first_column_composite(dtype, tree_sizes, getkey):
+    operators = []
+    for out_size, inp_size in tree_sizes:
+        out_struct = jax.tree_util.tree_map(
+            lambda size: jax.ShapeDtypeStruct((size,), dtype), out_size
+        )
+        pytree = jax.tree_util.tree_map(
+            lambda out: jax.tree_util.tree_map(
+                lambda inp: jr.normal(getkey(), (out, inp), dtype=dtype), inp_size
+            ),
+            out_size,
+        )
+        operators.append(lx.PyTreeLinearOperator(pytree, out_struct))
+
+    composite = ft.reduce(lambda a, b: a @ b, operators)
+    column = lx.first_column(composite)
+    column_matrix = composite.as_matrix()[:, 0]
+    assert jnp.allclose(column, column_matrix)
+    assert column.dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_symmetric(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     symmetric_operators = _setup(getkey, matrix.T @ matrix, lx.symmetric_tag)
@@ -274,6 +337,17 @@ def test_is_diagonal_tridiagonal(dtype, getkey):
     diag2 = jnp.zeros((0,), dtype=dtype)
     op1 = lx.TridiagonalLinearOperator(diag1, diag2, diag2)
     assert lx.is_diagonal(op1)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_circulant(dtype, getkey):
+    column = jr.normal(getkey(), (1,), dtype=dtype)
+    op1 = lx.CirculantLinearOperator(column)
+    assert lx.is_diagonal(op1)
+
+    column = jnp.zeros(3, dtype=dtype).at[0].set(2.0)
+    op2 = lx.TaggedLinearOperator(lx.CirculantLinearOperator(column), lx.diagonal_tag)
+    assert lx.is_diagonal(op2)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -354,6 +428,33 @@ def test_is_tridiagonal(dtype, getkey):
     assert lx.is_tridiagonal(op1)
     assert lx.is_tridiagonal(op2)
     assert not lx.is_tridiagonal(op3)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_circulant(dtype, getkey):
+    column1 = jr.normal(getkey(), (5,), dtype=dtype)
+    op1 = lx.CirculantLinearOperator(column1)
+    assert lx.is_circulant(op1)
+
+    # C1 + C2 is circulant
+    column2 = jr.normal(getkey(), (5,), dtype=dtype)
+    op2 = lx.CirculantLinearOperator(column2)
+    assert lx.is_circulant(op1 + op2)
+    assert jnp.allclose(lx.first_column(op1 + op2), column1 + column2)
+
+    # C1 @ C2 is Circulant
+    assert lx.is_circulant(op1 @ op2)
+    assert jnp.allclose(
+        lx.first_column(op1 @ op2), (op1.as_matrix() @ op2.as_matrix())[:, 0]
+    )
+
+    # C1 @ Diag is not circulant
+    op3 = lx.DiagonalLinearOperator(column2)
+    assert not lx.is_circulant(op1 @ op3)
+
+    # Untagged
+    op4 = lx.MatrixLinearOperator(op1.as_matrix())
+    assert not lx.is_circulant(op4)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -536,3 +637,28 @@ def test_jacrev_operator():
         fwd_op.mv(y)
     with pytest.raises(TypeError, match="can't apply forward-mode autodiff"):
         lx.materialise(fwd_op)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_tags_preserved(dtype, getkey):
+    # Palindromic column -> symmetric, and eigenvalues [6.5, 3.5, 2.5, 3.5] > 0,
+    # so the tags below are truthful rather than merely asserted.
+    column = jnp.array([4.0, 1.0, 0.5, 1.0], dtype=dtype)
+
+    # `CirculantLinearOperator` takes no tags of its own, so extra properties are
+    # declared by wrapping. `TaggedLinearOperator` unions its tags with the inner
+    # operator's checks, so circulance survives alongside the declared tag.
+    op = lx.TaggedLinearOperator(
+        lx.CirculantLinearOperator(column), lx.positive_semidefinite_tag
+    )
+    assert lx.is_positive_semidefinite(op.T)
+    assert lx.is_positive_semidefinite(lx.conj(op))
+    assert lx.is_circulant(op.T)
+    assert lx.is_circulant(lx.conj(op))
+    # The wrapper must not cost us the cheap first-column extraction.
+    assert jnp.allclose(lx.first_column(op), column)
+
+    op_sym = lx.TaggedLinearOperator(
+        lx.CirculantLinearOperator(column), lx.symmetric_tag
+    )
+    assert lx.is_symmetric(op_sym.T)

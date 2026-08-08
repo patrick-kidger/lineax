@@ -23,7 +23,9 @@ from .base import (
     AbstractLinearOperator,
     conj,
     diagonal,
+    first_column,
     has_unit_diagonal,
+    is_circulant,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -157,6 +159,11 @@ def _(operator):
     return (diag1 + diag2, lower1 + lower2, upper1 + upper2)
 
 
+@first_column.register(AddLinearOperator)
+def _(operator):
+    return first_column(operator.operator1) + first_column(operator.operator2)
+
+
 @linearise.register(ComposedLinearOperator)
 def _(operator):
     return linearise(operator.operator1) @ linearise(operator.operator2)
@@ -201,6 +208,17 @@ def _(operator):
     return main_diagonal, lower_diagonal, upper_diagonal
 
 
+@first_column.register(ComposedLinearOperator)
+def _(operator):
+    # The first column of `A @ B` is `A @ (B e_0)`.
+    _, unravel = eqx.filter_eval_shape(
+        jfu.ravel_pytree, operator.operator1.in_structure()
+    )
+    column = first_column(operator.operator2)
+    out, _ = jfu.ravel_pytree(operator.operator1.mv(unravel(column)))
+    return out
+
+
 for check in (
     is_symmetric,
     is_diagonal,
@@ -209,6 +227,7 @@ for check in (
     is_positive_semidefinite,
     is_negative_semidefinite,
     is_tridiagonal,
+    is_circulant,
 ):
 
     @check.register(AddLinearOperator)
@@ -229,11 +248,12 @@ def _(operator):
     )
 
 
-# These properties ARE preserved under composition
+# These properties ARE preserved under composition.
 for check in (
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
+    is_circulant,
 ):
 
     @check.register(ComposedLinearOperator)

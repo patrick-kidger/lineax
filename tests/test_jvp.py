@@ -83,13 +83,23 @@ def test_jvp(
             (operator, vec),
             (t_operator, t_vec),
         )
+        # As in `test_vmap_jvp`: `lstsq` is only the right reference for solvers that
+        # return a pseudoinverse solution. Elsewhere the matrix is square and
+        # nonsingular, and `solve` agrees on the primal while being better conditioned
+        # on the tangent -- `lstsq` is SVD-based, so its derivative is ill-defined when
+        # singular values coincide, as they always do for a real circulant matrix.
+        if pseudoinverse:
+            reference = jnp.linalg.lstsq
+        else:
+            reference = lambda a, b: (jnp.linalg.solve(a, b),)
+
         (expected_op_out, *_), (t_expected_op_out, *_) = eqx.filter_jvp(
-            lambda op: jnp.linalg.lstsq(op, vec),  # pyright: ignore
+            lambda op: reference(op, vec),  # pyright: ignore
             (matrix,),
             (t_matrix,),
         )
         (expected_op_vec_out, *_), (t_expected_op_vec_out, *_) = eqx.filter_jvp(
-            jnp.linalg.lstsq,
+            reference,
             (matrix, vec),
             (t_matrix, t_vec),  # pyright: ignore
         )
@@ -97,13 +107,13 @@ def test_jvp(
         # Work around JAX issue #14868.
         if jnp.any(jnp.isnan(t_expected_op_out)):
             _, (t_expected_op_out, *_) = finite_difference_jvp(
-                lambda op: jnp.linalg.lstsq(op, vec),  # pyright: ignore
+                lambda op: reference(op, vec),  # pyright: ignore
                 (matrix,),
                 (t_matrix,),
             )
         if jnp.any(jnp.isnan(t_expected_op_vec_out)):
             _, (t_expected_op_vec_out, *_) = finite_difference_jvp(
-                jnp.linalg.lstsq,
+                reference,
                 (matrix, vec),
                 (t_matrix, t_vec),  # pyright: ignore
             )

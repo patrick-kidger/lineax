@@ -36,6 +36,7 @@ lower_triangular_tag = _HasRepr("lower_triangular_tag")
 upper_triangular_tag = _HasRepr("upper_triangular_tag")
 positive_semidefinite_tag = _HasRepr("positive_semidefinite_tag")
 negative_semidefinite_tag = _HasRepr("negative_semidefinite_tag")
+circulant_tag = _HasRepr("circulant_tag")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -126,6 +127,7 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
     # modules are fully initialised.
     from ._operator import (
         has_unit_diagonal,
+        is_circulant,
         is_diagonal,
         is_lower_triangular,
         is_negative_semidefinite,
@@ -147,6 +149,7 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
             (is_negative_semidefinite, negative_semidefinite_tag),
             (has_unit_diagonal, unit_diagonal_tag),
             (is_tridiagonal, tridiagonal_tag),
+            (is_circulant, circulant_tag),
         ]
         if check(operator)
     }
@@ -168,6 +171,7 @@ for tag in (
     positive_semidefinite_tag,
     negative_semidefinite_tag,
     tridiagonal_tag,
+    circulant_tag,
 ):
 
     @transpose_tags_rules.append
@@ -232,6 +236,7 @@ for tag in (
     upper_triangular_tag,
     positive_semidefinite_tag,
     negative_semidefinite_tag,
+    circulant_tag,
 ):
 
     @invert_tags_rules.append

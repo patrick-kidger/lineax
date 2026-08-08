@@ -18,14 +18,17 @@ from . import internal as internal
 from ._operator import (
     AbstractLinearOperator as AbstractLinearOperator,
     AddLinearOperator as AddLinearOperator,
+    CirculantLinearOperator as CirculantLinearOperator,
     ComposedLinearOperator as ComposedLinearOperator,
     conj as conj,
     diagonal as diagonal,
     DiagonalLinearOperator as DiagonalLinearOperator,
     DivLinearOperator as DivLinearOperator,
+    first_column as first_column,
     FunctionLinearOperator as FunctionLinearOperator,
     has_unit_diagonal as has_unit_diagonal,
     IdentityLinearOperator as IdentityLinearOperator,
+    is_circulant as is_circulant,
     is_diagonal as is_diagonal,
     is_lower_triangular as is_lower_triangular,
     is_negative_semidefinite as is_negative_semidefinite,
@@ -57,6 +60,7 @@ from ._solver import (
     BiCGStab as BiCGStab,
     CG as CG,
     Cholesky as Cholesky,
+    Circulant as Circulant,
     Diagonal as Diagonal,
     GMRES as GMRES,
     LSMR as LSMR,
@@ -69,6 +73,7 @@ from ._solver import (
     Tridiagonal as Tridiagonal,
 )
 from ._tags import (
+    circulant_tag as circulant_tag,
     diagonal_tag as diagonal_tag,
     invert_tags as invert_tags,
     invert_tags_rules as invert_tags_rules,
