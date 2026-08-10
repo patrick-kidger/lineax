@@ -18,6 +18,7 @@ from .._misc import (
     default_floating_dtype as default_floating_dtype,
 )
 from .._norm import (
+    elementwise_norm as elementwise_norm,
     max_norm as max_norm,
     rms_norm as rms_norm,
     sum_squares as sum_squares,
