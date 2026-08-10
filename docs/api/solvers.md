@@ -57,9 +57,9 @@ These are capable of solving ill-posed linear problems.
             - __init__
 
 
-#### Diagonal
+#### Diagonal and Circulant
 
-In addition to these, [`lineax.Diagonal`][] with `well_posed=False` (below) also supports ill-posed problems.
+In addition to these, [`lineax.Diagonal`][] and [`lineax.Circulant`][] with `well_posed=False` (below) also support ill-posed problems.
 
 ## Iterative solvers
 
@@ -118,6 +118,13 @@ These require special structure in the operator. (And will throw an error if pas
 ---
 
 ::: lineax.Tridiagonal
+    options:
+        members:
+            - __init__
+
+---
+
+::: lineax.Circulant
     options:
         members:
             - __init__

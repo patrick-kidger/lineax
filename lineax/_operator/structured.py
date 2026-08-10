@@ -31,6 +31,7 @@ from jaxtyping import (
 
 from .._custom_types import sentinel
 from .._misc import (
+    cyclic_reverse,
     default_floating_dtype,
     inexact_asarray,
     strip_weak_dtype,
@@ -39,9 +40,11 @@ from .base import (
     AbstractLinearOperator,
     conj,
     diagonal,
+    first_column,
     FlatPyTree,
     has_unit_diagonal,
     inexact_structure,
+    is_circulant,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -53,6 +56,32 @@ from .base import (
     materialise,
     tridiagonal,
 )
+
+
+def _has_real_dtype(operator) -> bool:
+    """Check if all dtypes in an operator's structure are real (not complex)."""
+    leaves = jtu.tree_leaves((operator.in_structure(), operator.out_structure()))
+    dtype = jnp.result_type(*leaves)
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        return False
+    elif jnp.issubdtype(dtype, jnp.floating):
+        return True
+    else:
+        assert False, (
+            "Only `jnp.floating` and `jnp.complexfloating` dtypes are understood."
+        )
+
+
+def _identity_dtype(operator) -> jnp.dtype:
+    """The dtype of an `IdentityLinearOperator`'s entries, as promoted across its
+    input structure.
+    """
+    leaves = jtu.tree_leaves(operator.in_structure())
+    with jax.numpy_dtype_promotion("standard"):
+        if len(leaves) == 0:
+            return default_floating_dtype()
+        else:
+            return jnp.result_type(*leaves)
 
 
 # `structure` must be static as with `JacobianLinearOperator`
@@ -78,7 +107,10 @@ class IdentityLinearOperator(AbstractLinearOperator):
         - `output_structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
             structure of the the output space. If not passed then this defaults to the
             same as `input_structure`. If passed then it must have the same number of
-            elements as `input_structure`, so that the operator is square.
+            elements as `input_structure`, so that the operator is square. (The elements
+            may be laid out differently across the PyTree, though: the operator then
+            maps each input element to the output element in the same position, taking
+            both in flattened order.)
         """
         if output_structure is sentinel:
             output_structure = input_structure
@@ -86,6 +118,10 @@ class IdentityLinearOperator(AbstractLinearOperator):
         output_structure = inexact_structure(output_structure)
         self.input_structure = jtu.tree_flatten(input_structure)
         self.output_structure = jtu.tree_flatten(output_structure)
+        if self.in_size() != self.out_size():
+            raise ValueError(
+                "input and output structures must have the same number of elements."
+            )
 
     def mv(self, vector):
         if not eqx.tree_equal(
@@ -102,13 +138,6 @@ class IdentityLinearOperator(AbstractLinearOperator):
             with jax.numpy_dtype_promotion("standard"):
                 dtype = jnp.result_type(*leaves)
             vector = jnp.concatenate([x.astype(dtype).reshape(-1) for x in leaves])
-            out_size = self.out_size()
-            if vector.size < out_size:
-                vector = jnp.concatenate(
-                    [vector, jnp.zeros(out_size - vector.size, vector.dtype)]
-                )
-            else:
-                vector = vector[:out_size]
             leaves, treedef = jtu.tree_flatten(self.out_structure())
             sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
             split = jnp.split(vector, sizes)
@@ -121,14 +150,7 @@ class IdentityLinearOperator(AbstractLinearOperator):
             return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
-        leaves = jtu.tree_leaves(self.in_structure())
-        with jax.numpy_dtype_promotion("standard"):
-            dtype = (
-                default_floating_dtype()
-                if len(leaves) == 0
-                else jnp.result_type(*leaves)
-            )
-        return jnp.eye(self.out_size(), self.in_size(), dtype=dtype)
+        return jnp.eye(self.in_size(), dtype=_identity_dtype(self))
 
     def transpose(self):
         return IdentityLinearOperator(self.out_structure(), self.in_structure())
@@ -245,18 +267,64 @@ class TridiagonalLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
+class CirculantLinearOperator(AbstractLinearOperator):
+    """As [`lineax.MatrixLinearOperator`][], but for specifically a circulant matrix.
+
+    Only the first column is stored (for memory efficiency). Matrix-vector products are
+    computed via the FFT, rather than a full matrix @ vector (for speed).
+    """
+
+    column: Inexact[Array, " size"]
+
+    def __init__(self, column: Inexact[Array, " size"]):
+        """**Arguments:**
+
+        - `column`: A rank-one JAX array. This is the first column of the matrix, which
+            determines it in full: `matrix[i, j] = column[(i - j) % size]`.
+        """
+        self.column = inexact_asarray(column)
+        if self.column.ndim != 1:
+            raise ValueError("Circulant must have exactly 1 dimension.")
+
+    def mv(self, vector):
+        if jnp.issubdtype(self.column.dtype, jnp.complexfloating):
+            eigenvalues = jnp.fft.fft(self.column)
+            fft_vector = jnp.fft.fft(vector)
+            result = jnp.fft.ifft(eigenvalues * fft_vector)
+        else:
+            eigenvalues = jnp.fft.rfft(self.column)
+            fft_vector = jnp.fft.rfft(vector)
+            (size,) = self.column.shape
+            result = jnp.fft.irfft(eigenvalues * fft_vector, n=size)
+        return result
+
+    def transpose(self):
+        return CirculantLinearOperator(cyclic_reverse(self.column))
+
+    def as_matrix(self):
+        return jax.scipy.linalg.circulant(self.column)
+
+    def in_structure(self):
+        (size,) = jnp.shape(self.column)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.column.dtype)
+
+    def out_structure(self):
+        return self.in_structure()
+
+
 for transform in (linearise, materialise):
 
     @transform.register(IdentityLinearOperator)
     @transform.register(DiagonalLinearOperator)
     @transform.register(TridiagonalLinearOperator)
+    @transform.register(CirculantLinearOperator)
     def _(operator):
         return operator
 
 
 @diagonal.register(IdentityLinearOperator)
 def _(operator):
-    return jnp.ones(operator.in_size())
+    return jnp.ones(operator.in_size(), dtype=_identity_dtype(operator))
 
 
 @diagonal.register(DiagonalLinearOperator)
@@ -270,11 +338,17 @@ def _(operator):
     return operator.diagonal
 
 
+@diagonal.register(CirculantLinearOperator)
+def _(operator):
+    return jnp.full_like(operator.column, operator.column[0])
+
+
 @tridiagonal.register(IdentityLinearOperator)
 def _(operator):
     size = operator.in_size()
-    main_diagonal = jnp.ones(size)
-    off_diagonal = jnp.zeros(size - 1)
+    dtype = _identity_dtype(operator)
+    main_diagonal = jnp.ones(size, dtype=dtype)
+    off_diagonal = jnp.zeros(size - 1, dtype=dtype)
     return main_diagonal, off_diagonal, off_diagonal
 
 
@@ -291,6 +365,23 @@ def _(operator):
     return operator.diagonal, operator.lower_diagonal, operator.upper_diagonal
 
 
+@tridiagonal.register(CirculantLinearOperator)
+def _(operator):
+    diag = diagonal(operator)
+    if diag.size == 1:
+        upper_diag = jnp.array([], dtype=diag.dtype)
+        lower_diag = jnp.array([], dtype=diag.dtype)
+    else:
+        upper_diag = jnp.full(diag.size - 1, operator.column[-1], dtype=diag.dtype)
+        lower_diag = jnp.full(diag.size - 1, operator.column[1], dtype=diag.dtype)
+    return diag, lower_diag, upper_diag
+
+
+@first_column.register(CirculantLinearOperator)
+def _(operator):
+    return operator.column
+
+
 @is_symmetric.register(IdentityLinearOperator)
 def _(operator):
     return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
@@ -302,6 +393,7 @@ def _(operator):
 
 
 @is_symmetric.register(TridiagonalLinearOperator)
+@is_symmetric.register(CirculantLinearOperator)
 def _(operator):
     return False
 
@@ -313,6 +405,7 @@ def _(operator):
 
 
 @is_diagonal.register(TridiagonalLinearOperator)
+@is_diagonal.register(CirculantLinearOperator)
 def _(operator):
     return operator.in_size() == 1
 
@@ -325,6 +418,7 @@ for check in (is_lower_triangular, is_upper_triangular):
         return True
 
     @check.register(TridiagonalLinearOperator)  # pyright: ignore
+    @check.register(CirculantLinearOperator)  # pyright: ignore
     def _(operator):
         return False
 
@@ -334,6 +428,30 @@ for check in (is_lower_triangular, is_upper_triangular):
 @is_tridiagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return True
+
+
+# A matrix of size three or above cannot be both tridiagonal and circulant: zeroing the
+# wrap-around corners forces both off-diagonals to vanish. So the two never need
+# prioritising against each other.
+@is_tridiagonal.register(CirculantLinearOperator)
+def _(operator):
+    return operator.in_size() < 3
+
+
+@is_circulant.register(IdentityLinearOperator)
+@is_circulant.register(CirculantLinearOperator)
+def _(operator):
+    return True
+
+
+# A diagonal matrix is circulant iff every diagonal entry is equal, and a tridiagonal
+# matrix is circulant only for sizes below three (larger ones need the wrap-around
+# corners). Neither can be checked at trace time, so we conservatively report circulance
+# only in the size-one case, where it holds unconditionally.
+@is_circulant.register(DiagonalLinearOperator)
+@is_circulant.register(TridiagonalLinearOperator)
+def _(operator):
+    return operator.in_size() == 1
 
 
 @has_unit_diagonal.register(IdentityLinearOperator)
@@ -351,12 +469,13 @@ def _(operator):
     return False
 
 
-# TODO: refine these. For now we conservatively report Diagonal and Tridiagonal
-# operators as not having unit diagonal and as not being (semi)definite.
+# TODO: refine these. For now we conservatively report Diagonal, Tridiagonal and
+# Circulant operators as not having unit diagonal and as not being (semi)definite.
 for check in (has_unit_diagonal, is_positive_semidefinite, is_negative_semidefinite):
 
     @check.register(DiagonalLinearOperator)
     @check.register(TridiagonalLinearOperator)
+    @check.register(CirculantLinearOperator)
     def _(operator):
         return False
 
@@ -379,3 +498,8 @@ def _(operator):
         operator.lower_diagonal.conj(),
         operator.upper_diagonal.conj(),
     )
+
+
+@conj.register(CirculantLinearOperator)
+def _(operator):
+    return CirculantLinearOperator(operator.column.conj())

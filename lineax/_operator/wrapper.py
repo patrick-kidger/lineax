@@ -27,6 +27,7 @@ from jaxtyping import (
 )
 
 from .._tags import (
+    circulant_tag,
     diagonal_tag,
     lower_triangular_tag,
     MaxRankTag,
@@ -43,7 +44,9 @@ from .base import (
     as_frozenset,
     conj,
     diagonal,
+    first_column,
     has_unit_diagonal,
+    is_circulant,
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
@@ -271,6 +274,11 @@ def _(operator):
     return tridiagonal(operator.operator)
 
 
+@first_column.register(TaggedLinearOperator)
+def _(operator):
+    return first_column(operator.operator)
+
+
 for transform in (linearise, materialise, diagonal):
 
     @transform.register(MulLinearOperator)
@@ -345,6 +353,7 @@ for check in (
     is_lower_triangular,
     is_upper_triangular,
     is_tridiagonal,
+    is_circulant,
     is_positive_semidefinite,
     is_negative_semidefinite,
     max_rank,
@@ -362,6 +371,7 @@ for check in (
     is_lower_triangular,
     is_upper_triangular,
     is_tridiagonal,
+    is_circulant,
 ):
 
     @check.register(MulLinearOperator)
@@ -491,6 +501,7 @@ for check, tag in (
     (is_positive_semidefinite, positive_semidefinite_tag),
     (is_negative_semidefinite, negative_semidefinite_tag),
     (is_tridiagonal, tridiagonal_tag),
+    (is_circulant, circulant_tag),
 ):
 
     @check.register(TaggedLinearOperator)

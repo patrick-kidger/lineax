@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import abc
 import functools as ft
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -26,7 +25,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jax._src.ad_util import stop_gradient_p
-from jaxtyping import Array, ArrayLike, PyTree
+from jaxtyping import ArrayLike, PyTree
 
 from ._custom_types import sentinel
 from ._misc import inexact_asarray, strip_weak_dtype
@@ -35,17 +34,13 @@ from ._operator import (
     conj,
     FunctionLinearOperator,
     IdentityLinearOperator,
-    is_diagonal,
-    is_lower_triangular,
-    is_negative_semidefinite,
-    is_positive_semidefinite,
-    is_tridiagonal,
-    is_upper_triangular,
     linearise,
     max_rank,
     TangentLinearOperator,
 )
 from ._solution import RESULTS, Solution
+from ._solver import AutoLinearSolver
+from ._solver.base import AbstractLinearSolver as AbstractLinearSolver
 from ._tags import (
     invert_tags,
     tags_from_checks,
@@ -331,149 +326,6 @@ eqxi.register_impl_finalisation(linear_solve_p)
 #
 
 
-_SolverState = TypeVar("_SolverState")
-
-
-class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
-    """Abstract base class for all linear solvers."""
-
-    @abc.abstractmethod
-    def init(
-        self, operator: AbstractLinearOperator, options: dict[str, Any]
-    ) -> _SolverState:
-        """Do any initial computation on just the `operator`.
-
-        For example, an LU solver would compute the LU decomposition of the operator
-        (and this does not require knowing the vector yet).
-
-        It is common to need to solve the linear system `Ax=b` multiple times in
-        succession, with the same operator `A` and multiple vectors `b`. This method
-        improves efficiency by making it possible to re-use the computation performed
-        on just the operator.
-
-        !!! Example
-
-            ```python
-            operator = lx.MatrixLinearOperator(...)
-            vector1 = ...
-            vector2 = ...
-            solver = lx.LU()
-            state = solver.init(operator, options={})
-            solution1 = lx.linear_solve(operator, vector1, solver, state=state)
-            solution2 = lx.linear_solve(operator, vector2, solver, state=state)
-            ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-        - `options`: a dictionary of any extra options that the solver may wish to
-            accept.
-
-        **Returns:**
-
-        A PyTree of arbitrary Python objects.
-        """
-
-    @abc.abstractmethod
-    def compute(
-        self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
-    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        """Solves a linear system.
-
-        **Arguments:**
-
-        - `state`: as returned from [`lineax.AbstractLinearSolver.init`][].
-        - `vector`: the vector to solve against.
-        - `options`: a dictionary of any extra options that the solver may wish to
-            accept. For example, [`lineax.CG`][] accepts a `preconditioner` option.
-
-        **Returns:**
-
-        A 3-tuple of:
-
-        - The solution to the linear system.
-        - An integer indicating the success or failure of the solve. This is an integer
-            which may be converted to a human-readable error message via
-            `lx.RESULTS[...]`.
-        - A dictionary of an extra statistics about the solve, e.g. the number of steps
-            taken.
-        """
-
-    @abc.abstractmethod
-    def transpose(
-        self, state: _SolverState, options: dict[str, Any]
-    ) -> tuple[_SolverState, dict[str, Any]]:
-        """Transposes the result of [`lineax.AbstractLinearSolver.init`][].
-
-        That is, it should be the case that
-        ```python
-        state_transpose, _ = solver.transpose(solver.init(operator, options), options)
-        state_transpose2 = solver.init(operator.T, options)
-        ```
-        must be identical to each other.
-
-        It is relatively common (in particular when differentiating through a linear
-        solve) to need to solve both `Ax = b` and `A^T x = b`. This method makes it
-        possible to avoid computing both `solver.init(operator)` and
-        `solver.init(operator.T)` if one can be cheaply computed from the other.
-
-        **Arguments:**
-
-        - `state`: as returned from `solver.init`.
-        - `options`: any extra options that were passed to `solve.init`.
-
-        **Returns:**
-
-        A 2-tuple of:
-
-        - The state of the transposed operator.
-        - The options for the transposed operator.
-        """
-
-    @abc.abstractmethod
-    def conj(
-        self, state: _SolverState, options: dict[str, Any]
-    ) -> tuple[_SolverState, dict[str, Any]]:
-        """Conjugate the result of [`lineax.AbstractLinearSolver.init`][].
-
-        That is, it should be the case that
-        ```python
-        state_conj, _ = solver.conj(solver.init(operator, options), options)
-        state_conj2 = solver.init(conj(operator), options)
-        ```
-        must be identical to each other.
-
-        **Arguments:**
-
-        - `state`: as returned from `solver.init`.
-        - `options`: any extra options that were passed to `solve.init`.
-
-        **Returns:**
-
-        A 2-tuple of:
-
-        - The state of the conjugated operator.
-        - The options for the conjugated operator.
-        """
-
-    @abc.abstractmethod
-    def assume_full_rank(self) -> bool:
-        """Does this solver assume that all operators are full rank?
-
-        When `False`, a more expensive backward pass is needed to account for
-        the extra generality. In a custom linear solver, it is always safe to
-        return False.
-
-        **Arguments:**
-
-        Nothing.
-
-        **Returns:**
-
-        Either `True` or `False`.
-        """
-
-
 def _check_rank_compat(
     solver: "AbstractLinearSolver", operator: AbstractLinearOperator
 ):
@@ -490,179 +342,6 @@ def _check_rank_compat(
             )
 
 
-_qr_token = eqxi.str2jax("qr_token")
-_diagonal_token = eqxi.str2jax("diagonal_token")
-_well_posed_diagonal_token = eqxi.str2jax("well_posed_diagonal_token")
-_tridiagonal_token = eqxi.str2jax("tridiagonal_token")
-_triangular_token = eqxi.str2jax("triangular_token")
-_cholesky_token = eqxi.str2jax("cholesky_token")
-_lu_token = eqxi.str2jax("lu_token")
-_svd_token = eqxi.str2jax("svd_token")
-
-
-# Ugly delayed import because we have the dependency chain
-# linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
-# but we want linear_solver and AbstractLinearSolver in the same file.
-def _lookup(token) -> AbstractLinearSolver:
-    from . import _solver
-
-    # pyright doesn't know that these keys are hashable
-    _lookup_dict = {
-        _qr_token: _solver.QR(),  # pyright: ignore
-        _diagonal_token: _solver.Diagonal(),  # pyright: ignore
-        _well_posed_diagonal_token: _solver.Diagonal(  # pyright: ignore
-            well_posed=True
-        ),
-        _tridiagonal_token: _solver.Tridiagonal(),  # pyright: ignore
-        _triangular_token: _solver.Triangular(),  # pyright: ignore
-        _cholesky_token: _solver.Cholesky(),  # pyright: ignore
-        _lu_token: _solver.LU(),  # pyright: ignore
-        _svd_token: _solver.SVD(),  # pyright: ignore
-    }
-    return _lookup_dict[token]
-
-
-_AutoLinearSolverState: TypeAlias = tuple[Any, Any]
-
-
-class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
-    """Automatically determines a good linear solver based on the structure of the
-    operator.
-
-    - If `well_posed=True`:
-        - If the operator is diagonal, then use [`lineax.Diagonal`][].
-        - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
-        - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative (semi-)definite, then use
-            [`lineax.Cholesky`][].
-        - Else use [`lineax.LU`][].
-
-    This is a good choice if you want to be certain that an error is raised for
-    ill-posed systems.
-
-    - If `well_posed=False`:
-        - If the operator is diagonal, then use [`lineax.Diagonal`][].
-        - Else use [`lineax.SVD`][].
-
-    This is a good choice if you want to be certain that you can handle ill-posed
-    systems.
-
-    - If `well_posed=None`:
-        - If the operator is non-square, then use [`lineax.QR`][].
-        - If the operator is diagonal, then use [`lineax.Diagonal`][].
-        - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
-        - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative (semi-)definite, then use
-            [`lineax.Cholesky`][].
-        - Else, use [`lineax.LU`][].
-
-    This is a good choice if your primary concern is computational efficiency. It will
-    handle ill-posed systems as long as it is not computationally expensive to do so.
-    """
-
-    well_posed: bool | None
-
-    def _select_solver(self, operator: AbstractLinearOperator):
-        if self.well_posed is True:
-            if operator.in_size() != operator.out_size():
-                raise ValueError(
-                    "Cannot use `AutoLinearSolver(well_posed=True)` with a non-square "
-                    "operator. If you are trying solve a least-squares problem then "
-                    "you should pass `solver=AutoLinearSolver(well_posed=False)`. By "
-                    "default `lineax.linear_solve` assumes that the operator is "
-                    "square and nonsingular."
-                )
-            if is_diagonal(operator):
-                token = _well_posed_diagonal_token
-            elif is_tridiagonal(operator):
-                token = _tridiagonal_token
-            elif is_lower_triangular(operator) or is_upper_triangular(operator):
-                token = _triangular_token
-            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
-                operator
-            ):
-                token = _cholesky_token
-            else:
-                token = _lu_token
-        elif self.well_posed is False:
-            if is_diagonal(operator):
-                token = _diagonal_token
-            else:
-                # TODO: use rank-revealing QR instead.
-                token = _svd_token
-        elif self.well_posed is None:
-            if operator.in_size() != operator.out_size():
-                token = _qr_token
-            elif is_diagonal(operator):
-                token = _diagonal_token
-            elif is_tridiagonal(operator):
-                token = _tridiagonal_token
-            elif is_lower_triangular(operator) or is_upper_triangular(operator):
-                token = _triangular_token
-            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
-                operator
-            ):
-                token = _cholesky_token
-            else:
-                token = _lu_token
-        else:
-            raise ValueError(f"Invalid value `well_posed={self.well_posed}`.")
-        return token
-
-    def select_solver(self, operator: AbstractLinearOperator) -> AbstractLinearSolver:
-        """Check which solver that [`lineax.AutoLinearSolver`][] will dispatch to.
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        The linear solver that will be used.
-        """
-        return _lookup(self._select_solver(operator))
-
-    def init(self, operator, options) -> _AutoLinearSolverState:
-        token = self._select_solver(operator)
-        return token, _lookup(token).init(operator, options)
-
-    def compute(
-        self,
-        state: _AutoLinearSolverState,
-        vector: PyTree[Array],
-        options: dict[str, Any],
-    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        token, state = state
-        solver = _lookup(token)
-        solution, result, _ = solver.compute(state, vector, options)
-        return solution, result, {}
-
-    def transpose(self, state: _AutoLinearSolverState, options: dict[str, Any]):
-        token, state = state
-        solver = _lookup(token)
-        transpose_state, transpose_options = solver.transpose(state, options)
-        transpose_state = (token, transpose_state)
-        return transpose_state, transpose_options
-
-    def conj(self, state: _AutoLinearSolverState, options: dict[str, Any]):
-        token, state = state
-        solver = _lookup(token)
-        conj_state, conj_options = solver.conj(state, options)
-        conj_state = (token, conj_state)
-        return conj_state, conj_options
-
-    def assume_full_rank(self):
-        return self.well_posed is not False
-
-
-AutoLinearSolver.__init__.__doc__ = """**Arguments:**
-
-- `well_posed`: whether to only handle well-posed systems or not, as discussed above.
-"""
-
-
-# TODO(kidger): gmres, bicgstab
-# TODO(kidger): support auxiliary outputs
 @eqx.filter_jit
 def linear_solve(
     operator: AbstractLinearOperator,
@@ -786,8 +465,12 @@ def linear_solve(
             f"{operator_out_structure}"
         )
     if isinstance(operator, IdentityLinearOperator):
+        # The inverse of an `IdentityLinearOperator` is its transpose: it is square, so
+        # this is just the same operator with its input and output structures swapped.
+        # (Which matters when those structures are laid out differently: the solution
+        # must have the operator's in-structure, not its out-structure.)
         return Solution(
-            value=vector,
+            value=operator.T.mv(vector),
             result=RESULTS.successful,
             state=state,
             stats={},

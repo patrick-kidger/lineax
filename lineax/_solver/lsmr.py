@@ -46,7 +46,7 @@ from .._misc import complex_to_real_dtype
 from .._norm import two_norm
 from .._operator import AbstractLinearOperator, conj, linearise, max_rank
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .base import AbstractLinearSolver
 
 
 _LSMRState: TypeAlias = AbstractLinearOperator

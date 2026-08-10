@@ -47,6 +47,9 @@ def _construct_matrix_impl(
             )
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
+        if has_tag(tags, lx.circulant_tag):
+            row, col = jnp.ogrid[:size, :size]
+            matrix = matrix[:, 0][(row - col) % size]
         if has_tag(tags, lx.symmetric_tag):
             matrix = matrix + matrix.T
         if has_tag(tags, lx.lower_triangular_tag):
@@ -121,6 +124,7 @@ solvers_tags_pseudoinverse = [
     (lx.Diagonal(), lx.diagonal_tag, False),
     (lx.Diagonal(), (lx.diagonal_tag, lx.unit_diagonal_tag), False),
     (lx.Tridiagonal(), lx.tridiagonal_tag, False),
+    (lx.Circulant(), lx.circulant_tag, False),
     (lx.LU(), (), False),
     (lx.QR(), (), False),
     (lx.SVD(), (), True),
@@ -170,6 +174,8 @@ def params(only_pseudo):
                 make_operator is make_tridiagonal_operator
                 and tags != lx.tridiagonal_tag
             ):
+                continue
+            if make_operator is make_circulant_operator and tags != lx.circulant_tag:
                 continue
             yield make_operator, solver, tags
 
@@ -320,6 +326,19 @@ def make_neg_operator(getkey, matrix, tags):
     return lx.TaggedLinearOperator(
         -make_matrix_operator(getkey, -matrix, negated_tags), tags
     )
+
+
+@_operators_append
+def make_circulant_operator(getkey, matrix, tags):
+    column = matrix[:, 0]
+    if tags == lx.circulant_tag:
+        return lx.CirculantLinearOperator(column)
+    elif has_tag(tags, lx.circulant_tag):
+        # `CirculantLinearOperator` takes no tags of its own, so any additional
+        # properties are declared by wrapping, as with the tridiagonal maker above.
+        return lx.TaggedLinearOperator(lx.CirculantLinearOperator(column), tags)
+    else:
+        assert False, tags
 
 
 # tags that should be preserved under add and (POSITIVE) sclar mul/div
