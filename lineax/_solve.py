@@ -41,8 +41,9 @@ from ._operator import (
 )
 from ._solution import RESULTS, Solution
 from ._solver import (
-    AutoLinearSolver as AutoLinearSolver,
+    AutoLinearSolver,
     Cholesky,
+    Circulant,
     HEVD,
     Normal,
     QR,
@@ -168,7 +169,7 @@ def _squared_rcond(rcond: float | None, n: int, m: int, dtype) -> float:
 # Solver types whose factorisation *may* cheaply yield the gram (pseudo)inverse
 # `(AᴴA)⁺`. Whether one actually does can depend on the state (e.g. `Normal` only when
 # tall), so `_has_gram_partner` is the definitive runtime check; see `_gram_partner`.
-_MaybeHasGramPartner: TypeAlias = QR | SVD | HEVD | Normal
+_MaybeHasGramPartner: TypeAlias = QR | SVD | HEVD | Normal | Circulant
 
 
 def _has_gram_partner(solver: AbstractLinearSolver, state: Any) -> bool:
@@ -192,10 +193,11 @@ def _gram_partner(
     the gram matrix `AᴴA` -- is obtained from the existing factorisation with no further
     decomposition:
 
-        QR     `A = QR`    -> `Cholesky`, since `AᴴA = RᴴR` (`R` is the factor)
-        SVD    `A = UΣVᴴ`  -> `HEVD` with eigenvectors `V`, eigenvalues `σ²`
-        HEVD   `A = VWVᴴ`  -> `HEVD` with eigenvectors `V`, eigenvalues `w²`
-        Normal (tall)      -> its inner solver, which already factorises `AᴴA`
+        QR       `A = QR`    -> `Cholesky`, since `AᴴA = RᴴR` (`R` is the factor)
+        SVD      `A = UΣVᴴ`  -> `HEVD` with eigenvectors `V`, eigenvalues `σ²`
+        HEVD     `A = VWVᴴ`  -> `HEVD` with eigenvectors `V`, eigenvalues `w²`
+        Normal   (tall)      -> its inner solver, which already factorises `AᴴA`
+        Circulant `A = FᴴΛF` -> `Circulant` with eigenvalues `|λ|²`
 
     The JVP uses this to collapse the two nested solves against `Aᴴ` (the inner adjoint
     solve and the outer `A⁺`) into one gram solve. Routing it back through
@@ -222,6 +224,19 @@ def _gram_partner(
         r = a[: a.shape[1]]
         return Cholesky(), (r, eqxi.Static(False))
     packed = pack_structures(gram_operator)
+    if isinstance(solver, Circulant):
+        (eigenvalues, is_complex), _ = state
+        # `A = Fᴴ diag(λ) F` => `AᴴA = Fᴴ diag(|λ|²) F`, i.e. `AᴴA` is itself circulant
+        # with eigenvalues `|λ|²`. (These are real and nonnegative, matching the PSD tag
+        # on `gram_operator`; for a real `A` only half the spectrum is stored, and that
+        # remains true of the gram, so `is_complex` carries over unchanged.)
+        n = gram_operator.in_size()
+        rcond = _squared_rcond(solver.rcond, n, n, eigenvalues.dtype)
+        # `conj(λ)λ` rather than `abs(λ)**2`, to keep the complex dtype that
+        # `Circulant.init` would have produced. (The imaginary part is exactly zero.)
+        gram_eigenvalues = eigenvalues.conj() * eigenvalues
+        gram_solver = Circulant(well_posed=solver.well_posed, rcond=rcond)
+        return gram_solver, ((gram_eigenvalues, is_complex), packed)
     if isinstance(solver, SVD):
         (u, s, vt), _ = state
         # `(AᴴA)⁺ = V Σ⁻² Vᴴ`.
@@ -471,8 +486,6 @@ def _check_rank_compat(
             )
 
 
-# TODO(kidger): gmres, bicgstab
-# TODO(kidger): support auxiliary outputs
 @eqx.filter_jit
 def linear_solve(
     operator: AbstractLinearOperator,
@@ -596,8 +609,12 @@ def linear_solve(
             f"{operator_out_structure}"
         )
     if isinstance(operator, IdentityLinearOperator):
+        # The inverse of an `IdentityLinearOperator` is its transpose: it is square, so
+        # this is just the same operator with its input and output structures swapped.
+        # (Which matters when those structures are laid out differently: the solution
+        # must have the operator's in-structure, not its out-structure.)
         return Solution(
-            value=vector,
+            value=operator.T.mv(vector),
             result=RESULTS.successful,
             state=state,
             stats={},

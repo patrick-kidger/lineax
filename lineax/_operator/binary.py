@@ -23,8 +23,10 @@ from .base import (
     AbstractLinearOperator,
     conj,
     diagonal,
+    first_column,
     has_real_dtype,
     has_unit_diagonal,
+    is_circulant,
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
@@ -159,6 +161,11 @@ def _(operator):
     return (diag1 + diag2, lower1 + lower2, upper1 + upper2)
 
 
+@first_column.register(AddLinearOperator)
+def _(operator):
+    return first_column(operator.operator1) + first_column(operator.operator2)
+
+
 @linearise.register(ComposedLinearOperator)
 def _(operator):
     return linearise(operator.operator1) @ linearise(operator.operator2)
@@ -203,6 +210,17 @@ def _(operator):
     return main_diagonal, lower_diagonal, upper_diagonal
 
 
+@first_column.register(ComposedLinearOperator)
+def _(operator):
+    # The first column of `A @ B` is `A @ (B e_0)`.
+    _, unravel = eqx.filter_eval_shape(
+        jfu.ravel_pytree, operator.operator1.in_structure()
+    )
+    column = first_column(operator.operator2)
+    out, _ = jfu.ravel_pytree(operator.operator1.mv(unravel(column)))
+    return out
+
+
 for check in (
     is_symmetric,
     is_hermitian,
@@ -212,6 +230,7 @@ for check in (
     is_positive_semidefinite,
     is_negative_semidefinite,
     is_tridiagonal,
+    is_circulant,
 ):
 
     @check.register(AddLinearOperator)
@@ -232,11 +251,12 @@ def _(operator):
     )
 
 
-# These properties ARE preserved under composition
+# These properties ARE preserved under composition.
 for check in (
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
+    is_circulant,
 ):
 
     @check.register(ComposedLinearOperator)
@@ -245,15 +265,23 @@ for check in (
 
 
 # is_symmetric: A@B is symmetric only if A and B commute. Diagonal matrices commute.
+# The structure check is on the composition itself, not on its operands: composing two
+# operators that each map between differently-laid-out (but equal-sized) structures can
+# still land back where it started, and the result is then genuinely symmetric.
 @is_symmetric.register(ComposedLinearOperator)
 def _(operator):
+    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+        return False
     return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
 
 
 # is_hermitian: as above, diagonal matrices commute. A product of diagonals is itself
-# diagonal, which is Hermitian only when its (complex) entries are real-valued.
+# diagonal, which is Hermitian only when its (complex) entries are real-valued. The
+# structure check is on the composition itself, for the same reason as `is_symmetric`.
 @is_hermitian.register(ComposedLinearOperator)
 def _(operator):
+    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+        return False
     return (
         is_diagonal(operator.operator1)
         and is_diagonal(operator.operator2)

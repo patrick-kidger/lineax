@@ -71,6 +71,13 @@ These operators represent matrices with a particular structure, storing only the
         members:
             - __init__
 
+---
+
+::: lineax.CirculantLinearOperator
+    options:
+        members:
+            - __init__
+
 ## Wrapper linear operators
 
 These operators wrap another operator to attach extra information.

@@ -20,6 +20,10 @@ These do not change the mathematical meaning of the operator; they simply change
 
 ::: lineax.tridiagonal
 
+---
+
+::: lineax.first_column
+
 ## Test the operator to see if it exhibits a certain property
 
 Note that these do *not* inspect the values of the operator -- instead, they use typically use [tags](./tags.md). (Or in some cases, just the type of the operator: e.g. `is_diagonal(DiagonalLinearOperator(...)) == True`.)
@@ -33,6 +37,10 @@ Note that these do *not* inspect the values of the operator -- instead, they use
 ---
 
 ::: lineax.is_tridiagonal
+
+---
+
+::: lineax.is_circulant
 
 ---
 

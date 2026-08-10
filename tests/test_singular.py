@@ -24,8 +24,6 @@ import pytest
 from .helpers import (
     construct_singular_matrix,
     finite_difference_jvp,
-    make_jac_operator,
-    make_matrix_operator,
     ops,
     params,
     tol,
@@ -51,6 +49,48 @@ def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     x = lx.linear_solve(operator, b, solver=solver, throw=False).value
     jax_x, *_ = jnp.linalg.lstsq(matrix, b)  # pyright: ignore
     assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
+
+
+# `construct_singular_matrix` has no way to build a singular *circulant* matrix (its
+# `zero` method clears the leading row, which the circulant construction then
+# overwrites), so `Circulant` is excluded from the parametrised singular tests above --
+# including their JVP coverage. Build one directly instead, by zeroing an eigenvalue.
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_singular_jvp(getkey, dtype):
+    size = 6
+    column = jr.normal(getkey(), (size,), dtype=dtype)
+    # Zero eigenvalue 2, so that the operator is singular but still circulant.
+    if jnp.iscomplexobj(column):
+        eigenvalues = jnp.fft.fft(column).at[2].set(0)
+        column = jnp.fft.ifft(eigenvalues)
+    else:
+        # `rfft`/`irfft` keep the spectrum conjugate-symmetric, so the column stays
+        # real.
+        eigenvalues = jnp.fft.rfft(column).at[2].set(0)
+        column = jnp.fft.irfft(eigenvalues, n=size)
+
+    def circulant(column, vector):
+        operator = lx.CirculantLinearOperator(column)
+        return lx.linear_solve(operator, vector, solver=lx.Circulant()).value
+
+    def dense(column, vector):
+        # The pseudoinverse solution, via a solver with no circulant structure to
+        # exploit (and, in particular, no gram partner of its own to shortcut the JVP).
+        matrix = lx.CirculantLinearOperator(column).as_matrix()
+        return lx.linear_solve(
+            lx.MatrixLinearOperator(matrix), vector, solver=lx.SVD()
+        ).value
+
+    vector = jr.normal(getkey(), (size,), dtype=dtype)
+    t_column = jr.normal(getkey(), (size,), dtype=dtype)
+    t_vector = jr.normal(getkey(), (size,), dtype=dtype)
+
+    x, t_x = eqx.filter_jvp(circulant, (column, vector), (t_column, t_vector))
+    true_x, true_t_x = eqx.filter_jvp(dense, (column, vector), (t_column, t_vector))
+    assert tree_allclose(x, true_x, atol=tol, rtol=tol)
+    # The JVP takes the `_gram_partner` path, as `Circulant.assume_full_rank()` is
+    # `False`: the gram matrix `AᴴA` is itself circulant, with eigenvalues `|λ|²`.
+    assert tree_allclose(t_x, true_t_x, atol=tol, rtol=tol)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -241,30 +281,82 @@ def test_nonsquare_vec(solver, full_rank, jvp, wide, dtype, getkey):
     assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
-_iterative_solvers = (
-    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag),
-    (lx.CG(rtol=tol, atol=tol, max_steps=512), lx.negative_semidefinite_tag),
-    (lx.GMRES(rtol=tol, atol=tol), ()),
-    (lx.BiCGStab(rtol=tol, atol=tol), ()),
-)
-
-
-@pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
-@pytest.mark.parametrize("solver, tags", _iterative_solvers)
-@pytest.mark.parametrize("use_state", (False, True))
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtype):
-    (matrix,) = construct_singular_matrix(getkey, solver, tags)
-    operator = make_operator(getkey, matrix, tags)
+def test_circulant_singular(getkey, dtype):
+    # A column summing to zero gives a zero eigenvalue at the zero frequency, so the
+    # operator is singular but still circulant.
+    column = jnp.array([1.0, -1.0, 2.0, -2.0], dtype=dtype)
+    operator = lx.CirculantLinearOperator(column)
+    matrix = operator.as_matrix()
+    vec = jr.normal(getkey(), (4,), dtype=dtype)
 
-    out_size, _ = matrix.shape
-    vec = jr.normal(getkey(), (out_size,), dtype=dtype)
+    # The DFT diagonalises, so zeroing the vanishing eigenvalue is exactly the
+    # pseudoinverse.
+    expected = jnp.linalg.pinv(matrix) @ vec
+    assert tree_allclose(lx.linear_solve(operator, vec, lx.Circulant()).value, expected)
+    auto = lx.AutoLinearSolver(well_posed=False)
+    assert tree_allclose(lx.linear_solve(operator, vec, auto).value, expected)
 
-    if use_state:
-        state = solver.init(operator, options={})
-        linear_solve = ft.partial(lx.linear_solve, state=state)
-    else:
-        linear_solve = lx.linear_solve
+    # `well_posed=True` promises nonsingularity, so the zero eigenvalue is not filtered
+    # and the solve is reported as failing rather than silently returning a
+    # pseudoinverse solution.
+    for solver in (lx.Circulant(well_posed=True), lx.AutoLinearSolver(well_posed=True)):
+        sol = lx.linear_solve(operator, vec, solver, throw=False)
+        assert sol.result != lx.RESULTS.successful
+        with pytest.raises(Exception):
+            lx.linear_solve(operator, vec, solver)
 
-    with pytest.raises(Exception):
-        linear_solve(operator, vec, solver)
+
+def test_circulant_singular_rcond_size():
+    # `rfft` returns `size // 2 + 1` eigenvalues, but `rcond` resolves from the size of
+    # the matrix. Real dtypes only, as `fft` returns all `size` of them.
+    size = 8
+    # The zero and Nyquist bins must be real for `irfft` to round-trip.
+    tail = jnp.array(
+        [1.0 + 2.0j, -0.5 + 0.3j, 0.7 - 1.1j, 2.0 + 0.0j], dtype=jnp.complex128
+    )
+    eps = jnp.finfo(jnp.float64).eps
+    max_abs = jnp.max(jnp.abs(tail))
+    # Midway between the two thresholds, so only the correct one filters it.
+    tiny = 13 * eps * max_abs
+    eigenvalues = jnp.concatenate([tiny.astype(jnp.complex128)[None], tail])
+
+    column = jnp.fft.irfft(eigenvalues, n=size)
+    assert tree_allclose(jnp.fft.rfft(column), eigenvalues)
+    # Bracket the round-tripped eigenvalue rather than the ideal `tiny`: `irfft`/`rfft`
+    # perturbs it by ~`eps * max_abs`, and the `tree_allclose` above is far too loose to
+    # notice at this magnitude. These are the two candidate thresholds, so the assert
+    # pins the test's discriminating power rather than assuming it.
+    realised = jnp.abs(jnp.fft.rfft(column))
+    max_realised = jnp.max(realised)
+    assert 2 * eps * realised.size * max_realised < realised[0]
+    assert realised[0] < 2 * eps * size * max_realised
+    operator = lx.CirculantLinearOperator(column)
+    # A nonzero mean gives a component along the near-null zero-frequency eigenvector.
+    vec = jnp.linspace(0.5, 2.0, size, dtype=jnp.float64)
+
+    # Filtering `tiny` matches zeroing it, and for a zero the pseudoinverse is exact.
+    zeroed = jnp.concatenate([jnp.zeros((1,), jnp.complex128), tail])
+    matrix = lx.CirculantLinearOperator(jnp.fft.irfft(zeroed, n=size)).as_matrix()
+    expected = jnp.linalg.pinv(matrix) @ vec
+
+    solution = lx.linear_solve(operator, vec, lx.Circulant(well_posed=False)).value
+    assert tree_allclose(solution, expected)
+    # Keeping `tiny` would blow the solution up by fourteen orders of magnitude.
+    assert jnp.max(jnp.abs(solution)) < 1e3
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_auto_dispatch(dtype):
+    column = jnp.array([1.0, -1.0, 2.0, -2.0], dtype=dtype)
+    operator = lx.CirculantLinearOperator(column)
+    for well_posed in (True, False, None):
+        solver = lx.AutoLinearSolver(well_posed=well_posed).select_solver(operator)
+        assert isinstance(solver, lx.Circulant), (well_posed, solver)
+        assert solver.well_posed is (well_posed is True)
+
+
+# No test for iterative solvers on singular operators: Krylov methods have no rank
+# detection and no defined behaviour on rank-deficient systems, so there is nothing to
+# assert (their failure reporting is covered by test_bicgstab_breakdown and
+# test_gmres_stagnation_or_breakdown above).

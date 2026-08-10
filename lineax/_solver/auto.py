@@ -18,6 +18,7 @@ from jaxtyping import Array, PyTree
 
 from .._operator import (
     AbstractLinearOperator,
+    is_circulant,
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
@@ -29,6 +30,7 @@ from .._operator import (
 from .._solution import RESULTS
 from .base import AbstractLinearSolver
 from .cholesky import Cholesky
+from .circulant import Circulant
 from .diagonal import Diagonal
 from .hevd import HEVD
 from .lu import LU
@@ -48,6 +50,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     - If `well_posed=True`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
+        - If the operator is circulant, then use [`lineax.Circulant`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
@@ -58,6 +61,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
 
     - If `well_posed=False`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
+        - If the operator is circulant, then use [`lineax.Circulant`][].
         - If the operator is Hermitian, then use [`lineax.HEVD`][].
         - Else use [`lineax.SVD`][].
 
@@ -68,6 +72,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         - If the operator is non-square, then use [`lineax.QR`][].
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
+        - If the operator is circulant, then use [`lineax.Circulant`][].
         - If the operator is triangular, then use [`lineax.Triangular`][].
         - If the matrix is positive or negative (semi-)definite, then use
             [`lineax.Cholesky`][].
@@ -93,6 +98,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Diagonal(well_posed=True)
             elif is_tridiagonal(operator):
                 solver = Tridiagonal()
+            elif is_circulant(operator):
+                solver = Circulant(well_posed=True)
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(
@@ -104,6 +111,10 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         elif self.well_posed is False:
             if is_diagonal(operator):
                 solver = Diagonal()
+            elif is_circulant(operator):
+                # An FFT-based solve is cheaper than any dense decomposition, so this
+                # takes priority over the Hermitian case below.
+                solver = Circulant()
             elif is_hermitian(operator):
                 # A Hermitian eigendecomposition is cheaper than a general SVD, and
                 # handles ill-posed Hermitian systems via the same pseudoinverse.
@@ -118,6 +129,8 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Diagonal()
             elif is_tridiagonal(operator):
                 solver = Tridiagonal()
+            elif is_circulant(operator):
+                solver = Circulant()
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
             elif is_positive_semidefinite(operator) or is_negative_semidefinite(

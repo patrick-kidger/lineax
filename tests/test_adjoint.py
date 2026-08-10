@@ -6,6 +6,7 @@ import pytest
 from lineax import FunctionLinearOperator
 
 from .helpers import (
+    make_circulant_operator,
     make_identity_operator,
     make_jacrev_operator,
     make_operators,
@@ -28,6 +29,12 @@ def test_adjoint(make_operator, dtype, getkey):
     elif make_operator is make_tridiagonal_operator:
         matrix = jnp.eye(4, dtype=dtype)
         tags = lx.tridiagonal_tag
+        in_size = out_size = 4
+    elif make_operator is make_circulant_operator:
+        column = jr.normal(getkey(), (4,), dtype=dtype)
+        row, col = jnp.ogrid[:4, :4]
+        matrix = column[(row - col) % 4]
+        tags = lx.circulant_tag
         in_size = out_size = 4
     else:
         matrix = jr.normal(getkey(), (3, 5), dtype=dtype)

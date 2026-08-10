@@ -86,6 +86,14 @@ For example, the default solver for [`lineax.linear_solve`][] uses this to dispa
 
 ---
 
+::: lineax.circulant_tag
+
+Marks that an operator is circulant. (As a matrix $A$ of size $n$, then each column is the previous one rolled downwards, wrapping around: $A_{ij} = c_{(i - j) \bmod n}$, where the vector $c$ is the first column.)
+
+For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Circulant`][] as the solver.
+
+---
+
 ::: lineax.unit_diagonal_tag
 
 Marks that an operator has $1$ for every diagonal element. (As a matrix $A$, then it must have $A_{ii} = 1$ for all $i$.) Note that the whole matrix need not be diagonal.
