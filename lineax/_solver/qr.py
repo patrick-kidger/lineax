@@ -21,7 +21,7 @@ import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver
+from .base import AbstractLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,

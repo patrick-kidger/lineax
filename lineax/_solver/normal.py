@@ -18,10 +18,16 @@ from typing import Any, TypeVar
 import equinox.internal as eqxi
 from jaxtyping import Array, PyTree
 
-from .._operator import conj, linearise, materialise, TaggedLinearOperator
+from .._operator import (
+    AbstractLinearOperator,
+    conj,
+    linearise,
+    materialise,
+    TaggedLinearOperator,
+)
 from .._solution import RESULTS
-from .._solve import AbstractLinearOperator, AbstractLinearSolver
 from .._tags import positive_semidefinite_tag
+from .base import AbstractLinearSolver
 from .cholesky import Cholesky
 
 

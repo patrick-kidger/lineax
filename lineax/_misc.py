@@ -38,6 +38,15 @@ def resolve_rcond(rcond, n, m, dtype):
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
 
 
+def cyclic_reverse(x: Array) -> Array:
+    """Reverses about index zero, i.e. returns `y` with `y[k] = x[-k % len(x)]`.
+
+    This takes the first column of a circulant matrix to that of its transpose, and
+    equivalently negates the frequency index of a set of eigenvalues.
+    """
+    return jnp.concatenate([x[:1], jnp.flip(x[1:])])
+
+
 def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False, jac=None):
     if jac is None:
         # Heuristic for which is better in each case

@@ -268,3 +268,78 @@ def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtyp
 
     with pytest.raises(Exception):
         linear_solve(operator, vec, solver)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_singular(getkey, dtype):
+    # A column summing to zero gives a zero eigenvalue at the zero frequency, so the
+    # operator is singular but still circulant.
+    column = jnp.array([1.0, -1.0, 2.0, -2.0], dtype=dtype)
+    operator = lx.CirculantLinearOperator(column)
+    matrix = operator.as_matrix()
+    vec = jr.normal(getkey(), (4,), dtype=dtype)
+
+    # The DFT diagonalises, so zeroing the vanishing eigenvalue is exactly the
+    # pseudoinverse.
+    expected = jnp.linalg.pinv(matrix) @ vec
+    assert tree_allclose(lx.linear_solve(operator, vec, lx.Circulant()).value, expected)
+    auto = lx.AutoLinearSolver(well_posed=False)
+    assert tree_allclose(lx.linear_solve(operator, vec, auto).value, expected)
+
+    # `well_posed=True` promises nonsingularity, so the zero eigenvalue is not filtered
+    # and the solve is reported as failing rather than silently returning a
+    # pseudoinverse solution.
+    for solver in (lx.Circulant(well_posed=True), lx.AutoLinearSolver(well_posed=True)):
+        sol = lx.linear_solve(operator, vec, solver, throw=False)
+        assert sol.result != lx.RESULTS.successful
+        with pytest.raises(Exception):
+            lx.linear_solve(operator, vec, solver)
+
+
+def test_circulant_singular_rcond_size():
+    # `rfft` returns `size // 2 + 1` eigenvalues, but `rcond` resolves from the size of
+    # the matrix. Real dtypes only, as `fft` returns all `size` of them.
+    size = 8
+    # The zero and Nyquist bins must be real for `irfft` to round-trip.
+    tail = jnp.array(
+        [1.0 + 2.0j, -0.5 + 0.3j, 0.7 - 1.1j, 2.0 + 0.0j], dtype=jnp.complex128
+    )
+    eps = jnp.finfo(jnp.float64).eps
+    max_abs = jnp.max(jnp.abs(tail))
+    # Midway between the two thresholds, so only the correct one filters it.
+    tiny = 13 * eps * max_abs
+    eigenvalues = jnp.concatenate([tiny.astype(jnp.complex128)[None], tail])
+
+    column = jnp.fft.irfft(eigenvalues, n=size)
+    assert tree_allclose(jnp.fft.rfft(column), eigenvalues)
+    # Bracket the round-tripped eigenvalue rather than the ideal `tiny`: `irfft`/`rfft`
+    # perturbs it by ~`eps * max_abs`, and the `tree_allclose` above is far too loose to
+    # notice at this magnitude. These are the two candidate thresholds, so the assert
+    # pins the test's discriminating power rather than assuming it.
+    realised = jnp.abs(jnp.fft.rfft(column))
+    max_realised = jnp.max(realised)
+    assert 2 * eps * realised.size * max_realised < realised[0]
+    assert realised[0] < 2 * eps * size * max_realised
+    operator = lx.CirculantLinearOperator(column)
+    # A nonzero mean gives a component along the near-null zero-frequency eigenvector.
+    vec = jnp.linspace(0.5, 2.0, size, dtype=jnp.float64)
+
+    # Filtering `tiny` matches zeroing it, and for a zero the pseudoinverse is exact.
+    zeroed = jnp.concatenate([jnp.zeros((1,), jnp.complex128), tail])
+    matrix = lx.CirculantLinearOperator(jnp.fft.irfft(zeroed, n=size)).as_matrix()
+    expected = jnp.linalg.pinv(matrix) @ vec
+
+    solution = lx.linear_solve(operator, vec, lx.Circulant(well_posed=False)).value
+    assert tree_allclose(solution, expected)
+    # Keeping `tiny` would blow the solution up by fourteen orders of magnitude.
+    assert jnp.max(jnp.abs(solution)) < 1e3
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_auto_dispatch(dtype):
+    column = jnp.array([1.0, -1.0, 2.0, -2.0], dtype=dtype)
+    operator = lx.CirculantLinearOperator(column)
+    for well_posed in (True, False, None):
+        solver = lx.AutoLinearSolver(well_posed=well_posed).select_solver(operator)
+        assert isinstance(solver, lx.Circulant), (well_posed, solver)
+        assert solver.well_posed is (well_posed is True)

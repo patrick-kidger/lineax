@@ -28,7 +28,7 @@ from .._misc import structure_equal
 from .._norm import max_norm, two_norm
 from .._operator import AbstractLinearOperator, conj, linearise, MatrixLinearOperator
 from .._solution import RESULTS
-from .._solve import AbstractLinearSolver, linear_solve
+from .base import AbstractLinearSolver
 from .misc import preconditioner_and_y0
 from .qr import QR
 
@@ -305,6 +305,8 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
             )
             coeff_op_transpose = MatrixLinearOperator(coeff_mat.T)
             # TODO(raderj): move to a Hessenberg-specific solver
+            from .._solve import linear_solve
+
             z = linear_solve(coeff_op_transpose, beta_vec, QR(), throw=False).value
             diff = jtu.tree_map(
                 lambda mat: jnp.tensordot(
