@@ -7,7 +7,7 @@ Features include:
 - General linear operators for Jacobians, transposes, etc.;
 - Efficient linear least squares (e.g. QR solvers);
 - Numerically stable gradients through linear least squares;
-- Support for structured (e.g. symmetric) matrices;
+- Support for structured (e.g. symmetric, Hermitian) matrices;
 - Improved compilation times;
 - Improved runtime of some algorithms;
 - Support for both real-valued and complex-valued inputs;

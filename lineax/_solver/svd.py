@@ -43,6 +43,10 @@ class SVD(AbstractLinearSolver[_SVDState]):
     cases it will return the pseudoinverse solution to the linear system.
 
     Equivalent to `scipy.linalg.lstsq`.
+
+    If the operator is Hermitian (e.g. real-symmetric, or positive/negative
+    semidefinite) then [`lineax.HEVD`][] is usually faster, as a Hermitian
+    eigendecomposition is cheaper than a general SVD.
     """
 
     rcond: float | None = None
