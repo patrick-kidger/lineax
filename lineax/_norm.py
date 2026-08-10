@@ -56,7 +56,7 @@ def sum_squares(x: PyTree[ArrayLike]) -> Scalar:
     return tree_dot(x, x).real
 
 
-def two_norm(x: PyTree[ArrayLike], args=None) -> Scalar:
+def two_norm(x: PyTree[ArrayLike]) -> Scalar:
     """Computes the L2 norm of a PyTree of arrays.
 
     Considering the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
@@ -101,7 +101,7 @@ def _two_norm_jvp(x, tx):
     return out, t_out
 
 
-def rms_norm(x: PyTree[ArrayLike], args=None) -> Scalar:
+def rms_norm(x: PyTree[ArrayLike]) -> Scalar:
     """Compute the RMS (root-mean-squared) norm of a PyTree of arrays.
 
     This is the same as the L2 norm, averaged by the size of the input `x`. Considering
@@ -120,15 +120,11 @@ def rms_norm(x: PyTree[ArrayLike], args=None) -> Scalar:
         return two_norm(x) / math.sqrt(size)
 
 
-def max_norm(x: PyTree[ArrayLike], args=None) -> Scalar:
+def max_norm(x: PyTree[ArrayLike]) -> Scalar:
     """Compute the L-infinity norm of a PyTree of arrays.
 
     This is the largest absolute elementwise value. Considering the input `x` as a flat
     vector `(x_1, ..., x_n)`, then this computes `max_i |x_i|`.
-
-    (The `args` argument is part of the solver norm protocol; see
-    [`lineax.internal.elementwise_norm`][]. It is ignored here, as `max_norm` is a plain
-    norm that does not scale by a reference vector.)
     """
     leaves = jtu.tree_leaves(x)
     leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in leaves if jnp.size(xi) > 0]
@@ -141,34 +137,6 @@ def max_norm(x: PyTree[ArrayLike], args=None) -> Scalar:
     else:
         out = ft.reduce(jnp.maximum, leaf_maxes)
         return _zero_grad_at_zero(out)
-
-
-def elementwise_norm(x: PyTree[ArrayLike], args=None) -> Scalar:
-    """A norm that scales each element of `x` by a per-element tolerance before
-    reducing, i.e. `max_i |x_i| / (atol + rtol·|ref_i|)`.
-
-    Passing this as the `norm` of an iterative solver recovers the lineax<=0.1.1
-    (elementwise) convergence behaviour, in which every component must individually
-    satisfy `|r_i| <= atol + rtol·|b_i|`. This is what most nonlinear solvers use, but
-    for linear iterative solvers it is not robust: components of differing scale mix
-    under the matvec, so the round-off floor of the large components (`~ε·max|b|`) can
-    exceed the absolute tolerance demanded of the small ones, causing spurious
-    "iterative breakdown". Prefer the default (scalar) `max_norm` unless you
-    specifically need this behaviour and know `b` is not of pathologically wide
-    dynamic range.
-
-    **Norm protocol.** Iterative solvers call `norm(x, args)` where
-    `args = (atol, rtol, reference)`: `reference` is the vector `x` is measured relative
-    to (`b` for the residual, the iterate `y` for the increment). Plain norms
-    (`max_norm`, `two_norm`, ...) ignore `args`; only reference-scaled norms such
-    as this one use it. When `args is None` this falls back to `max_norm`, so
-    single-argument call sites (e.g. stagnation checks) keep working.
-    """
-    if args is None:
-        return max_norm(x)
-    atol, rtol, reference = args
-    scale = (atol + rtol * ω(reference).call(jnp.abs)).ω
-    return max_norm((ω(x).call(jnp.abs) / scale**ω).ω)
 
 
 @jax.custom_jvp

@@ -67,7 +67,7 @@ class CG(AbstractLinearSolver[_CGState]):
 
     rtol: float
     atol: float
-    norm: Callable[..., Scalar] = max_norm
+    norm: Callable[[PyTree], Scalar] = max_norm
     stabilise_every: int | None = 10
     max_steps: int | None = None
 
@@ -143,27 +143,22 @@ class CG(AbstractLinearSolver[_CGState]):
             and self.rtol == 0
         )
         if has_scale:
-            b_args = (self.atol, self.rtol, vector)
-            b_scale = self.atol + self.rtol * self.norm(vector, b_args)
+            b_scale = self.atol + self.rtol * self.norm(vector)
 
         def not_converged(r, diff, y):
             # The primary tolerance check.
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
             if has_scale:
-                # Convergence test: ||r|| <= atol + rtol*||b|| in the `b` space
-                # (and likewise for the increment in the `y` space). Which
-                # reference `rtol` scales is chosen by `self.norm`: the default
-                # `max_norm` gives the robust scalar rule above, while
-                # `elementwise_norm` recovers the per-component rule
-                # |r_i| <= atol + rtol*|b_i|. That rule is not robust for linear
-                # solves (see `lineax.internal.elementwise_norm`) but is an
-                # opt-in. `args` carries `(atol, rtol, reference)`; plain norms
-                # ignore it.
-                y_args = (self.atol, self.rtol, y)
-                y_scale = self.atol + self.rtol * self.norm(y, y_args)
-                b_unconverged = self.norm(r, b_args) > b_scale  # pyright: ignore
-                y_unconverged = self.norm(diff, y_args) > y_scale
+                # Standard relative-residual stopping rule: ‖r‖ ≤ atol + rtol·‖b‖
+                # (and likewise for the increment in the `y` space). Note this uses
+                # scalar norms, *not* an elementwise `atol + rtol·|b|` scale: the
+                # latter is unsatisfiable for wide-dynamic-range `b`, where the
+                # round-off floor of large components exceeds the absolute tolerance
+                # demanded of small ones, yielding spurious non-convergence.
+                y_scale = self.atol + self.rtol * self.norm(y)
+                b_unconverged = self.norm(r) > b_scale  # pyright: ignore
+                y_unconverged = self.norm(diff) > y_scale
                 return b_unconverged | y_unconverged
             else:
                 return True
