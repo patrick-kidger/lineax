@@ -24,8 +24,6 @@ import pytest
 from .helpers import (
     construct_singular_matrix,
     finite_difference_jvp,
-    make_jac_operator,
-    make_matrix_operator,
     ops,
     params,
     tol,
@@ -241,35 +239,6 @@ def test_nonsquare_vec(solver, full_rank, jvp, wide, dtype, getkey):
     assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
 
 
-_iterative_solvers = (
-    (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag),
-    (lx.CG(rtol=tol, atol=tol, max_steps=512), lx.negative_semidefinite_tag),
-    (lx.GMRES(rtol=tol, atol=tol), ()),
-    (lx.BiCGStab(rtol=tol, atol=tol), ()),
-)
-
-
-@pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
-@pytest.mark.parametrize("solver, tags", _iterative_solvers)
-@pytest.mark.parametrize("use_state", (False, True))
-@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_iterative_singular(getkey, solver, tags, use_state, make_operator, dtype):
-    (matrix,) = construct_singular_matrix(getkey, solver, tags)
-    operator = make_operator(getkey, matrix, tags)
-
-    out_size, _ = matrix.shape
-    vec = jr.normal(getkey(), (out_size,), dtype=dtype)
-
-    if use_state:
-        state = solver.init(operator, options={})
-        linear_solve = ft.partial(lx.linear_solve, state=state)
-    else:
-        linear_solve = lx.linear_solve
-
-    with pytest.raises(Exception):
-        linear_solve(operator, vec, solver)
-
-
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_circulant_singular(getkey, dtype):
     # A column summing to zero gives a zero eigenvalue at the zero frequency, so the
@@ -343,3 +312,9 @@ def test_circulant_auto_dispatch(dtype):
         solver = lx.AutoLinearSolver(well_posed=well_posed).select_solver(operator)
         assert isinstance(solver, lx.Circulant), (well_posed, solver)
         assert solver.well_posed is (well_posed is True)
+
+
+# No test for iterative solvers on singular operators: Krylov methods have no rank
+# detection and no defined behaviour on rank-deficient systems, so there is nothing to
+# assert (their failure reporting is covered by test_bicgstab_breakdown and
+# test_gmres_stagnation_or_breakdown above).
