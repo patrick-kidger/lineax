@@ -465,8 +465,12 @@ def linear_solve(
             f"{operator_out_structure}"
         )
     if isinstance(operator, IdentityLinearOperator):
+        # The inverse of an `IdentityLinearOperator` is its transpose: it is square, so
+        # this is just the same operator with its input and output structures swapped.
+        # (Which matters when those structures are laid out differently: the solution
+        # must have the operator's in-structure, not its out-structure.)
         return Solution(
-            value=vector,
+            value=operator.T.mv(vector),
             result=RESULTS.successful,
             state=state,
             stats={},

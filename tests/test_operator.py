@@ -203,7 +203,7 @@ def test_diagonal(dtype, getkey):
     operators = _setup(getkey, jnp.diag(matrix_diag), lx.diagonal_tag)
     for operator in operators:
         if isinstance(operator, lx.IdentityLinearOperator):
-            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3))
+            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3, dtype))
         else:
             assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
@@ -223,9 +223,9 @@ def test_tridiagonal(dtype, getkey):
     for operator in operators:
         diag, lower_diag, upper_diag = lx.tridiagonal(operator)
         if isinstance(operator, lx.IdentityLinearOperator):
-            assert jnp.allclose(diag, jnp.ones(5))
-            assert jnp.allclose(lower_diag, jnp.zeros(4))
-            assert jnp.allclose(upper_diag, jnp.zeros(4))
+            assert jnp.allclose(diag, jnp.ones(5, dtype))
+            assert jnp.allclose(lower_diag, jnp.zeros(4, dtype))
+            assert jnp.allclose(upper_diag, jnp.zeros(4, dtype))
         else:
             assert jnp.allclose(diag, matrix_diag)
             assert jnp.allclose(lower_diag, matrix_lower_diag)
@@ -536,62 +536,107 @@ def test_diagonal_tangent():
     jax.jvp(run, (diag,), (t_diag,))
 
 
-def test_identity_with_different_structures():
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.complex128))
+def test_identity_with_different_structures(dtype):
+    # Same number of elements, laid out differently across the PyTree.
+    structure1 = (
+        jax.ShapeDtypeStruct((), dtype),
+        jax.ShapeDtypeStruct((2, 3), jnp.float16),
+    )
+    structure2 = {"a": jax.ShapeDtypeStruct((7,), dtype)}
+    op1 = lx.IdentityLinearOperator(structure1, structure2)
+    op2 = lx.IdentityLinearOperator(structure2, structure1)
+
+    assert op1.T == op2
+    assert jnp.array_equal(op1.as_matrix(), jnp.eye(7, dtype=dtype))
+    assert op1.in_size() == 7
+    assert op1.out_size() == 7
+    vec1 = (
+        jnp.array(1.0, dtype=dtype),
+        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float16),
+    )
+    vec2 = {"a": jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], dtype=dtype)}
+    assert tree_allclose(op1.mv(vec1), vec2)
+    # Unlike the truncating behaviour this replaced, the round trip is exact.
+    assert tree_allclose(op2.mv(vec2), vec1)
+
+
+def test_identity_must_be_square():
     structure1 = (
         jax.ShapeDtypeStruct((), jnp.float32),
         jax.ShapeDtypeStruct((2, 3), jnp.float16),
     )
     structure2 = {"a": jax.ShapeDtypeStruct((5,), jnp.float32)}
-    # structure3 = (None, jax.ShapeDtypeStruct((2, 3), jnp.float16))
-    op1 = lx.IdentityLinearOperator(structure1, structure2)
-    op2 = lx.IdentityLinearOperator(structure2, structure1)
-    # op3 = lx.IdentityLinearOperator(structure3, structure2)
-
-    assert op1.T == op2
-    # assert op2.transpose((True, False)) == op3
-    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7, dtype=jnp.float32))
-    assert op1.in_size() == 7
-    assert op1.out_size() == 5
-    vec1 = (
-        jnp.array(1.0, dtype=jnp.float32),
-        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float16),
-    )
-    vec2 = {"a": jnp.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.float32)}
-    vec1b = (
-        jnp.array(1.0, dtype=jnp.float32),
-        jnp.array([[2, 3, 4], [5, 0, 0]], dtype=jnp.float16),
-    )
-    assert tree_allclose(op1.mv(vec1), vec2)
-    assert tree_allclose(op2.mv(vec2), vec1b)
+    with pytest.raises(ValueError, match="same number of elements"):
+        lx.IdentityLinearOperator(structure1, structure2)
 
 
-def test_identity_with_different_structures_complex():
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64, jnp.complex128))
+def test_identity_diagonal_dtype(dtype):
+    # These used to fall back to the default floating dtype, which then blew up under
+    # strict dtype promotion when combined with a non-default-dtype operator.
+    operator = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((3,), dtype))
+    assert lx.diagonal(operator).dtype == dtype
+    assert all(x.dtype == dtype for x in lx.tridiagonal(operator))
+    assert operator.as_matrix().dtype == dtype
+
+
+def test_compose_identity_with_different_structures():
     structure1 = (
-        jax.ShapeDtypeStruct((), jnp.complex128),
-        jax.ShapeDtypeStruct((2, 3), jnp.float16),
+        jax.ShapeDtypeStruct((), jnp.float32),
+        jax.ShapeDtypeStruct((2,), jnp.float32),
     )
-    structure2 = {"a": jax.ShapeDtypeStruct((5,), jnp.complex128)}
-    # structure3 = (None, jax.ShapeDtypeStruct((2, 3), jnp.float16))
+    structure2 = {"a": jax.ShapeDtypeStruct((3,), jnp.float32)}
     op1 = lx.IdentityLinearOperator(structure1, structure2)
-    op2 = lx.IdentityLinearOperator(structure2, structure1)
-    # op3 = lx.IdentityLinearOperator(structure3, structure2)
+    diagonal = lx.DiagonalLinearOperator(
+        (
+            jnp.array(2.0, dtype=jnp.float32),
+            jnp.array([3.0, 4.0], dtype=jnp.float32),
+        )
+    )
 
-    assert op1.T == op2
-    # assert op2.transpose((True, False)) == op3
-    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7, dtype=jnp.complex128))
-    assert op1.in_size() == 7
-    assert op1.out_size() == 5
-    vec1 = (
-        jnp.array(1.0, dtype=jnp.complex128),
-        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float16),
+    # Diagonal, but the composition does not land back in `structure1`, so it is not
+    # symmetric and must not be rejected for having mismatched structures.
+    composed = op1 @ diagonal
+    assert lx.is_diagonal(composed)
+    assert not lx.is_symmetric(composed)
+    assert jnp.allclose(
+        composed.as_matrix(), jnp.diag(jnp.array([2.0, 3.0, 4.0], dtype=jnp.float32))
     )
-    vec2 = {"a": jnp.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.complex128)}
-    vec1b = (
-        jnp.array(1.0, dtype=jnp.complex128),
-        jnp.array([[2, 3, 4], [5, 0, 0]], dtype=jnp.float16),
+    vector = {"a": jnp.array([2.0, 6.0, 12.0], dtype=jnp.float32)}
+    solution = lx.linear_solve(composed, vector).value
+    assert tree_allclose(
+        solution,
+        (
+            jnp.array(1.0, dtype=jnp.float32),
+            jnp.array([2.0, 3.0], dtype=jnp.float32),
+        ),
     )
-    assert tree_allclose(op1.mv(vec1), vec2)
-    assert tree_allclose(op2.mv(vec2), vec1b)
+
+    # But composing back to `structure1` is genuinely symmetric, even though neither
+    # operand has matching input and output structures.
+    op2 = lx.IdentityLinearOperator(structure2, structure1)
+    round_trip = op2 @ op1
+    assert lx.is_symmetric(round_trip)
+    assert jnp.array_equal(round_trip.as_matrix(), jnp.eye(3, dtype=jnp.float32))
+
+
+def test_identity_solve_with_different_structures():
+    structure1 = (
+        jax.ShapeDtypeStruct((), jnp.float32),
+        jax.ShapeDtypeStruct((2, 3), jnp.float32),
+    )
+    structure2 = {"a": jax.ShapeDtypeStruct((7,), jnp.float32)}
+    operator = lx.IdentityLinearOperator(structure1, structure2)
+    vector = {"a": jnp.arange(1.0, 8.0, dtype=jnp.float32)}
+    expected = (
+        jnp.array(1.0, dtype=jnp.float32),
+        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float32),
+    )
+    # The solution lives in the operator's in-structure, not its out-structure.
+    solution = lx.linear_solve(operator, vector).value
+    assert tree_allclose(solution, expected)
+    assert tree_allclose(operator.mv(solution), vector)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))

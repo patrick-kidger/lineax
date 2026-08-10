@@ -72,6 +72,18 @@ def _has_real_dtype(operator) -> bool:
         )
 
 
+def _identity_dtype(operator) -> jnp.dtype:
+    """The dtype of an `IdentityLinearOperator`'s entries, as promoted across its
+    input structure.
+    """
+    leaves = jtu.tree_leaves(operator.in_structure())
+    with jax.numpy_dtype_promotion("standard"):
+        if len(leaves) == 0:
+            return default_floating_dtype()
+        else:
+            return jnp.result_type(*leaves)
+
+
 # `structure` must be static as with `JacobianLinearOperator`
 class IdentityLinearOperator(AbstractLinearOperator):
     """Represents the identity transformation `X -> X`, where each `x in X` is some
@@ -95,7 +107,10 @@ class IdentityLinearOperator(AbstractLinearOperator):
         - `output_structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
             structure of the the output space. If not passed then this defaults to the
             same as `input_structure`. If passed then it must have the same number of
-            elements as `input_structure`, so that the operator is square.
+            elements as `input_structure`, so that the operator is square. (The elements
+            may be laid out differently across the PyTree, though: the operator then
+            maps each input element to the output element in the same position, taking
+            both in flattened order.)
         """
         if output_structure is sentinel:
             output_structure = input_structure
@@ -103,6 +118,10 @@ class IdentityLinearOperator(AbstractLinearOperator):
         output_structure = inexact_structure(output_structure)
         self.input_structure = jtu.tree_flatten(input_structure)
         self.output_structure = jtu.tree_flatten(output_structure)
+        if self.in_size() != self.out_size():
+            raise ValueError(
+                "input and output structures must have the same number of elements."
+            )
 
     def mv(self, vector):
         if not eqx.tree_equal(
@@ -119,13 +138,6 @@ class IdentityLinearOperator(AbstractLinearOperator):
             with jax.numpy_dtype_promotion("standard"):
                 dtype = jnp.result_type(*leaves)
             vector = jnp.concatenate([x.astype(dtype).reshape(-1) for x in leaves])
-            out_size = self.out_size()
-            if vector.size < out_size:
-                vector = jnp.concatenate(
-                    [vector, jnp.zeros(out_size - vector.size, vector.dtype)]
-                )
-            else:
-                vector = vector[:out_size]
             leaves, treedef = jtu.tree_flatten(self.out_structure())
             sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
             split = jnp.split(vector, sizes)
@@ -138,14 +150,7 @@ class IdentityLinearOperator(AbstractLinearOperator):
             return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
-        leaves = jtu.tree_leaves(self.in_structure())
-        with jax.numpy_dtype_promotion("standard"):
-            dtype = (
-                default_floating_dtype()
-                if len(leaves) == 0
-                else jnp.result_type(*leaves)
-            )
-        return jnp.eye(self.out_size(), self.in_size(), dtype=dtype)
+        return jnp.eye(self.in_size(), dtype=_identity_dtype(self))
 
     def transpose(self):
         return IdentityLinearOperator(self.out_structure(), self.in_structure())
@@ -319,7 +324,7 @@ for transform in (linearise, materialise):
 
 @diagonal.register(IdentityLinearOperator)
 def _(operator):
-    return jnp.ones(operator.in_size())
+    return jnp.ones(operator.in_size(), dtype=_identity_dtype(operator))
 
 
 @diagonal.register(DiagonalLinearOperator)
@@ -341,8 +346,9 @@ def _(operator):
 @tridiagonal.register(IdentityLinearOperator)
 def _(operator):
     size = operator.in_size()
-    main_diagonal = jnp.ones(size)
-    off_diagonal = jnp.zeros(size - 1)
+    dtype = _identity_dtype(operator)
+    main_diagonal = jnp.ones(size, dtype=dtype)
+    off_diagonal = jnp.zeros(size - 1, dtype=dtype)
     return main_diagonal, off_diagonal, off_diagonal
 
 
@@ -433,11 +439,6 @@ def _(operator):
 
 
 @is_circulant.register(IdentityLinearOperator)
-def _(operator):
-    # A non-square `IdentityLinearOperator` is not circulant.
-    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
-
-
 @is_circulant.register(CirculantLinearOperator)
 def _(operator):
     return True
