@@ -259,3 +259,17 @@ def test_nonfinite_input():
     vector = (jnp.nan, jnp.inf)
     sol = lx.linear_solve(operator, vector, throw=False)
     assert sol.result == lx.RESULTS.nonfinite_input
+
+
+def test_gmres_wide_dynamic_range_rhs():
+    # Regression test for the iterative breakdown caused by elementwise tolerances
+    # (#230). Well-conditioned, consistent system with a wide-dynamic-range RHS: with
+    # the scalar stopping rule `norm(r) <= atol + rtol * norm(b)` this converges even
+    # at a tolerance near the round-off floor, whereas the old per-component rule
+    # `|r_i| <= atol + rtol * |b_i|` spuriously reported breakdown.
+    A = jnp.array([[1.0, 0.5, 0.3], [0.2, 2.0, 0.7], [0.6, 0.1, 1.5]])
+    b = jnp.array([1e8, 1.0, 1.0])
+    operator = lx.MatrixLinearOperator(A)
+    sol = lx.linear_solve(operator, b, lx.GMRES(rtol=1e-12, atol=1e-12), throw=False)
+    assert sol.result == lx.RESULTS.successful
+    assert tree_allclose(sol.value, jnp.linalg.solve(A, b))
