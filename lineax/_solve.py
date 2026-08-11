@@ -215,10 +215,22 @@ def _gram_partner(
         # state. This holds for any inner solver (Cholesky, CG, HEVD, ...).
         return solver.inner_solver, inner_state
     if isinstance(solver, QR):
+        if not solver.assume_full_rank():
+            # The shortcut below relies on a full-rank, *non-pivoted* factorisation.
+            # A future rank-revealing/pivoted QR would give `A P = Q R`, so the gram is
+            # `AᴴA = P RᴴR Pᵀ` (permuted) and, when rank-deficient, `RᴴR` is singular --
+            # in neither case is a plain `Cholesky(R)` the gram (pseudo)inverse. Fail
+            # loudly so such a solver is forced to supply its own gram partner rather
+            # than silently returning a permutation-dropped or rank-deficient result.
+            # (Inert for the current QR, whose `assume_full_rank()` is always `True`.)
+            raise ValueError(
+                "the `QR` gram partner assumes a full-rank, non-pivoted "
+                "factorisation; a rank-revealing QR must supply its own"
+            )
         (a, _), transpose, _ = state
         if transpose.value:
-            # QR is full rank, so the JVP reaches the gram path only when
-            # `rows > columns` (tall), where the stored factorisation is of `A`.
+            # Full-rank QR reaches the gram path only when `rows > columns` (tall),
+            # where the stored factorisation is of `A` itself (not `Aᴴ`).
             raise ValueError("`QR` has a gram partner only for tall operators")
         # Tall `A = QR` => `AᴴA = RᴴR`: the QR factor `R` is the upper Cholesky factor.
         r = a[: a.shape[1]]
