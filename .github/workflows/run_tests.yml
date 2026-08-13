@@ -57,6 +57,17 @@ jobs:
         # Split by measured runtime so that the slowest job bounds the wall clock.
         # The three second-order-autodiff files dominate the suite and so get a job
         # each; everything else is fast enough to share.
+        #
+        # `group` must be a matrix dimension in its own right, so that each `include`
+        # below matches one combination and contributes its `files`. An `include`
+        # entry using only keys absent from the matrix would instead be merged into
+        # every combination, collapsing this to a single job.
+        group:
+          - jvp-jvp-1
+          - jvp-jvp-2
+          - vmap-jvp
+          - vmap
+          - core
         include:
           - group: jvp-jvp-1
             files: test_jvp_jvp1.py
