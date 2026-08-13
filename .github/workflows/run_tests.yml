@@ -3,8 +3,13 @@ name: Run tests
 on:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  run-test:
+  lint:
+    name: lint
     strategy:
       matrix:
         python-version: [ 3.11 ]
@@ -13,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v7
@@ -28,10 +33,111 @@ jobs:
         run: |
           uv run prek run --all-files
 
-      - name: Test with pytest
+      # `test` runs an explicit list of files rather than globbing `tests/`, so a
+      # newly-added test file would otherwise silently never run in CI.
+      - name: Check every test file is in a test group
         run: |
-          uv run python -m tests
+          missing=0
+          for file in tests/test_*.py; do
+            name=$(basename "$file")
+            if ! grep -q -- "$name" .github/workflows/run_tests.yml; then
+              echo "::error file=$file::$name is not listed in any test group in .github/workflows/run_tests.yml"
+              missing=1
+            fi
+          done
+          exit $missing
+
+  test:
+    name: test (${{ matrix.group }})
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ 3.11 ]
+        os: [ ubuntu-latest ]
+        # Split by measured runtime so that the slowest job bounds the wall clock.
+        # The three second-order-autodiff files dominate the suite and so get a job
+        # each; everything else is fast enough to share.
+        include:
+          - group: jvp-jvp-1
+            files: test_jvp_jvp1.py
+          - group: jvp-jvp-2
+            files: test_jvp_jvp2.py
+          - group: vmap-jvp
+            files: test_vmap_jvp.py
+          - group: vmap
+            files: test_vmap.py test_vmap_vmap.py
+          - group: core
+            files: >-
+              test_adjoint.py test_invert.py test_jvp.py test_lsmr.py
+              test_max_rank.py test_misc.py test_norm.py test_operator.py
+              test_singular.py test_solve.py test_transpose.py
+              test_well_posed.py
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          uv run echo done
+
+      # One `pytest` process per file, matching `python -m tests`, which does this to
+      # avoid out-of-memorying.
+      - name: Test with pytest
+        env:
+          FILES: ${{ matrix.files }}
+        run: |
+          status=0
+          for name in $FILES; do
+            echo "::group::$name"
+            uv run pytest "tests/$name" --durations=10 || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+  docs:
+    name: docs
+    strategy:
+      matrix:
+        python-version: [ 3.11 ]
+        os: [ ubuntu-latest ]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          uv run echo done
 
       - name: Check that documentation can be built.
         run: |
           uv run mkdocs build
+
+  # Single aggregate check, so that branch protection can require one job name that
+  # does not change when the test groups above are regrouped. Keeps the `run-test`
+  # name that the split replaced.
+  all-ok:
+    name: run-test
+    needs: [ lint, test, docs ]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # A job that merely `needs` others is itself skipped when they fail, and a
+      # skipped required check can count as passing, so check the results explicitly.
+      - name: Check that all jobs succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "At least one job did not succeed."
+          exit 1
