@@ -75,7 +75,7 @@ jobs:
               test_adjoint.py test_invert.py test_jvp.py test_lsmr.py
               test_max_rank.py test_misc.py test_norm.py test_operator.py
               test_singular.py test_solve.py test_transpose.py
-              test_well_posed.py
+              test_well_posed.py test_gram_partner.py
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
