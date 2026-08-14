@@ -34,18 +34,11 @@ jobs:
           uv run prek run --all-files
 
       # `test` runs an explicit list of files rather than globbing `tests/`, so a
-      # newly-added test file would otherwise silently never run in CI.
+      # newly-added test file would otherwise silently never run in CI. Also run by
+      # `pre-commit`, so this is normally caught before pushing.
       - name: Check every test file is in a test group
         run: |
-          missing=0
-          for file in tests/test_*.py; do
-            name=$(basename "$file")
-            if ! grep -q -- "$name" .github/workflows/run_tests.yml; then
-              echo "::error file=$file::$name is not listed in any test group in .github/workflows/run_tests.yml"
-              missing=1
-            fi
-          done
-          exit $missing
+          uv run -- python .github/scripts/check_test_groups.py
 
   test:
     name: test (${{ matrix.group }})
