@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import functools as ft
-from typing import Any
+from typing import Any, TypeAlias
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -31,18 +31,29 @@ from ._custom_types import sentinel
 from ._misc import inexact_asarray, strip_weak_dtype
 from ._operator import (
     AbstractLinearOperator,
-    conj,
     FunctionLinearOperator,
     IdentityLinearOperator,
+    is_hermitian,
     linearise,
     max_rank,
+    TaggedLinearOperator,
     TangentLinearOperator,
 )
 from ._solution import RESULTS, Solution
-from ._solver import AutoLinearSolver
+from ._solver import (
+    AutoLinearSolver,
+    Cholesky,
+    Circulant,
+    HEVD,
+    Normal,
+    QR,
+    SVD,
+)
 from ._solver.base import AbstractLinearSolver as AbstractLinearSolver
+from ._solver.misc import pack_structures
 from ._tags import (
     invert_tags,
+    positive_semidefinite_tag,
     tags_from_checks,
 )
 
@@ -137,6 +148,121 @@ def _linear_solve_abstract_eval(operator, state, vector, options, solver, throw)
     return out
 
 
+def _squared_rcond(rcond: float | None, n: int, m: int, dtype) -> float:
+    """`resolve_rcond(rcond, n, m, dtype) ** 2`, as a Python `float`.
+
+    A pure-Python mirror of [`resolve_rcond`][] (no `jnp.where`), so the result stays a
+    Python scalar -- HEVD's `rcond` is `float | None`, and under the recursive gram
+    solve `resolve_rcond` of a non-`None` rcond would otherwise produce a traced array.
+
+    Squaring reproduces the original solver's rank cutoff on the gram's eigenvalues
+    `σ²`, since `σ² > rcond²·σ²ₘₐₓ  <=>  σ > rcond·σₘₐₓ`.
+    """
+    eps = float(jnp.finfo(dtype).eps)
+    if rcond is None:
+        rcond = 2 * eps * max(n, m)
+    elif rcond < 0:
+        rcond = eps
+    return float(rcond) ** 2
+
+
+# Solver types whose factorisation *may* cheaply yield the gram (pseudo)inverse
+# `(AᴴA)⁺`. Whether one actually does can depend on the state (e.g. `Normal` only when
+# tall), so `_has_gram_partner` is the definitive runtime check; see `_gram_partner`.
+_MaybeHasGramPartner: TypeAlias = QR | SVD | HEVD | Normal | Circulant
+
+
+def _has_gram_partner(solver: AbstractLinearSolver, state: Any) -> bool:
+    """Can the (pseudo)inverse for A^H A actually be inferred from solver's state?"""
+    if isinstance(solver, Normal):
+        _, tall, _, _ = state
+        return tall.value  # inner operator is `AᴴA`; when wide it is `AAᴴ`
+    return isinstance(solver, _MaybeHasGramPartner)
+
+
+def _gram_partner(
+    solver: _MaybeHasGramPartner,
+    gram_operator: AbstractLinearOperator,
+    state: Any,
+) -> tuple[AbstractLinearSolver, Any]:
+    """Return a `(gram_solver, gram_state)` pair such that
+    `linear_solve_p(gram_operator, gram_state, v, gram_solver)` computes `(AᴴA)⁺ v`
+    (where `gram_operator` is `AᴴA`). Requires `_has_gram_partner(solver, state)`.
+
+    Each candidate solver's gram partner -- a solver representing the (pseudo)inverse of
+    the gram matrix `AᴴA` -- is obtained from the existing factorisation with no further
+    decomposition:
+
+        QR       `A = QR`    -> `Cholesky`, since `AᴴA = RᴴR` (`R` is the factor)
+        SVD      `A = UΣVᴴ`  -> `HEVD` with eigenvectors `V`, eigenvalues `σ²`
+        HEVD     `A = VWVᴴ`  -> `HEVD` with eigenvectors `V`, eigenvalues `w²`
+        Normal   (tall)      -> its inner solver, which already factorises `AᴴA`
+        Circulant `A = FᴴΛF` -> `Circulant` with eigenvalues `|λ|²`
+
+    The JVP uses this to collapse the two nested solves against `Aᴴ` (the inner adjoint
+    solve and the outer `A⁺`) into one gram solve. Routing it back through
+    `linear_solve_p` -- rather than applying the factors directly -- keeps it correct
+    under higher-order autodiff, since the gram solve then uses lineax's
+    pseudoinverse-aware adjoint rather than differentiating through the factorisation.
+    """
+    if isinstance(solver, Normal):
+        inner_state, tall, _, _ = state
+        if not tall.value:
+            # Wide: the inner solver factorises `AAᴴ`, not `AᴴA`. `_has_gram_partner`
+            # excludes this, so reaching here is a caller bug.
+            raise ValueError("`Normal` has a gram partner only for tall operators")
+        # Tall: the inner solver already factorises `AᴴA`, so its state *is* the gram
+        # state. This holds for any inner solver (Cholesky, CG, HEVD, ...).
+        return solver.inner_solver, inner_state
+    if isinstance(solver, QR):
+        if not solver.assume_full_rank():
+            # The shortcut below relies on a full-rank, *non-pivoted* factorisation.
+            # A future rank-revealing/pivoted QR would give `A P = Q R`, so the gram is
+            # `AᴴA = P RᴴR Pᵀ` (permuted) and, when rank-deficient, `RᴴR` is singular --
+            # in neither case is a plain `Cholesky(R)` the gram (pseudo)inverse. Fail
+            # loudly so such a solver is forced to supply its own gram partner rather
+            # than silently returning a permutation-dropped or rank-deficient result.
+            # (Inert for the current QR, whose `assume_full_rank()` is always `True`.)
+            raise ValueError(
+                "the `QR` gram partner assumes a full-rank, non-pivoted "
+                "factorisation; a rank-revealing QR must supply its own"
+            )
+        (a, _), transpose, _ = state
+        if transpose.value:
+            # Full-rank QR reaches the gram path only when `rows > columns` (tall),
+            # where the stored factorisation is of `A` itself (not `Aᴴ`).
+            raise ValueError("`QR` has a gram partner only for tall operators")
+        # Tall `A = QR` => `AᴴA = RᴴR`: the QR factor `R` is the upper Cholesky factor.
+        r = a[: a.shape[1]]
+        return Cholesky(), (r, eqxi.Static(False))
+    packed = pack_structures(gram_operator)
+    if isinstance(solver, Circulant):
+        (eigenvalues, is_complex), _ = state
+        # `A = Fᴴ diag(λ) F` => `AᴴA = Fᴴ diag(|λ|²) F`, i.e. `AᴴA` is itself circulant
+        # with eigenvalues `|λ|²`. (These are real and nonnegative, matching the PSD tag
+        # on `gram_operator`; for a real `A` only half the spectrum is stored, and that
+        # remains true of the gram, so `is_complex` carries over unchanged.)
+        n = gram_operator.in_size()
+        rcond = _squared_rcond(solver.rcond, n, n, eigenvalues.dtype)
+        # `conj(λ)λ` rather than `abs(λ)**2`, to keep the complex dtype that
+        # `Circulant.init` would have produced. (The imaginary part is exactly zero.)
+        gram_eigenvalues = eigenvalues.conj() * eigenvalues
+        gram_solver = Circulant(well_posed=solver.well_posed, rcond=rcond)
+        return gram_solver, ((gram_eigenvalues, is_complex), packed)
+    if isinstance(solver, SVD):
+        (u, s, vt), _ = state
+        # `(AᴴA)⁺ = V Σ⁻² Vᴴ`.
+        eigenvalues, eigenvectors = s**2, vt.conj().T
+        rcond = _squared_rcond(solver.rcond, vt.shape[1], u.shape[0], s.dtype)
+    else:
+        (w, eigenvectors), _ = state
+        # `(AᴴA)⁺ = (A²)⁺ = V W⁻² Vᴴ`.
+        eigenvalues = w**2
+        m = eigenvectors.shape[0]
+        rcond = _squared_rcond(solver.rcond, m, m, w.dtype)
+    return HEVD(rcond=rcond), ((eigenvalues, eigenvectors), packed)
+
+
 @eqxi.filter_primitive_jvp
 def _linear_solve_jvp(primals, tangents):
     operator, state, vector, options, solver, throw = primals
@@ -203,25 +329,55 @@ def _linear_solve_jvp(primals, tangents):
         assume_independent_rows = solver.assume_full_rank() and rows <= columns
         assume_independent_columns = solver.assume_full_rank() and columns <= rows
         if not assume_independent_rows or not assume_independent_columns:
-            operator_conj_transpose = conj(operator).transpose()
-            t_operator_conj_transpose = conj(t_operator).transpose()
-            state_conj, options_conj = solver.conj(state, options)
-            state_conj_transpose, options_conj_transpose = solver.transpose(
-                state_conj, options_conj
-            )
+            operator_conj_transpose = operator.H
+            t_operator_conj_transpose = t_operator.H
+            if is_hermitian(operator):
+                # `Aᴴ = A`, so `init(Aᴴ) == init(A)`: the existing state already serves
+                # as the adjoint state. This holds for any solver, so the fast path is
+                # keyed on the operator rather than on the solver.
+                state_conj_transpose, options_conj_transpose = state, options
+            else:
+                state_conj, options_conj = solver.conj(state, options)
+                state_conj_transpose, options_conj_transpose = solver.transpose(
+                    state_conj, options_conj
+                )
         if not assume_independent_rows:
             lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
             tmp = t_operator_conj_transpose.mv(lst_sqr_diff)  # pyright: ignore
-            tmp, _, _ = eqxi.filter_primitive_bind(
-                linear_solve_p,
-                operator_conj_transpose,  # pyright: ignore
-                state_conj_transpose,  # pyright: ignore
-                tmp,
-                options_conj_transpose,  # pyright: ignore
-                solver,
-                True,
-            )
-            vecs.append(tmp)
+            # This term is `A⁺ (Aᴴ)⁺ w = (AᴴA)⁺ w`. If the solver has a gram partner,
+            # compute `(AᴴA)⁺ w` in a single gram solve against `AᴴA`; otherwise fall
+            # back to the generic nested adjoint solve (whose result is later
+            # left-multiplied by `A⁺` along with the other `vecs`). The gram operator
+            # is never materialised -- the gram solve reads only `gram_state` -- but it
+            # carries the right structure and (for higher-order autodiff) tangent.
+            if _has_gram_partner(solver, state):
+                gram_operator = TaggedLinearOperator(
+                    operator.H @ operator, positive_semidefinite_tag
+                )
+                gram_solver, gram_state = _gram_partner(solver, gram_operator, state)
+                gram_inv, _, _ = eqxi.filter_primitive_bind(
+                    linear_solve_p,
+                    gram_operator,
+                    gram_state,
+                    tmp,
+                    {},
+                    gram_solver,
+                    True,
+                )
+                # `(AᴴA)⁺ w` already lives in the input space, so it bypasses the
+                # outer `A⁺`: append directly to the already-solved `sols`.
+                sols.append(gram_inv)
+            else:
+                tmp, _, _ = eqxi.filter_primitive_bind(
+                    linear_solve_p,
+                    operator_conj_transpose,  # pyright: ignore
+                    state_conj_transpose,  # pyright: ignore
+                    tmp,
+                    options_conj_transpose,  # pyright: ignore
+                    solver,
+                    True,
+                )
+                vecs.append(tmp)
 
         if not assume_independent_columns:
             tmp1, _, _ = eqxi.filter_primitive_bind(

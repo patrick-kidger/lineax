@@ -29,6 +29,7 @@ class _HasRepr:
 
 
 symmetric_tag = _HasRepr("symmetric_tag")
+hermitian_tag = _HasRepr("hermitian_tag")
 diagonal_tag = _HasRepr("diagonal_tag")
 tridiagonal_tag = _HasRepr("tridiagonal_tag")
 unit_diagonal_tag = _HasRepr("unit_diagonal_tag")
@@ -129,6 +130,7 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
         has_unit_diagonal,
         is_circulant,
         is_diagonal,
+        is_hermitian,
         is_lower_triangular,
         is_negative_semidefinite,
         is_positive_semidefinite,
@@ -142,6 +144,7 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
         tag
         for check, tag in [
             (is_symmetric, symmetric_tag),
+            (is_hermitian, hermitian_tag),
             (is_diagonal, diagonal_tag),
             (is_lower_triangular, lower_triangular_tag),
             (is_upper_triangular, upper_triangular_tag),
@@ -166,6 +169,7 @@ transpose_tags_rules = []
 
 for tag in (
     symmetric_tag,
+    hermitian_tag,
     unit_diagonal_tag,
     diagonal_tag,
     positive_semidefinite_tag,
@@ -231,6 +235,7 @@ invert_tags_rules = []
 
 for tag in (
     symmetric_tag,
+    hermitian_tag,
     diagonal_tag,
     lower_triangular_tag,
     upper_triangular_tag,

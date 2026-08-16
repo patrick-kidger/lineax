@@ -24,9 +24,11 @@ from .base import (
     conj,
     diagonal,
     first_column,
+    has_real_dtype,
     has_unit_diagonal,
     is_circulant,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
@@ -221,6 +223,7 @@ def _(operator):
 
 for check in (
     is_symmetric,
+    is_hermitian,
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
@@ -270,6 +273,20 @@ def _(operator):
     if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
         return False
     return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
+
+
+# is_hermitian: as above, diagonal matrices commute. A product of diagonals is itself
+# diagonal, which is Hermitian only when its (complex) entries are real-valued. The
+# structure check is on the composition itself, for the same reason as `is_symmetric`.
+@is_hermitian.register(ComposedLinearOperator)
+def _(operator):
+    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+        return False
+    return (
+        is_diagonal(operator.operator1)
+        and is_diagonal(operator.operator2)
+        and has_real_dtype(operator)
+    )
 
 
 # is_tridiagonal: tridiagonal @ tridiagonal = pentadiagonal, but

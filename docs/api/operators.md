@@ -16,6 +16,7 @@ Or, perhaps we only have a function $F : \mathbb{R}^m \to \mathbb{R}^n$ such tha
                 - mv
                 - as_matrix
                 - transpose
+                - H
                 - in_structure
                 - out_structure
                 - in_size

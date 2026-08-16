@@ -51,6 +51,48 @@ def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
+# `construct_singular_matrix` has no way to build a singular *circulant* matrix (its
+# `zero` method clears the leading row, which the circulant construction then
+# overwrites), so `Circulant` is excluded from the parametrised singular tests above --
+# including their JVP coverage. Build one directly instead, by zeroing an eigenvalue.
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_singular_jvp(getkey, dtype):
+    size = 6
+    column = jr.normal(getkey(), (size,), dtype=dtype)
+    # Zero eigenvalue 2, so that the operator is singular but still circulant.
+    if jnp.iscomplexobj(column):
+        eigenvalues = jnp.fft.fft(column).at[2].set(0)
+        column = jnp.fft.ifft(eigenvalues)
+    else:
+        # `rfft`/`irfft` keep the spectrum conjugate-symmetric, so the column stays
+        # real.
+        eigenvalues = jnp.fft.rfft(column).at[2].set(0)
+        column = jnp.fft.irfft(eigenvalues, n=size)
+
+    def circulant(column, vector):
+        operator = lx.CirculantLinearOperator(column)
+        return lx.linear_solve(operator, vector, solver=lx.Circulant()).value
+
+    def dense(column, vector):
+        # The pseudoinverse solution, via a solver with no circulant structure to
+        # exploit (and, in particular, no gram partner of its own to shortcut the JVP).
+        matrix = lx.CirculantLinearOperator(column).as_matrix()
+        return lx.linear_solve(
+            lx.MatrixLinearOperator(matrix), vector, solver=lx.SVD()
+        ).value
+
+    vector = jr.normal(getkey(), (size,), dtype=dtype)
+    t_column = jr.normal(getkey(), (size,), dtype=dtype)
+    t_vector = jr.normal(getkey(), (size,), dtype=dtype)
+
+    x, t_x = eqx.filter_jvp(circulant, (column, vector), (t_column, t_vector))
+    true_x, true_t_x = eqx.filter_jvp(dense, (column, vector), (t_column, t_vector))
+    assert tree_allclose(x, true_x, atol=tol, rtol=tol)
+    # The JVP takes the `_gram_partner` path, as `Circulant.assume_full_rank()` is
+    # `False`: the gram matrix `AᴴA` is itself circulant, with eigenvalues `|λ|²`.
+    assert tree_allclose(t_x, true_t_x, atol=tol, rtol=tol)
+
+
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_bicgstab_breakdown(getkey, dtype):
     if jax.config.jax_enable_x64:  # pyright: ignore

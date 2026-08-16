@@ -29,6 +29,7 @@ from jaxtyping import (
 from .._tags import (
     circulant_tag,
     diagonal_tag,
+    hermitian_tag,
     lower_triangular_tag,
     MaxRankTag,
     negative_semidefinite_tag,
@@ -45,9 +46,11 @@ from .base import (
     conj,
     diagonal,
     first_column,
+    has_real_dtype,
     has_unit_diagonal,
     is_circulant,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
@@ -348,6 +351,7 @@ def _(operator):
 
 for check in (
     is_symmetric,
+    is_hermitian,
     is_diagonal,
     has_unit_diagonal,
     is_lower_triangular,
@@ -379,6 +383,28 @@ for check in (
     @check.register(DivLinearOperator)
     def _(operator, check=check):
         return check(operator.operator)
+
+
+def _scalar_is_real(scalar) -> bool:
+    """Whether a scalar is statically known to be real-valued.
+
+    A real dtype guarantees a real value, so this is known even for JAX tracers (whose
+    runtime value is unknown at trace time): only the dtype matters, not the value.
+    Returns `False` only for genuinely complex-typed scalars.
+    """
+    return not jnp.issubdtype(jnp.result_type(scalar), jnp.complexfloating)
+
+
+# Hermitian-ness preserved by negation and scaling by any real scalar
+@is_hermitian.register(NegLinearOperator)
+def _(operator):
+    return is_hermitian(operator.operator)
+
+
+@is_hermitian.register(MulLinearOperator)
+@is_hermitian.register(DivLinearOperator)
+def _(operator):
+    return _scalar_is_real(operator.scalar) and is_hermitian(operator.operator)
 
 
 # has_unit_diagonal is NOT preserved by negation
@@ -507,6 +533,26 @@ for check, tag in (
     @check.register(TaggedLinearOperator)
     def _(operator, check=check, tag=tag):
         return (tag in operator.tags) or check(operator.operator)
+
+
+# `is_hermitian` is special-cased rather than handled by the loop above: a tag other
+# than `hermitian_tag` can still imply Hermitian-ness. PSD/NSD operators are Hermitian
+# (real or complex), and real symmetric/diagonal operators are Hermitian too. This
+# mirrors the cross-implications encoded for the core operators.
+@is_hermitian.register(TaggedLinearOperator)
+def _(operator):
+    tags = operator.tags
+    if is_hermitian(operator.operator):
+        return True
+    if (
+        hermitian_tag in tags
+        or positive_semidefinite_tag in tags
+        or negative_semidefinite_tag in tags
+    ):
+        return True
+    if symmetric_tag in tags or diagonal_tag in tags:
+        return has_real_dtype(operator)
+    return False
 
 
 @max_rank.register(TaggedLinearOperator)

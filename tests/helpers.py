@@ -52,6 +52,8 @@ def _construct_matrix_impl(
             matrix = matrix[:, 0][(row - col) % size]
         if has_tag(tags, lx.symmetric_tag):
             matrix = matrix + matrix.T
+        if has_tag(tags, lx.hermitian_tag):
+            matrix = matrix + matrix.conj().T
         if has_tag(tags, lx.lower_triangular_tag):
             matrix = jnp.tril(matrix)
         if has_tag(tags, lx.upper_triangular_tag):
@@ -67,6 +69,15 @@ def _construct_matrix_impl(
             matrix = matrix @ matrix.T.conj()
         if has_tag(tags, lx.negative_semidefinite_tag):
             matrix = -matrix @ matrix.T.conj()
+        if cond_or_singular == "zero" and (
+            has_tag(tags, lx.symmetric_tag) or has_tag(tags, lx.hermitian_tag)
+        ):
+            # The symmetric/Hermitian construction refills the leading row that
+            # `zero` cleared, so re-zero the leading row *and* column of the result.
+            # This makes `e_0` a null vector -- a genuinely rank-deficient, and still
+            # indefinite, Hermitian operator -- mirroring how `zero` yields a
+            # rank-deficient matrix for the PSD/NSD constructions.
+            matrix = matrix.at[0, :].set(0).at[:, 0].set(0)
         if isinstance(cond_or_singular, str):
             break
         else:
@@ -87,7 +98,10 @@ def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
 
 
 def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
-    if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES)):
+    if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES, lx.HEVD)):
+        # `trim_row`/`trim_col` produce non-square matrices, which are incompatible
+        # with the (square) structure these solvers require. Use `zero` instead,
+        # which keeps the matrix square and (for PSD/NSD/Hermitian tags) Hermitian.
         singular_method = "zero"
     else:
         # Use `getkey()` rather than the stdlib `random.choice` for reproducibility
@@ -137,6 +151,10 @@ solvers_tags_pseudoinverse = [
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
     (lx.Normal(lx.Cholesky()), (), False),
+    (lx.HEVD(), lx.positive_semidefinite_tag, True),
+    (lx.HEVD(), lx.negative_semidefinite_tag, True),
+    (lx.HEVD(), lx.hermitian_tag, True),
+    (lx.Normal(lx.HEVD()), (), True),
 ]
 solvers_tags = [(a, b) for a, b, _ in solvers_tags_pseudoinverse]
 solvers = [a for a, _, _ in solvers_tags_pseudoinverse]

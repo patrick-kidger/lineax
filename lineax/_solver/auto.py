@@ -20,6 +20,7 @@ from .._operator import (
     AbstractLinearOperator,
     is_circulant,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
@@ -31,6 +32,7 @@ from .base import AbstractLinearSolver
 from .cholesky import Cholesky
 from .circulant import Circulant
 from .diagonal import Diagonal
+from .hevd import HEVD
 from .lu import LU
 from .qr import QR
 from .svd import SVD
@@ -60,6 +62,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     - If `well_posed=False`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is circulant, then use [`lineax.Circulant`][].
+        - If the operator is Hermitian, then use [`lineax.HEVD`][].
         - Else use [`lineax.SVD`][].
 
     This is a good choice if you want to be certain that you can handle ill-posed
@@ -109,7 +112,13 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
             if is_diagonal(operator):
                 solver = Diagonal()
             elif is_circulant(operator):
+                # An FFT-based solve is cheaper than any dense decomposition, so this
+                # takes priority over the Hermitian case below.
                 solver = Circulant()
+            elif is_hermitian(operator):
+                # A Hermitian eigendecomposition is cheaper than a general SVD, and
+                # handles ill-posed Hermitian systems via the same pseudoinverse.
+                solver = HEVD()
             else:
                 # TODO: use rank-revealing QR instead.
                 solver = SVD()

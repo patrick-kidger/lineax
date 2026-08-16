@@ -88,6 +88,7 @@ class AbstractLinearOperator(eqx.Module):
     def __check_init__(self):
         if (
             is_symmetric(self)
+            or is_hermitian(self)
             or is_positive_semidefinite(self)
             or is_negative_semidefinite(self)
         ):
@@ -197,6 +198,19 @@ class AbstractLinearOperator(eqx.Module):
     def T(self) -> "AbstractLinearOperator":
         """Equivalent to [`lineax.AbstractLinearOperator.transpose`][]"""
         return self.transpose()
+
+    @property
+    def H(self) -> "AbstractLinearOperator":
+        """The conjugate transpose (Hermitian adjoint) `Aᴴ` of this operator.
+
+        Equivalent to `lineax.conj(operator).transpose()`, except that for a Hermitian
+        operator -- for which `Aᴴ = A` -- this is a no-op and returns `self` unchanged.
+        (As with [`lineax.is_hermitian`][], only the tag is checked, not the actual
+        values of the operator.)
+        """
+        if is_hermitian(self):
+            return self
+        return conj(self).transpose()
 
     def __add__(self, other) -> "AbstractLinearOperator":
         # Local imports to avoid a circular dependency: `binary`/`wrapper` import
@@ -400,6 +414,20 @@ def tridiagonal(
     _default_not_implemented("tridiagonal", operator)
 
 
+def has_real_dtype(operator) -> bool:
+    """Check if all dtypes in an operator's structure are real (not complex)."""
+    leaves = jtu.tree_leaves((operator.in_structure(), operator.out_structure()))
+    dtype = jnp.result_type(*leaves)
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        return False
+    elif jnp.issubdtype(dtype, jnp.floating):
+        return True
+    else:
+        assert False, (
+            "Only `jnp.floating` and `jnp.complexfloating` dtypes are understood."
+        )
+
+
 @ft.singledispatch
 def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     """Extracts the first column from a linear operator, and returns a vector.
@@ -443,6 +471,32 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
     Either `True` or `False.`
     """
     _default_not_implemented("is_symmetric", operator)
+
+
+@ft.singledispatch
+def is_hermitian(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as Hermitian (self-adjoint).
+
+    See [the documentation on linear operator tags](../api/tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
+    # Default for operators that don't register `is_hermitian` explicitly (e.g. custom
+    # `AbstractLinearOperator`s written before it existed): derive it from the other
+    # property checks, the same way the built-in operators do minus the
+    # `hermitian_tag` check, which needs operator-specific `.tags`.
+    if is_positive_semidefinite(operator) or is_negative_semidefinite(operator):
+        return True
+    if has_real_dtype(operator) and is_symmetric(operator):
+        return True
+    return False
 
 
 @ft.singledispatch

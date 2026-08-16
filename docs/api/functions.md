@@ -64,4 +64,8 @@ Note that these do *not* inspect the values of the operator -- instead, they use
 
 ---
 
+::: lineax.is_hermitian
+
+---
+
 ::: lineax.max_rank

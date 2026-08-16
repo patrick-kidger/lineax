@@ -19,6 +19,7 @@ from .cholesky import Cholesky as Cholesky
 from .circulant import Circulant as Circulant
 from .diagonal import Diagonal as Diagonal
 from .gmres import GMRES as GMRES
+from .hevd import HEVD as HEVD
 from .lsmr import LSMR as LSMR
 from .lu import LU as LU
 from .normal import Normal as Normal

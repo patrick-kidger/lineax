@@ -29,6 +29,7 @@ from .._solution import RESULTS
 from .._tags import positive_semidefinite_tag
 from .base import AbstractLinearSolver
 from .cholesky import Cholesky
+from .hevd import HEVD
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")
@@ -113,8 +114,8 @@ class Normal(
         # Cholesky materialises op twice when computing (op^H @ op).as_matrix()
         # Cheaper to materialise first and then conjugate-transpose.
         # For iterative solvers we only linearise to avoid eager materialisation.
-        is_cholesky = isinstance(self.inner_solver, Cholesky)
-        lin_op = materialise(operator) if is_cholesky else linearise(operator)
+        is_direct = isinstance(self.inner_solver, Cholesky | HEVD)
+        lin_op = materialise(operator) if is_direct else linearise(operator)
         if tall:
             inner_operator = conj(lin_op.transpose()) @ lin_op
         else:

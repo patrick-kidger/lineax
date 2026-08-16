@@ -42,10 +42,12 @@ from .base import (
     diagonal,
     first_column,
     FlatPyTree,
+    has_real_dtype,
     has_unit_diagonal,
     inexact_structure,
     is_circulant,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
@@ -56,20 +58,6 @@ from .base import (
     materialise,
     tridiagonal,
 )
-
-
-def _has_real_dtype(operator) -> bool:
-    """Check if all dtypes in an operator's structure are real (not complex)."""
-    leaves = jtu.tree_leaves((operator.in_structure(), operator.out_structure()))
-    dtype = jnp.result_type(*leaves)
-    if jnp.issubdtype(dtype, jnp.complexfloating):
-        return False
-    elif jnp.issubdtype(dtype, jnp.floating):
-        return True
-    else:
-        assert False, (
-            "Only `jnp.floating` and `jnp.complexfloating` dtypes are understood."
-        )
 
 
 def _identity_dtype(operator) -> jnp.dtype:
@@ -383,6 +371,7 @@ def _(operator):
 
 
 @is_symmetric.register(IdentityLinearOperator)
+@is_hermitian.register(IdentityLinearOperator)
 def _(operator):
     return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
 
@@ -392,8 +381,15 @@ def _(operator):
     return True
 
 
+@is_hermitian.register(DiagonalLinearOperator)
+def _(operator):
+    return has_real_dtype(operator)
+
+
 @is_symmetric.register(TridiagonalLinearOperator)
+@is_hermitian.register(TridiagonalLinearOperator)
 @is_symmetric.register(CirculantLinearOperator)
+@is_hermitian.register(CirculantLinearOperator)
 def _(operator):
     return False
 
