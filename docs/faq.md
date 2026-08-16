@@ -22,7 +22,7 @@ Typically: create a full matrix, with the {lower, upper} part containing your va
 
 This is the most efficient way to store a triangular matrix in JAX's ndarray-based programming model.
 
-## What about other operations from linear algebra? (Determinants, eigenvalues, etc.)
+## What about other operations from linear algebra? (Eigenvalues, etc.)
 
 See [`jax.numpy.linalg`](https://jax.readthedocs.io/en/latest/jax.numpy.html#module-jax.numpy.linalg) and [`jax.scipy.linalg`](https://jax.readthedocs.io/en/latest/jax.scipy.html#module-jax.scipy.linalg).
 

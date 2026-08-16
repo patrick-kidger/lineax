@@ -50,6 +50,27 @@ SQUARE_DET_CASES = [
     (lx.AutoLinearSolver(well_posed=None), ()),
 ]
 
+# Complex analogue. `symmetric_tag` would build a complex-*symmetric* (non-Hermitian)
+# matrix, which `HEVD` rejects, so the Hermitian solvers use `hermitian_tag` /
+# `positive_semidefinite_tag` instead. These exercise the complex sign paths -- most
+# notably the `QR` complex-Householder sign and the `Circulant` FFT determinant -- which
+# the real cases cannot reach.
+COMPLEX_DET_CASES = [
+    (lx.LU(), ()),
+    (lx.QR(), ()),
+    (lx.Cholesky(), lx.positive_semidefinite_tag),
+    (lx.Triangular(), lx.lower_triangular_tag),
+    (lx.Triangular(), lx.upper_triangular_tag),
+    (lx.Diagonal(well_posed=True), lx.diagonal_tag),
+    (lx.Diagonal(well_posed=False), lx.diagonal_tag),
+    (lx.Tridiagonal(), lx.tridiagonal_tag),
+    (lx.HEVD(), lx.hermitian_tag),
+    (lx.Circulant(well_posed=True), lx.circulant_tag),
+    (lx.Circulant(well_posed=False), lx.circulant_tag),
+    (lx.AutoLinearSolver(well_posed=True), ()),
+    (lx.AutoLinearSolver(well_posed=None), ()),
+]
+
 
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("solver,tags", SQUARE_DET_CASES)
@@ -65,6 +86,28 @@ def test_determinant_square(make_operator, solver, tags, getkey):
 @pytest.mark.parametrize("solver,tags", SQUARE_DET_CASES)
 def test_slogdet_square(make_operator, solver, tags, getkey):
     (matrix,) = construct_matrix(getkey, solver, tags)
+    op = make_operator(getkey, matrix, tags)
+    sign, lad = lx.slogdet(op, solver)
+    ref_sign, ref_lad = jnp.linalg.slogdet(matrix)
+    assert jnp.allclose(lad, ref_lad, atol=1e-10), f"lad: {lad} vs {ref_lad}"
+    if not jnp.isnan(sign):
+        assert jnp.allclose(sign, ref_sign, atol=1e-10), f"sign: {sign} vs {ref_sign}"
+
+
+@pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
+@pytest.mark.parametrize("solver,tags", COMPLEX_DET_CASES)
+def test_determinant_square_complex(make_operator, solver, tags, getkey):
+    (matrix,) = construct_matrix(getkey, solver, tags, dtype=jnp.complex128)
+    op = make_operator(getkey, matrix, tags)
+    det = lx.determinant(op, solver, throw=False)
+    expected = jnp.linalg.det(matrix)
+    assert jnp.allclose(det, expected, atol=1e-10), f"got {det}, expected {expected}"
+
+
+@pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
+@pytest.mark.parametrize("solver,tags", COMPLEX_DET_CASES)
+def test_slogdet_square_complex(make_operator, solver, tags, getkey):
+    (matrix,) = construct_matrix(getkey, solver, tags, dtype=jnp.complex128)
     op = make_operator(getkey, matrix, tags)
     sign, lad = lx.slogdet(op, solver)
     ref_sign, ref_lad = jnp.linalg.slogdet(matrix)
@@ -251,6 +294,28 @@ def test_slogdet_jvp_lad(make_operator, solver, tags, use_state, getkey):
     )
 
 
+@pytest.mark.parametrize("solver", (lx.LU(), lx.QR()))
+def test_slogdet_jvp_complex(solver, getkey):
+    # For complex `A`, `log det A = log|det A| + i*arg(det A)`, so the tangent of the
+    # complex `sign = det/|det|` is non-trivial. This exercises the `sign_dot` branch of
+    # the custom JVP (dormant for real inputs) against `jnp.linalg.slogdet`.
+    matrix = jr.normal(getkey(), (3, 3), dtype=jnp.complex128)
+    t_matrix = jr.normal(getkey(), (3, 3), dtype=jnp.complex128)
+
+    def slogdet_lx(mat):
+        return lx.slogdet(lx.MatrixLinearOperator(mat), solver)
+
+    def slogdet_jax(mat):
+        return jnp.linalg.slogdet(mat)
+
+    (s_lx, l_lx), (sd_lx, ld_lx) = jax.jvp(slogdet_lx, (matrix,), (t_matrix,))
+    (s_jax, l_jax), (sd_jax, ld_jax) = jax.jvp(slogdet_jax, (matrix,), (t_matrix,))
+    assert jnp.allclose(l_lx, l_jax, atol=1e-8), f"lad {l_lx} vs {l_jax}"
+    assert jnp.allclose(ld_lx, ld_jax, atol=1e-8), f"lad_dot {ld_lx} vs {ld_jax}"
+    assert jnp.allclose(s_lx, s_jax, atol=1e-8), f"sign {s_lx} vs {s_jax}"
+    assert jnp.allclose(sd_lx, sd_jax, atol=1e-8), f"sign_dot {sd_lx} vs {sd_jax}"
+
+
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize(
     "solver,tags",
@@ -274,6 +339,23 @@ def test_slogdet_grad(make_operator, solver, tags, getkey):
     assert jnp.allclose(grad_lx, grad_jax, atol=1e-8), (
         f"max diff {jnp.max(jnp.abs(grad_lx - grad_jax))}"
     )
+
+
+def test_slogdet_grad_singular_pseudodet(getkey):
+    # A rank-deficient Hermitian operator: differentiating the log-pseudodeterminant
+    # via HEVD (a pseudoinverse solver) must succeed without raising, even though the
+    # JVP's internal tangent solves use `throw=True`. The derivative is `trace(A⁺ dA)`,
+    # which is finite despite `A` being singular.
+    n, r = 5, 3
+    factor = jr.normal(getkey(), (n, r), dtype=jnp.float64)
+    matrix = factor @ factor.T  # symmetric PSD, rank r < n -> singular
+
+    def lad_lx(mat):
+        op = lx.MatrixLinearOperator(mat, lx.symmetric_tag)
+        return lx.slogdet(op, lx.HEVD())[1]
+
+    grad = jax.grad(lad_lx)(matrix)
+    assert jnp.all(jnp.isfinite(grad)), grad
 
 
 # ----------------------------------------------------------------------------

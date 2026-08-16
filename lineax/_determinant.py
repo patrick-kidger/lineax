@@ -71,7 +71,11 @@ def _slogdet_jvp(primals, tangents):
     dA = TangentLinearOperator(operator, t_operator).as_matrix()  # (m, n)
 
     def solve_col(col):
-        return linear_solve(operator, col, solver, state=state, throw=False).value
+        # `throw=True` mirrors `linear_solve`'s own JVP rule (see `_linear_solve_jvp`):
+        # a failed tangent solve has nowhere to pipe an error result, so we surface it
+        # loudly rather than silently returning a `nan` gradient. Pseudoinverse solvers
+        # (SVD, HEVD, ...) never raise here, so the pseudodeterminant path is unaffected.
+        return linear_solve(operator, col, solver, state=state, throw=True).value
 
     # vmap over the n columns of dA; X[i] = A† dA[:,i], trace(A† dA) = trace(X)
     X = jax.vmap(solve_col)(dA.T)  # (n, n)
@@ -165,7 +169,9 @@ def determinant(
     if options is None:
         options = {}
     sign, lad = slogdet(operator, solver, options=options, state=state)
-    det = sign * jnp.exp(lad)
+    # `lad` is always real; cast `exp(lad)` to `sign`'s dtype so the product is
+    # well-typed under strict dtype promotion when `sign` is complex.
+    det = sign * jnp.exp(lad).astype(sign.dtype)
     if throw:
         msg = _det_sign_error_msg(solver, operator)
         det = eqx.error_if(det, jnp.isnan(sign), msg)

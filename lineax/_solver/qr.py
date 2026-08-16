@@ -125,7 +125,9 @@ class QR(AbstractDirectLinearSolver):
         # For real tau: 1 - tau*(1+s^2) = 1 - 2 = -1 (since tau = 2/(1+s^2)).
         # For complex tau: yields the correct complex unit.
         col_norms_sq = jnp.sum(jnp.abs(jnp.tril(a, -1)) ** 2, axis=0)
-        v_norms_sq = 1.0 + col_norms_sq
+        # `v_norms_sq` is real; cast to `taus`' dtype so the product is well-typed under
+        # strict dtype promotion when `taus` (and hence the operator) is complex.
+        v_norms_sq = (1.0 + col_norms_sq).astype(taus.dtype)
         sign_R = jnp.prod(jnp.sign(jnp.diag(a)))
         sign_Q = jnp.prod(jnp.where(taus != 0, 1.0 - taus * v_norms_sq, 1.0))
         sign = sign_R * sign_Q

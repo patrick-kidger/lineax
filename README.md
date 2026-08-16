@@ -6,6 +6,7 @@ Features include:
 - PyTree-valued matrices and vectors;
 - General linear operators for Jacobians, transposes, etc.;
 - Efficient linear least squares (e.g. QR solvers);
+- Determinants and log-determinants, reusing a solver's factorisation;
 - Numerically stable gradients through linear least squares;
 - Support for structured (e.g. symmetric, Hermitian) matrices;
 - Improved compilation times;
@@ -58,6 +59,20 @@ hessian = lx.JacobianLinearOperator(gradient_fn, y, tags=lx.positive_semidefinit
 solver = lx.CG(rtol=1e-6, atol=1e-6)
 out = lx.linear_solve(hessian, gradient_fn(y, args=None), solver)
 minimum = y - out.value
+```
+
+Lineax can also compute (log-)determinants, reusing the same factorisation a solve
+would use (XLA shares it when both happen inside one `jax.jit`):
+
+```python
+import jax.numpy as jnp
+import jax.random as jr
+import lineax as lx
+
+matrix = jr.normal(jr.PRNGKey(0), (8, 8))
+operator = lx.MatrixLinearOperator(matrix)
+det = lx.determinant(operator, lx.LU())
+sign, logabsdet = lx.slogdet(operator, lx.LU())
 ```
 
 ## Citation

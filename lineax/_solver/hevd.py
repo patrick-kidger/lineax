@@ -158,7 +158,10 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
             threshold = jnp.array(rcond, dtype=w.dtype)
         mask = abs_w > threshold
         safe_w = jnp.where(mask, w, 1.0)
-        sign = jnp.prod(jnp.sign(safe_w))
+        # Eigenvalues are real, so `sign` is +/-1; take the eigenvectors' dtype so a
+        # complex (Hermitian) operator yields a complex `sign`, matching
+        # `numpy.linalg.slogdet` (and the complex `sign` returned by the other solvers).
+        sign = jnp.prod(jnp.sign(safe_w)).astype(v.dtype)
         lad = jnp.sum(jnp.where(mask, jnp.log(abs_w), 0.0))
         return sign, lad
 
