@@ -30,6 +30,7 @@ from ._operator import (
     TangentLinearOperator,
 )
 from ._solve import AbstractDirectLinearSolver, linear_solve
+from ._solver import AutoLinearSolver
 from ._solver.normal import Normal
 
 
@@ -74,7 +75,7 @@ def _slogdet_jvp(primals, tangents):
         # `throw=True` mirrors `linear_solve`'s own JVP rule (see `_linear_solve_jvp`):
         # a failed tangent solve has nowhere to pipe an error result, so we surface it
         # loudly rather than silently returning a `nan` gradient. Pseudoinverse solvers
-        # (SVD, HEVD, ...) never raise here, so the pseudodeterminant path is unaffected.
+        # (SVD, HEVD, ...) never raise here, so the pseudodeterminant path is unchanged.
         return linear_solve(operator, col, solver, state=state, throw=True).value
 
     # vmap over the n columns of dA; X[i] = A† dA[:,i], trace(A† dA) = trace(X)
@@ -93,7 +94,7 @@ def _slogdet_jvp(primals, tangents):
 
 def slogdet(
     operator: AbstractLinearOperator,
-    solver: "AbstractDirectLinearSolver | Normal",
+    solver: "AbstractDirectLinearSolver | Normal" = AutoLinearSolver(well_posed=True),
     *,
     options: dict[str, Any] | None = None,
     state: Any = sentinel,
@@ -106,6 +107,8 @@ def slogdet(
 
     - `operator`: a linear operator.
     - `solver`: an [`lineax.AbstractDirectLinearSolver`][] or [`lineax.Normal`][].
+        Defaults to [`lineax.AutoLinearSolver`][]`(well_posed=True)`, matching
+        [`lineax.linear_solve`][].
     - `options`: any extra options to pass to the solver.
     - `state`: if provided, use this pre-computed factorised state instead of
         calling `solver.init`. Allows multiple determinant computations to share
@@ -140,7 +143,7 @@ def slogdet(
 
 def determinant(
     operator: AbstractLinearOperator,
-    solver: "AbstractDirectLinearSolver | Normal",
+    solver: "AbstractDirectLinearSolver | Normal" = AutoLinearSolver(well_posed=True),
     *,
     options: dict[str, Any] | None = None,
     state: Any = sentinel,
@@ -152,6 +155,8 @@ def determinant(
 
     - `operator`: a linear operator.
     - `solver`: an [`lineax.AbstractDirectLinearSolver`][] or [`lineax.Normal`][].
+        Defaults to [`lineax.AutoLinearSolver`][]`(well_posed=True)`, matching
+        [`lineax.linear_solve`][].
     - `options`: any extra options to pass to the solver.
     - `state`: if provided, use this pre-computed factorised state instead of
         calling `solver.init`. Allows multiple determinant computations to share

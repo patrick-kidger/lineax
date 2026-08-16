@@ -94,6 +94,18 @@ def test_slogdet_square(make_operator, solver, tags, getkey):
         assert jnp.allclose(sign, ref_sign, atol=1e-10), f"sign: {sign} vs {ref_sign}"
 
 
+def test_default_solver(getkey):
+    # `determinant`/`slogdet` default to `AutoLinearSolver(well_posed=True)`, matching
+    # `linear_solve`, so a solver need not be passed explicitly.
+    (matrix,) = construct_matrix(getkey, lx.LU(), ())
+    op = lx.MatrixLinearOperator(matrix)
+    assert jnp.allclose(lx.determinant(op), jnp.linalg.det(matrix), atol=1e-10)
+    sign, lad = lx.slogdet(op)
+    ref_sign, ref_lad = jnp.linalg.slogdet(matrix)
+    assert jnp.allclose(sign, ref_sign, atol=1e-10)
+    assert jnp.allclose(lad, ref_lad, atol=1e-10)
+
+
 @pytest.mark.parametrize("make_operator", (make_matrix_operator, make_jac_operator))
 @pytest.mark.parametrize("solver,tags", COMPLEX_DET_CASES)
 def test_determinant_square_complex(make_operator, solver, tags, getkey):
