@@ -61,18 +61,16 @@ out = lx.linear_solve(hessian, gradient_fn(y, args=None), solver)
 minimum = y - out.value
 ```
 
-Lineax can also compute (log-)determinants, reusing the same factorisation a solve
-would use (XLA shares it when both happen inside one `jax.jit`):
+Lineax can also compute (log-)determinants:
 
 ```python
-import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
 matrix = jr.normal(jr.PRNGKey(0), (8, 8))
 operator = lx.MatrixLinearOperator(matrix)
-det = lx.determinant(operator, lx.LU())
-sign, logabsdet = lx.slogdet(operator, lx.LU())
+det = lx.determinant(operator)
+sign, logabsdet = lx.slogdet(operator)
 ```
 
 ## Citation
