@@ -20,6 +20,7 @@ from typing import NoReturn, TypeVar
 
 import equinox as eqx
 import jax
+import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -428,6 +429,33 @@ def has_real_dtype(operator) -> bool:
 
 
 @ft.singledispatch
+def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
+    """Extracts the first column from a linear operator, and returns a vector.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    A rank-1 JAX array. (That is, it has shape `(a,)` for some integer `a`.)
+
+    For most operators this is just `operator.mv(e_0)`, for `e_0` the first basis
+    vector. Some operators (e.g. [`lineax.CirculantLinearOperator`][]) can have more
+    efficient implementations. If you don't know what kind of operator you might have,
+    then this function ensures that you always get the most efficient implementation.
+    """
+    # Unlike the `is_*` functions, this does not raise for unregistered types: the
+    # matvec is a correct answer for any operator.
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
+        basis = unravel(jnp.zeros(flat.size, flat.dtype).at[0].set(1))
+    return jfu.ravel_pytree(operator.mv(basis))[0]
+
+
+@ft.singledispatch
 def is_symmetric(operator: AbstractLinearOperator) -> bool:
     """Returns whether an operator is marked as symmetric.
 
@@ -559,6 +587,24 @@ def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
     Either `True` or `False.`
     """
     _default_not_implemented("is_upper_triangular", operator)
+
+
+@ft.singledispatch
+def is_circulant(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as circulant.
+
+    See [the documentation on linear operator tags](../api/tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
+    _default_not_implemented("is_circulant", operator)
 
 
 @ft.singledispatch

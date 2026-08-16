@@ -22,14 +22,17 @@ from ._determinant import (
 from ._operator import (
     AbstractLinearOperator as AbstractLinearOperator,
     AddLinearOperator as AddLinearOperator,
+    CirculantLinearOperator as CirculantLinearOperator,
     ComposedLinearOperator as ComposedLinearOperator,
     conj as conj,
     diagonal as diagonal,
     DiagonalLinearOperator as DiagonalLinearOperator,
     DivLinearOperator as DivLinearOperator,
+    first_column as first_column,
     FunctionLinearOperator as FunctionLinearOperator,
     has_unit_diagonal as has_unit_diagonal,
     IdentityLinearOperator as IdentityLinearOperator,
+    is_circulant as is_circulant,
     is_diagonal as is_diagonal,
     is_hermitian as is_hermitian,
     is_lower_triangular as is_lower_triangular,
@@ -63,6 +66,7 @@ from ._solver import (
     BiCGStab as BiCGStab,
     CG as CG,
     Cholesky as Cholesky,
+    Circulant as Circulant,
     Diagonal as Diagonal,
     GMRES as GMRES,
     HEVD as HEVD,
@@ -76,6 +80,7 @@ from ._solver import (
     Tridiagonal as Tridiagonal,
 )
 from ._tags import (
+    circulant_tag as circulant_tag,
     diagonal_tag as diagonal_tag,
     hermitian_tag as hermitian_tag,
     invert_tags as invert_tags,

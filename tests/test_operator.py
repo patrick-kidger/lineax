@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools as ft
 from typing import cast
 
 import equinox as eqx
@@ -22,6 +23,7 @@ import lineax as lx
 import pytest
 
 from .helpers import (
+    make_circulant_operator,
     make_identity_operator,
     make_jacrev_operator,
     make_operators,
@@ -43,6 +45,11 @@ def test_ops(make_operator, getkey, dtype):
     elif make_operator is make_tridiagonal_operator:
         matrix = jnp.eye(3, dtype=dtype)
         tags = lx.tridiagonal_tag
+    elif make_operator is make_circulant_operator:
+        column = jr.normal(getkey(), (3,), dtype=dtype)
+        i, j = jnp.ogrid[:3, :3]
+        matrix = column[(i - j) % 3]
+        tags = lx.circulant_tag
     else:
         matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
         tags = ()
@@ -96,6 +103,12 @@ def test_structures_vector(make_operator, getkey):
         matrix = jnp.eye(4)
         tags = lx.tridiagonal_tag
         in_size = out_size = 4
+    elif make_operator is make_circulant_operator:
+        column = jr.normal(getkey(), (4,))
+        i, j = jnp.ogrid[:4, :4]
+        matrix = column[(i - j) % 4]
+        tags = lx.circulant_tag
+        in_size = out_size = 4
     else:
         matrix = jr.normal(getkey(), (3, 5))
         tags = ()
@@ -117,6 +130,8 @@ def _setup(getkey, matrix, tag: object | frozenset[object] = frozenset()):
             lx.diagonal_tag,
             lx.symmetric_tag,
         ):
+            continue
+        if make_operator is make_circulant_operator and tag is not lx.circulant_tag:
             continue
         if make_operator is make_identity_operator and tag not in (
             lx.tridiagonal_tag,
@@ -188,7 +203,7 @@ def test_diagonal(dtype, getkey):
     operators = _setup(getkey, jnp.diag(matrix_diag), lx.diagonal_tag)
     for operator in operators:
         if isinstance(operator, lx.IdentityLinearOperator):
-            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3))
+            assert jnp.allclose(lx.diagonal(operator), jnp.ones(3, dtype))
         else:
             assert jnp.allclose(lx.diagonal(operator), matrix_diag)
 
@@ -208,9 +223,9 @@ def test_tridiagonal(dtype, getkey):
     for operator in operators:
         diag, lower_diag, upper_diag = lx.tridiagonal(operator)
         if isinstance(operator, lx.IdentityLinearOperator):
-            assert jnp.allclose(diag, jnp.ones(5))
-            assert jnp.allclose(lower_diag, jnp.zeros(4))
-            assert jnp.allclose(upper_diag, jnp.zeros(4))
+            assert jnp.allclose(diag, jnp.ones(5, dtype))
+            assert jnp.allclose(lower_diag, jnp.zeros(4, dtype))
+            assert jnp.allclose(upper_diag, jnp.zeros(4, dtype))
         else:
             assert jnp.allclose(diag, matrix_diag)
             assert jnp.allclose(lower_diag, matrix_lower_diag)
@@ -236,6 +251,54 @@ def test_tridiagonal(dtype, getkey):
     assert jnp.allclose(diag, jnp.diagonal(td_matrix, 0))
     assert jnp.allclose(lower_diag, jnp.diagonal(td_matrix, -1))
     assert jnp.allclose(upper_diag, jnp.diagonal(td_matrix, 1))
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_first_column(dtype, getkey):
+    column = jr.normal(getkey(), (5,), dtype=dtype)
+    i, j = jnp.ogrid[:5, :5]
+    circulant_matrix = column[(i - j) % 5]
+    operators = _setup(getkey, circulant_matrix, lx.circulant_tag)
+    for operator in operators:
+        col = lx.first_column(operator)
+        assert jnp.allclose(col, column)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize(
+    "tree_sizes",
+    # (size1, size2), (size2, size3)  ..., (size_nm1, size_n)
+    [
+        ([4, {"a": 2, "b": 2}], [{"a": 2, "b": 2}, 3]),
+        ([{"a": 2, "b": 2}, 4], [4, {"a": 2, "b": 1}]),
+        ([[2, 1], [2, 3]], [[2, 3], 3]),
+        ([4, 5], [5, 2]),
+        (
+            [4, {"a": 2, "b": 2}],
+            [{"a": 2, "b": 2}, {"a": 2, "b": 1}],
+            [{"a": 2, "b": 1}, {"a": 1, "b": 1}],
+        ),
+    ],
+)
+def test_first_column_composite(dtype, tree_sizes, getkey):
+    operators = []
+    for out_size, inp_size in tree_sizes:
+        out_struct = jax.tree_util.tree_map(
+            lambda size: jax.ShapeDtypeStruct((size,), dtype), out_size
+        )
+        pytree = jax.tree_util.tree_map(
+            lambda out: jax.tree_util.tree_map(
+                lambda inp: jr.normal(getkey(), (out, inp), dtype=dtype), inp_size
+            ),
+            out_size,
+        )
+        operators.append(lx.PyTreeLinearOperator(pytree, out_struct))
+
+    composite = ft.reduce(lambda a, b: a @ b, operators)
+    column = lx.first_column(composite)
+    column_matrix = composite.as_matrix()[:, 0]
+    assert jnp.allclose(column, column_matrix)
+    assert column.dtype == dtype
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -326,6 +389,17 @@ def test_is_diagonal_tridiagonal(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_circulant(dtype, getkey):
+    column = jr.normal(getkey(), (1,), dtype=dtype)
+    op1 = lx.CirculantLinearOperator(column)
+    assert lx.is_diagonal(op1)
+
+    column = jnp.zeros(3, dtype=dtype).at[0].set(2.0)
+    op2 = lx.TaggedLinearOperator(lx.CirculantLinearOperator(column), lx.diagonal_tag)
+    assert lx.is_diagonal(op2)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_has_unit_diagonal(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     not_unit_diagonal = _setup(getkey, matrix)
@@ -403,6 +477,33 @@ def test_is_tridiagonal(dtype, getkey):
     assert lx.is_tridiagonal(op1)
     assert lx.is_tridiagonal(op2)
     assert not lx.is_tridiagonal(op3)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_circulant(dtype, getkey):
+    column1 = jr.normal(getkey(), (5,), dtype=dtype)
+    op1 = lx.CirculantLinearOperator(column1)
+    assert lx.is_circulant(op1)
+
+    # C1 + C2 is circulant
+    column2 = jr.normal(getkey(), (5,), dtype=dtype)
+    op2 = lx.CirculantLinearOperator(column2)
+    assert lx.is_circulant(op1 + op2)
+    assert jnp.allclose(lx.first_column(op1 + op2), column1 + column2)
+
+    # C1 @ C2 is Circulant
+    assert lx.is_circulant(op1 @ op2)
+    assert jnp.allclose(
+        lx.first_column(op1 @ op2), (op1.as_matrix() @ op2.as_matrix())[:, 0]
+    )
+
+    # C1 @ Diag is not circulant
+    op3 = lx.DiagonalLinearOperator(column2)
+    assert not lx.is_circulant(op1 @ op3)
+
+    # Untagged
+    op4 = lx.MatrixLinearOperator(op1.as_matrix())
+    assert not lx.is_circulant(op4)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -484,62 +585,107 @@ def test_diagonal_tangent():
     jax.jvp(run, (diag,), (t_diag,))
 
 
-def test_identity_with_different_structures():
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.complex128))
+def test_identity_with_different_structures(dtype):
+    # Same number of elements, laid out differently across the PyTree.
+    structure1 = (
+        jax.ShapeDtypeStruct((), dtype),
+        jax.ShapeDtypeStruct((2, 3), jnp.float16),
+    )
+    structure2 = {"a": jax.ShapeDtypeStruct((7,), dtype)}
+    op1 = lx.IdentityLinearOperator(structure1, structure2)
+    op2 = lx.IdentityLinearOperator(structure2, structure1)
+
+    assert op1.T == op2
+    assert jnp.array_equal(op1.as_matrix(), jnp.eye(7, dtype=dtype))
+    assert op1.in_size() == 7
+    assert op1.out_size() == 7
+    vec1 = (
+        jnp.array(1.0, dtype=dtype),
+        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float16),
+    )
+    vec2 = {"a": jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], dtype=dtype)}
+    assert tree_allclose(op1.mv(vec1), vec2)
+    # Unlike the truncating behaviour this replaced, the round trip is exact.
+    assert tree_allclose(op2.mv(vec2), vec1)
+
+
+def test_identity_must_be_square():
     structure1 = (
         jax.ShapeDtypeStruct((), jnp.float32),
         jax.ShapeDtypeStruct((2, 3), jnp.float16),
     )
     structure2 = {"a": jax.ShapeDtypeStruct((5,), jnp.float32)}
-    # structure3 = (None, jax.ShapeDtypeStruct((2, 3), jnp.float16))
-    op1 = lx.IdentityLinearOperator(structure1, structure2)
-    op2 = lx.IdentityLinearOperator(structure2, structure1)
-    # op3 = lx.IdentityLinearOperator(structure3, structure2)
-
-    assert op1.T == op2
-    # assert op2.transpose((True, False)) == op3
-    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7, dtype=jnp.float32))
-    assert op1.in_size() == 7
-    assert op1.out_size() == 5
-    vec1 = (
-        jnp.array(1.0, dtype=jnp.float32),
-        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float16),
-    )
-    vec2 = {"a": jnp.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.float32)}
-    vec1b = (
-        jnp.array(1.0, dtype=jnp.float32),
-        jnp.array([[2, 3, 4], [5, 0, 0]], dtype=jnp.float16),
-    )
-    assert tree_allclose(op1.mv(vec1), vec2)
-    assert tree_allclose(op2.mv(vec2), vec1b)
+    with pytest.raises(ValueError, match="same number of elements"):
+        lx.IdentityLinearOperator(structure1, structure2)
 
 
-def test_identity_with_different_structures_complex():
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64, jnp.complex128))
+def test_identity_diagonal_dtype(dtype):
+    # These used to fall back to the default floating dtype, which then blew up under
+    # strict dtype promotion when combined with a non-default-dtype operator.
+    operator = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((3,), dtype))
+    assert lx.diagonal(operator).dtype == dtype
+    assert all(x.dtype == dtype for x in lx.tridiagonal(operator))
+    assert operator.as_matrix().dtype == dtype
+
+
+def test_compose_identity_with_different_structures():
     structure1 = (
-        jax.ShapeDtypeStruct((), jnp.complex128),
-        jax.ShapeDtypeStruct((2, 3), jnp.float16),
+        jax.ShapeDtypeStruct((), jnp.float32),
+        jax.ShapeDtypeStruct((2,), jnp.float32),
     )
-    structure2 = {"a": jax.ShapeDtypeStruct((5,), jnp.complex128)}
-    # structure3 = (None, jax.ShapeDtypeStruct((2, 3), jnp.float16))
+    structure2 = {"a": jax.ShapeDtypeStruct((3,), jnp.float32)}
     op1 = lx.IdentityLinearOperator(structure1, structure2)
-    op2 = lx.IdentityLinearOperator(structure2, structure1)
-    # op3 = lx.IdentityLinearOperator(structure3, structure2)
+    diagonal = lx.DiagonalLinearOperator(
+        (
+            jnp.array(2.0, dtype=jnp.float32),
+            jnp.array([3.0, 4.0], dtype=jnp.float32),
+        )
+    )
 
-    assert op1.T == op2
-    # assert op2.transpose((True, False)) == op3
-    assert jnp.array_equal(op1.as_matrix(), jnp.eye(5, 7, dtype=jnp.complex128))
-    assert op1.in_size() == 7
-    assert op1.out_size() == 5
-    vec1 = (
-        jnp.array(1.0, dtype=jnp.complex128),
-        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float16),
+    # Diagonal, but the composition does not land back in `structure1`, so it is not
+    # symmetric and must not be rejected for having mismatched structures.
+    composed = op1 @ diagonal
+    assert lx.is_diagonal(composed)
+    assert not lx.is_symmetric(composed)
+    assert jnp.allclose(
+        composed.as_matrix(), jnp.diag(jnp.array([2.0, 3.0, 4.0], dtype=jnp.float32))
     )
-    vec2 = {"a": jnp.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.complex128)}
-    vec1b = (
-        jnp.array(1.0, dtype=jnp.complex128),
-        jnp.array([[2, 3, 4], [5, 0, 0]], dtype=jnp.float16),
+    vector = {"a": jnp.array([2.0, 6.0, 12.0], dtype=jnp.float32)}
+    solution = lx.linear_solve(composed, vector).value
+    assert tree_allclose(
+        solution,
+        (
+            jnp.array(1.0, dtype=jnp.float32),
+            jnp.array([2.0, 3.0], dtype=jnp.float32),
+        ),
     )
-    assert tree_allclose(op1.mv(vec1), vec2)
-    assert tree_allclose(op2.mv(vec2), vec1b)
+
+    # But composing back to `structure1` is genuinely symmetric, even though neither
+    # operand has matching input and output structures.
+    op2 = lx.IdentityLinearOperator(structure2, structure1)
+    round_trip = op2 @ op1
+    assert lx.is_symmetric(round_trip)
+    assert jnp.array_equal(round_trip.as_matrix(), jnp.eye(3, dtype=jnp.float32))
+
+
+def test_identity_solve_with_different_structures():
+    structure1 = (
+        jax.ShapeDtypeStruct((), jnp.float32),
+        jax.ShapeDtypeStruct((2, 3), jnp.float32),
+    )
+    structure2 = {"a": jax.ShapeDtypeStruct((7,), jnp.float32)}
+    operator = lx.IdentityLinearOperator(structure1, structure2)
+    vector = {"a": jnp.arange(1.0, 8.0, dtype=jnp.float32)}
+    expected = (
+        jnp.array(1.0, dtype=jnp.float32),
+        jnp.array([[2, 3, 4], [5, 6, 7]], dtype=jnp.float32),
+    )
+    # The solution lives in the operator's in-structure, not its out-structure.
+    solution = lx.linear_solve(operator, vector).value
+    assert tree_allclose(solution, expected)
+    assert tree_allclose(operator.mv(solution), vector)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -585,3 +731,28 @@ def test_jacrev_operator():
         fwd_op.mv(y)
     with pytest.raises(TypeError, match="can't apply forward-mode autodiff"):
         lx.materialise(fwd_op)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_tags_preserved(dtype, getkey):
+    # Palindromic column -> symmetric, and eigenvalues [6.5, 3.5, 2.5, 3.5] > 0,
+    # so the tags below are truthful rather than merely asserted.
+    column = jnp.array([4.0, 1.0, 0.5, 1.0], dtype=dtype)
+
+    # `CirculantLinearOperator` takes no tags of its own, so extra properties are
+    # declared by wrapping. `TaggedLinearOperator` unions its tags with the inner
+    # operator's checks, so circulance survives alongside the declared tag.
+    op = lx.TaggedLinearOperator(
+        lx.CirculantLinearOperator(column), lx.positive_semidefinite_tag
+    )
+    assert lx.is_positive_semidefinite(op.T)
+    assert lx.is_positive_semidefinite(lx.conj(op))
+    assert lx.is_circulant(op.T)
+    assert lx.is_circulant(lx.conj(op))
+    # The wrapper must not cost us the cheap first-column extraction.
+    assert jnp.allclose(lx.first_column(op), column)
+
+    op_sym = lx.TaggedLinearOperator(
+        lx.CirculantLinearOperator(column), lx.symmetric_tag
+    )
+    assert lx.is_symmetric(op_sym.T)

@@ -37,6 +37,7 @@ from .._misc import (
     strip_weak_dtype,
 )
 from .._tags import (
+    circulant_tag,
     diagonal_tag,
     hermitian_tag,
     lower_triangular_tag,
@@ -53,10 +54,12 @@ from .base import (
     as_frozenset,
     conj,
     diagonal,
+    first_column,
     FlatPyTree,
     has_real_dtype,
     has_unit_diagonal,
     inexact_structure,
+    is_circulant,
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
@@ -69,7 +72,11 @@ from .base import (
     materialise,
     tridiagonal,
 )
-from .structured import DiagonalLinearOperator, TridiagonalLinearOperator
+from .structured import (
+    CirculantLinearOperator,
+    DiagonalLinearOperator,
+    TridiagonalLinearOperator,
+)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
@@ -524,7 +531,9 @@ def try_structured_materialise(
 ) -> AbstractLinearOperator:
     """Try to materialise to a structured operator.
 
-    Returns a (Tri)DiagonalLinearOperator if the operator is tagged as (tri)diagonal,
+    Returns a structured operator
+    (`DiagonalLinearOperator`/`TridiagonalLinearOperator`/`CirculantLinearOperator`)
+    if the operator is known to have the required structure (e.g through tags),
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
     """
@@ -540,6 +549,12 @@ def try_structured_materialise(
         and isinstance(operator.out_structure(), jax.ShapeDtypeStruct)
     ):
         return TridiagonalLinearOperator(*tridiagonal(operator))
+    if (
+        is_circulant(operator)
+        and isinstance(operator.in_structure(), jax.ShapeDtypeStruct)
+        and isinstance(operator.out_structure(), jax.ShapeDtypeStruct)
+    ):
+        return CirculantLinearOperator(first_column(operator))
     return operator
 
 
@@ -724,6 +739,15 @@ def _(operator):
     return main_diagonal, lower_diagonal, upper_diagonal
 
 
+# first_column
+
+
+@first_column.register(MatrixLinearOperator)
+@first_column.register(PyTreeLinearOperator)
+def _(operator):
+    return operator.as_matrix()[:, 0]
+
+
 # checks
 
 
@@ -786,6 +810,7 @@ for check, tag in (
     (is_upper_triangular, upper_triangular_tag),
     (is_positive_semidefinite, positive_semidefinite_tag),
     (is_negative_semidefinite, negative_semidefinite_tag),
+    (is_circulant, circulant_tag),
 ):
 
     @check.register(MatrixLinearOperator)

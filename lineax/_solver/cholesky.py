@@ -39,6 +39,8 @@ class Cholesky(AbstractDirectLinearSolver[_CholeskyState]):
     Equivalent to `scipy.linalg.solve(..., assume_a="pos")`.
 
     The operator must be square, nonsingular, and either positive or negative definite.
+    For Hermitian operators that are indefinite or singular (where Cholesky does not
+    apply), use [`lineax.HEVD`][] instead.
     """
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
