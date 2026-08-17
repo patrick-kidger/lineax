@@ -226,6 +226,114 @@ def test_svd_slogdet_lad_rankdeficient(getkey):
 
 
 # ----------------------------------------------------------------------------
+# Tridiagonal slogdet: the division-free minor recurrence
+# ----------------------------------------------------------------------------
+
+
+def test_tridiagonal_slogdet_singular_leading_minor():
+    """An invertible operator whose leading principal minor is singular.
+
+    `d[0] == 0` makes the LU-pivot recurrence divide by zero on the very first
+    step; the minor recurrence is division-free and handles it.
+    """
+    matrix = jnp.array(
+        [[0.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 2.0]], dtype=jnp.float64
+    )
+    op = lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
+    sign, lad = lx.slogdet(op, lx.Tridiagonal())
+    ref_sign, ref_lad = jnp.linalg.slogdet(matrix)
+    assert jnp.allclose(sign, ref_sign, atol=1e-10), f"sign: {sign} vs {ref_sign}"
+    assert jnp.allclose(lad, ref_lad, atol=1e-10), f"lad: {lad} vs {ref_lad}"
+
+
+@pytest.mark.parametrize("n", [1, 2, 3, 16, 17, 33, 256])
+def test_tridiagonal_slogdet_block_boundaries(n, getkey):
+    """Sizes either side of the renormalisation block length, plus n=1."""
+    key = getkey()
+    diagonal = jr.normal(key, (n,), dtype=jnp.float64) + 4.0
+    off = jr.normal(getkey(), (2, max(n - 1, 0)), dtype=jnp.float64) * 0.5
+    matrix = (
+        jnp.diag(diagonal) + jnp.diag(off[0], -1) + jnp.diag(off[1], 1)
+        if n > 1
+        else jnp.diag(diagonal)
+    )
+    op = lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
+    sign, lad = lx.slogdet(op, lx.Tridiagonal())
+    ref_sign, ref_lad = jnp.linalg.slogdet(matrix)
+    assert jnp.allclose(sign, ref_sign, atol=1e-10)
+    assert jnp.allclose(lad, ref_lad, rtol=1e-10)
+
+
+def test_tridiagonal_slogdet_no_overflow():
+    """A large well-conditioned operator: the raw minors would overflow float64.
+
+    det of this operator is ~exp(1400), so an unscaled three-term recurrence
+    returns `inf`. The per-block renormalisation keeps `lad` finite and exact.
+    """
+    n = 1024
+    diagonal = jnp.full((n,), 4.0, dtype=jnp.float64)
+    off = jnp.full((n - 1,), 0.5, dtype=jnp.float64)
+    matrix = jnp.diag(diagonal) + jnp.diag(off, -1) + jnp.diag(off, 1)
+    op = lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
+    _, lad = lx.slogdet(op, lx.Tridiagonal())
+    _, ref_lad = jnp.linalg.slogdet(matrix)
+    assert jnp.isfinite(lad)
+    assert jnp.allclose(lad, ref_lad, rtol=1e-10)
+
+
+@pytest.mark.parametrize("scale", [1e-60, 1e-20, 1e20, 1e60])
+def test_tridiagonal_slogdet_badly_scaled(scale, getkey):
+    """Uniformly scaled operators: the up-front power-of-two prescale handles these.
+
+    Without it the minors leave float range inside a single block, since they grow
+    or decay by roughly one entry-magnitude per step.
+    """
+    n = 128
+    diagonal = (jr.normal(getkey(), (n,), dtype=jnp.float64) + 4.0) * scale
+    off = jr.normal(getkey(), (2, n - 1), dtype=jnp.float64) * 0.5 * scale
+    matrix = jnp.diag(diagonal) + jnp.diag(off[0], -1) + jnp.diag(off[1], 1)
+    op = lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
+    sign, lad = lx.slogdet(op, lx.Tridiagonal())
+    # `jnp.linalg.slogdet` is itself fine here; only `det` would overflow.
+    ref_sign, ref_lad = jnp.linalg.slogdet(matrix)
+    assert jnp.isfinite(lad)
+    assert jnp.allclose(sign, ref_sign, atol=1e-10)
+    assert jnp.allclose(lad, ref_lad, rtol=1e-12)
+
+
+@pytest.mark.parametrize("span", [12.0, 40.0])
+def test_tridiagonal_slogdet_graded(span, getkey):
+    """Entries spanning 10**-span within one operator.
+
+    The renormalisation block length caps this: a block underflows once the minors
+    decay past float range within it, roughly `span * _SLOGDET_BLOCK > 308`. At
+    `_SLOGDET_BLOCK = 4` that is `span ~ 77`, so 40 has comfortable margin -- but
+    raising the block length to 8 would fail this case.
+    """
+    n = 128
+    grade = 10.0 ** (-span * jnp.arange(n, dtype=jnp.float64) / n)
+    diagonal = (jr.normal(getkey(), (n,), dtype=jnp.float64) + 4.0) * grade
+    off = jr.normal(getkey(), (2, n - 1), dtype=jnp.float64) * 0.5 * grade[None, :-1]
+    matrix = jnp.diag(diagonal) + jnp.diag(off[0], -1) + jnp.diag(off[1], 1)
+    op = lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
+    sign, lad = lx.slogdet(op, lx.Tridiagonal())
+    ref_sign, ref_lad = jnp.linalg.slogdet(matrix)
+    assert jnp.allclose(sign, ref_sign, atol=1e-10)
+    assert jnp.allclose(lad, ref_lad, rtol=1e-12)
+
+
+def test_tridiagonal_slogdet_singular():
+    """A singular operator gives `(0, -inf)`, not `nan`."""
+    matrix = jnp.array(
+        [[1.0, 1.0, 0.0], [1.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=jnp.float64
+    )
+    op = lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
+    sign, lad = lx.slogdet(op, lx.Tridiagonal())
+    assert sign == 0
+    assert lad == -jnp.inf
+
+
+# ----------------------------------------------------------------------------
 # QR rectangular: lad, sign=±1, sign vs explicit full-QR
 # ----------------------------------------------------------------------------
 
