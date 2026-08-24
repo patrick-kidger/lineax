@@ -69,6 +69,12 @@ def _construct_matrix_impl(
             matrix = matrix @ matrix.T.conj()
         if has_tag(tags, lx.negative_semidefinite_tag):
             matrix = -matrix @ matrix.T.conj()
+        if has_tag(tags, lx.semidefinite_tag):
+            # Semidefinite with a sign that isn't known statically: pick a random
+            # sign each draw, so tests exercise both branches of the runtime sign
+            # detection that `lx.Cholesky` performs for this tag.
+            sign = jnp.where(jr.bernoulli(getkey()), 1, -1).astype(matrix.dtype)
+            matrix = sign * (matrix @ matrix.T.conj())
         if cond_or_singular == "zero" and (
             has_tag(tags, lx.symmetric_tag) or has_tag(tags, lx.hermitian_tag)
         ):
@@ -146,10 +152,12 @@ solvers_tags_pseudoinverse = [
     (lx.GMRES(rtol=tol, atol=tol), (), False),
     (lx.CG(rtol=tol, atol=tol), lx.positive_semidefinite_tag, False),
     (lx.CG(rtol=tol, atol=tol), lx.negative_semidefinite_tag, False),
+    (lx.CG(rtol=tol, atol=tol), lx.semidefinite_tag, False),
     (lx.Normal(lx.CG(rtol=tol, atol=tol)), (), False),
     (lx.LSMR(atol=tol, rtol=tol), (), True),
     (lx.Cholesky(), lx.positive_semidefinite_tag, False),
     (lx.Cholesky(), lx.negative_semidefinite_tag, False),
+    (lx.Cholesky(), lx.semidefinite_tag, False),
     (lx.Normal(lx.Cholesky()), (), False),
     (lx.HEVD(), lx.positive_semidefinite_tag, True),
     (lx.HEVD(), lx.negative_semidefinite_tag, True),

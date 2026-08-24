@@ -14,8 +14,8 @@
 
 from typing import Any, TypeAlias
 
-import equinox.internal as eqxi
 import jax.flatten_util as jfu
+import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
@@ -23,12 +23,13 @@ from .._operator import (
     AbstractLinearOperator,
     is_negative_semidefinite,
     is_positive_semidefinite,
+    is_semidefinite,
 )
 from .._solution import RESULTS
 from .base import AbstractLinearSolver
 
 
-_CholeskyState: TypeAlias = tuple[Array, eqxi.Static]
+_CholeskyState: TypeAlias = tuple[Array, Array]
 
 
 class Cholesky(AbstractLinearSolver[_CholeskyState]):
@@ -44,8 +45,9 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
+        is_psd = is_positive_semidefinite(operator)
         is_nsd = is_negative_semidefinite(operator)
-        if not (is_positive_semidefinite(operator) | is_nsd):
+        if not is_semidefinite(operator):
             raise ValueError(
                 "`Cholesky(..., normal=False)` may only be used for positive "
                 "or negative definite linear operators"
@@ -57,25 +59,30 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
                 "`Cholesky(..., normal=False)` may only be used for linear solves "
                 "with square matrices"
             )
-        if is_nsd:
-            matrix = -matrix
+        if is_psd or is_nsd:
+            is_nsd_flag = is_nsd
+        else:
+            diag = jnp.diagonal(matrix)
+            probe_index = jnp.argmax(jnp.abs(diag))
+            # Hermitian operators have a real-valued diagonal (up to floating point
+            # error), but `diag` may still carry a complex dtype.
+            is_nsd_flag = diag[probe_index].real < 0
+        matrix = jnp.where(is_nsd_flag, -matrix, matrix)
         factor, lower = jsp.linalg.cho_factor(matrix)
         # Fix upper triangular for simplicity.
         assert lower is False
-        return factor, eqxi.Static(is_nsd)
+        return factor, jnp.asarray(is_nsd_flag)
 
     def compute(
         self, state: _CholeskyState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         factor, is_nsd = state
-        is_nsd = is_nsd.value
         del options
         # Cholesky => PSD => symmetric => (in_structure == out_structure) =>
         # we don't need to use packed structures.
         vector, unflatten = jfu.ravel_pytree(vector)
         solution = jsp.linalg.cho_solve((factor, False), vector)
-        if is_nsd:
-            solution = -solution
+        solution = jnp.where(is_nsd, -solution, solution)
         solution = unflatten(solution)
         return solution, RESULTS.successful, {}
 
