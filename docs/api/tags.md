@@ -134,6 +134,14 @@ For example, the default solver for [`lineax.linear_solve`][] uses this to dispa
 
 ---
 
+::: lineax.semidefinite_tag
+
+Marks that an operator is positive or negative **semidefinite**, without committing to which. This is for operators whose sign is not known statically -- for example after multiplying a `positive_semidefinite_tag` operator by a scalar whose sign is only known at runtime.
+
+For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Cholesky`][] as the solver, which resolves the sign from the matrix diagonal. ([`lineax.CG`][] accepts it too, and does not need the sign at all.)
+
+---
+
 ::: lineax.MaxRankTag
     options:
       members: false

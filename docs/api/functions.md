@@ -60,6 +60,10 @@ Note that these do *not* inspect the values of the operator -- instead, they use
 
 ---
 
+::: lineax.is_semidefinite
+
+---
+
 ::: lineax.is_symmetric
 
 ---

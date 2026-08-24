@@ -34,6 +34,7 @@ from .._tags import (
     MaxRankTag,
     negative_semidefinite_tag,
     positive_semidefinite_tag,
+    semidefinite_tag,
     symmetric_tag,
     transpose_tags,
     tridiagonal_tag,
@@ -54,6 +55,7 @@ from .base import (
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
+    is_semidefinite,
     is_symmetric,
     is_tridiagonal,
     is_upper_triangular,
@@ -360,6 +362,7 @@ for check in (
     is_circulant,
     is_positive_semidefinite,
     is_negative_semidefinite,
+    is_semidefinite,
     max_rank,
 ):
 
@@ -405,6 +408,19 @@ def _(operator):
 @is_hermitian.register(DivLinearOperator)
 def _(operator):
     return _scalar_is_real(operator.scalar) and is_hermitian(operator.operator)
+
+
+# Semidefiniteness is preserved by negation and by scaling by any real scalar,
+# including one whose sign is not known statically.
+@is_semidefinite.register(NegLinearOperator)
+def _(operator):
+    return is_semidefinite(operator.operator)
+
+
+@is_semidefinite.register(MulLinearOperator)
+@is_semidefinite.register(DivLinearOperator)
+def _(operator):
+    return _scalar_is_real(operator.scalar) and is_semidefinite(operator.operator)
 
 
 # has_unit_diagonal is NOT preserved by negation
@@ -535,6 +551,21 @@ for check, tag in (
         return (tag in operator.tags) or check(operator.operator)
 
 
+# `is_semidefinite` is special-cased rather than handled by the loop above: PSD/NSD
+# (whether on this wrapper's own tags or the wrapped operator's) imply it too, not
+# just `semidefinite_tag` itself.
+@is_semidefinite.register(TaggedLinearOperator)
+def _(operator):
+    tags = operator.tags
+    if (
+        semidefinite_tag in tags
+        or positive_semidefinite_tag in tags
+        or negative_semidefinite_tag in tags
+    ):
+        return True
+    return is_semidefinite(operator.operator)
+
+
 # `is_hermitian` is special-cased rather than handled by the loop above: a tag other
 # than `hermitian_tag` can still imply Hermitian-ness. PSD/NSD operators are Hermitian
 # (real or complex), and real symmetric/diagonal operators are Hermitian too. This
@@ -548,6 +579,7 @@ def _(operator):
         hermitian_tag in tags
         or positive_semidefinite_tag in tags
         or negative_semidefinite_tag in tags
+        or semidefinite_tag in tags
     ):
         return True
     if symmetric_tag in tags or diagonal_tag in tags:

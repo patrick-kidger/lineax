@@ -467,6 +467,70 @@ def test_is_negative_semidefinite(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_semidefinite(dtype, getkey):
+    matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+    not_semidefinite = _setup(getkey, matrix)
+    for operator in not_semidefinite:
+        assert not lx.is_semidefinite(operator)
+
+    semidefinite = _setup(getkey, matrix.T.conj() @ matrix, lx.semidefinite_tag)
+    _assert_except_diag(lx.is_semidefinite, semidefinite, flip_cond=False)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_semidefinite_implications(dtype, getkey):
+    matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+    psd = matrix @ matrix.conj().T
+
+    # A known sign implies the weaker, sign-agnostic `is_semidefinite`.
+    assert lx.is_semidefinite(
+        lx.MatrixLinearOperator(psd, lx.positive_semidefinite_tag)
+    )
+    assert lx.is_semidefinite(
+        lx.MatrixLinearOperator(-psd, lx.negative_semidefinite_tag)
+    )
+
+    # But not the other way around: the weaker tag doesn't imply a known sign.
+    ambiguous = lx.MatrixLinearOperator(psd, lx.semidefinite_tag)
+    assert lx.is_semidefinite(ambiguous)
+    assert not lx.is_positive_semidefinite(ambiguous)
+    assert not lx.is_negative_semidefinite(ambiguous)
+
+    # Semidefinite (of either sign) implies Hermitian, same as PSD/NSD.
+    assert lx.is_hermitian(ambiguous)
+
+
+def test_semidefinite_tag_propagation(getkey):
+    # Semidefiniteness is preserved through transpose and inversion, negation, and
+    # real (but not complex) scaling -- including scaling by a value whose sign isn't
+    # known statically.
+    assert lx.semidefinite_tag in lx.transpose_tags(frozenset({lx.semidefinite_tag}))
+    assert lx.semidefinite_tag in lx.invert_tags(frozenset({lx.semidefinite_tag}))
+
+    def semidefinite_op():
+        m = jr.normal(getkey(), (3, 3), dtype=jnp.complex128)
+        psd = m @ m.conj().T
+        return lx.MatrixLinearOperator(psd, lx.semidefinite_tag)
+
+    op = semidefinite_op()
+    assert lx.is_semidefinite(-op)  # negation preserves
+    assert lx.is_semidefinite(op * 2.0)  # real scaling preserves
+    assert lx.is_semidefinite(op * -2.0)  # ...regardless of the scalar's sign
+    assert not lx.is_semidefinite(op * (1.0 + 1j))  # complex scaling does not
+
+    @jax.jit
+    def scale_by_traced(operator, scalar):
+        scaled = operator * scalar
+        # The specific sign is genuinely unknown at trace time...
+        assert not lx.is_positive_semidefinite(scaled)
+        assert not lx.is_negative_semidefinite(scaled)
+        # ...but it's still recognised as semidefinite.
+        return lx.is_semidefinite(scaled)
+
+    assert scale_by_traced(op, jnp.asarray(-3.0))
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_tridiagonal(dtype, getkey):
     diag1 = jr.normal(getkey(), (5,), dtype=dtype)
     diag2 = jr.normal(getkey(), (4,), dtype=dtype)

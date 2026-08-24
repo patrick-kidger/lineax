@@ -43,6 +43,7 @@ from .._tags import (
     lower_triangular_tag,
     negative_semidefinite_tag,
     positive_semidefinite_tag,
+    semidefinite_tag,
     symmetric_tag,
     transpose_tags,
     tridiagonal_tag,
@@ -65,6 +66,7 @@ from .base import (
     is_lower_triangular,
     is_negative_semidefinite,
     is_positive_semidefinite,
+    is_semidefinite,
     is_symmetric,
     is_tridiagonal,
     is_upper_triangular,
@@ -759,10 +761,11 @@ def _(operator):
     # Symmetric (A = A^T) if explicitly tagged symmetric or diagonal
     if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
         return True
-    # PSD/NSD/Hermitian imply A = A^T only for real dtypes
+    # semidefinite/Hermitian imply A = A^T only for real dtypes
     if (
         positive_semidefinite_tag in operator.tags
         or negative_semidefinite_tag in operator.tags
+        or semidefinite_tag in operator.tags
         or hermitian_tag in operator.tags
     ):
         return has_real_dtype(operator)
@@ -778,11 +781,24 @@ def _(operator):
         hermitian_tag in operator.tags
         or positive_semidefinite_tag in operator.tags
         or negative_semidefinite_tag in operator.tags
+        or semidefinite_tag in operator.tags
     ):
         return True
     if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
         return has_real_dtype(operator)
     return False
+
+
+@is_semidefinite.register(MatrixLinearOperator)
+@is_semidefinite.register(PyTreeLinearOperator)
+@is_semidefinite.register(JacobianLinearOperator)
+@is_semidefinite.register(FunctionLinearOperator)
+def _(operator):
+    return (
+        semidefinite_tag in operator.tags
+        or positive_semidefinite_tag in operator.tags
+        or negative_semidefinite_tag in operator.tags
+    )
 
 
 @is_diagonal.register(MatrixLinearOperator)
