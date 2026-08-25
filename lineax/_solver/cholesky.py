@@ -106,10 +106,16 @@ class Cholesky(AbstractDirectLinearSolver[_CholeskyState]):
         del options
         factor, is_nsd = state
         n = factor.shape[0]
-        sign_val = -1 if (is_nsd.value and n % 2 == 1) else 1
+        # `is_nsd` is a runtime value -- under `semidefinite_tag`, `init` probes the
+        # diagonal -- so the sign is computed with `where`, not Python control flow.
+        # det(A) = (-1)^n det(-A), so only an odd dimension flips the sign.
+        if n % 2 == 1:
+            sign = jnp.where(is_nsd, -1.0, 1.0)
+        else:
+            sign = jnp.ones(())
         # `sign` is always real (+/-1), but takes the operator's dtype so a complex
         # (Hermitian) operator yields a complex `sign`, matching `numpy.linalg.slogdet`.
-        sign = jnp.array(sign_val, dtype=factor.dtype)
+        sign = sign.astype(factor.dtype)
         lad = 2.0 * jnp.sum(jnp.log(jnp.abs(jnp.diag(factor))))
         return sign, lad
 

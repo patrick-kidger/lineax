@@ -373,14 +373,15 @@ def section_gradient(sizes):
 
 
 def section_jvp_dispatch(sizes):
-    """Structured operators skip the generic one-solve-per-column JVP.
+    """Structured operators skip the one-solve-per-column JVP.
 
-    The right-hand column is not the generic rule itself -- the fast path is chosen by
-    an `isinstance` on the solver, so these operators cannot be made to take it. It is
-    the rule's inner loop, hand-rolled: one solve per column of the dense tangent. It
-    runs forward rather than reverse and reuses an already-built state, so it is a
-    *lower bound* on what the generic rule would cost, and the ratio understates the
-    saving accordingly.
+    The left-hand column is whatever route `lx.slogdet` actually takes: the
+    through-state fast path for `triangular`/`tridiagonal`/`circulant` (chosen by an
+    `isinstance` on the solver), and the structural `trace(A^-1 dA)` rule for
+    `diagonal`. The right-hand column is the unstructured rule's inner loop,
+    hand-rolled: one solve per column of the dense tangent. It runs forward rather
+    than reverse and reuses an already-built state, so it is a *lower bound* on what
+    that rule would cost, and the ratio understates the saving accordingly.
     """
     print("\n=== `lx.slogdet` gradient: structured fast path vs the generic rule ===")
     print("Right-hand column is a lower bound on the generic rule; see the docstring.")

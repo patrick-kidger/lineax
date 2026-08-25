@@ -203,7 +203,10 @@ def test_slogdet_rejects_iterative_solver(getkey):
     """
     matrix = construct_matrix(getkey, lx.LU(), ())[0]
     op = lx.MatrixLinearOperator(matrix)
-    with pytest.raises(TypeError, match="requires a direct solver"):
+    # Under the test suite's jaxtyping/beartype import hook, the annotation itself
+    # rejects the call; in a plain run, the isinstance check in `slogdet` does. Both
+    # raise `TypeError`, with different messages.
+    with pytest.raises(TypeError, match="requires a direct solver|Expected type"):
         lx.slogdet(op, lx.GMRES(rtol=1e-6, atol=1e-6))  # pyright: ignore
 
 
@@ -741,7 +744,7 @@ def _flops(fn, *args):
     the two tests using it are checked empirically rather than trusted: on jax 0.11.0,
     between them they catch every failure we actually expect -- inverting the platform
     dispatch, the fast JVP going quadratic, and dropping any one of the four solvers
-    from `_differentiates_slogdet_directly`. If a JAX upgrade makes them flaky, delete
+    from `_jvp_through_state`. If a JAX upgrade makes them flaky, delete
     them rather than tune the numbers. They guard performance properties, which
     `benchmarks/determinant_speeds.py` also reports.
     """
@@ -852,12 +855,15 @@ def test_slogdet_structured_jvp_is_not_quadratic(kind, use_default_solver, getke
     n log n for `Circulant`), the generic rule by 4.0x to 4.4x. Both figures are the
     same on CPU and GPU, so the threshold is not platform-specific tuning.
 
+    `diagonal` is pinned here too, although it takes the solve-based rule rather than
+    the fast path: `trace(A^-1 dA)` dispatches structurally to one solve and an
+    elementwise product, and this is what holds that at O(n).
+
     A FLOP count can under-report, since work inside an FFI custom call is opaque to
     it -- but not here, and not by luck: what makes the generic rule quadratic in this
     measurement is materialising the dense tangent and carrying n columns through the
     solve, which is ordinary XLA array traffic. Whatever the solve itself costs is on
-    top of a signal that is already unambiguous. Disabling the fast path fails all six
-    cases.
+    top of a signal that is already unambiguous.
 
     Only structures whose operator is O(n) to store are here. For one held as a dense
     matrix the operator itself is quadratic, so a growth rate cannot separate the two
@@ -893,20 +899,19 @@ def test_slogdet_structured_jvp_is_not_quadratic(kind, use_default_solver, getke
 @pytest.mark.parametrize("use_default_solver", [False, True])
 @pytest.mark.parametrize(
     "kind",
-    ["diagonal", "tridiagonal", "tridiagonal_tagged", "triangular", "circulant"],
+    ["tridiagonal", "tridiagonal_tagged", "triangular", "circulant"],
 )
 def test_slogdet_fast_path_beats_the_fallback(kind, use_default_solver, getkey):
     """Differentiating these solvers directly must be cheaper than not.
 
-    This is the property that justifies the list in
-    `_differentiates_slogdet_directly` at all, so assert it against whatever the
-    fallback currently is, rather than against a fixed idea of what the fallback
-    costs. Today that is one solve per column of a dense tangent and the margin is
-    enormous. If the fallback ever gets cheaper -- a structural
-    `trace(A^-1 dA)` for tangent operators, say -- this keeps comparing like for like,
-    and the two outcomes are both useful: it still passes if direct differentiation
-    remains the better route, and it fails if the fallback overtakes it, which is
-    exactly when someone should be reconsidering the list rather than trusting it.
+    This is the property that justifies the list in `_jvp_through_state` at all, so
+    assert it against whatever the fallback currently is, rather than against a fixed
+    idea of what the fallback costs. Today that is the structural
+    `trace(A^-1 dA)` rule. If the fallback ever gets cheaper still, this keeps
+    comparing like for like, and the two outcomes are both useful: it still passes if
+    direct differentiation remains the better route, and it fails if the fallback
+    overtakes it, which is exactly when someone should be reconsidering the list
+    rather than trusting it.
 
     A FLOP count can under-report, since work inside an FFI custom call is opaque to
     it, and a structural trace would reach `A^-1` through one -- `Tridiagonal.compute`
@@ -916,13 +921,12 @@ def test_slogdet_fast_path_beats_the_fallback(kind, use_default_solver, getkey):
     FFI at all. Extracting a diagonal of `A^-1` needs `A^-1`, so that quadratic cost
     is on the fallback's critical path and this comparison can see it.
 
-    One concrete prediction, so that it is not a surprise: `diagonal(invert(A))` needs
-    no materialisation and is linear, so a structural trace for `Diagonal` would cost
-    0.75x what differentiating it directly does (measured at every n from 128 to 1024).
-    This test is then supposed to fail for `diagonal`, and the answer is to drop
-    `Diagonal` from the list rather than to weaken the assertion. `Tridiagonal` goes
-    the other way -- 69x at n = 128, 296x at n = 512, widening -- because the band of
-    its inverse cannot be had without the inverse.
+    This already happened once: `diagonal(invert(A))` needs no materialisation and is
+    linear, so the structural trace costs 0.75x what differentiating `Diagonal.slogdet`
+    directly did (measured at every n from 128 to 1024) -- which is why `Diagonal` is
+    no longer in the list and no longer in this parametrisation. `Tridiagonal` goes
+    the other way -- because the band of its inverse cannot be had without the
+    inverse.
 
     Contrast `test_slogdet_structured_jvp_is_not_quadratic`, which pins the cost of
     the fast path alone and would go quiet if the fallback stopped being quadratic.
@@ -941,12 +945,12 @@ def test_slogdet_fast_path_beats_the_fallback(kind, use_default_solver, getkey):
     # Force the fallback for the same operator and solver. Nothing else can produce
     # it: the choice is made on the solver's type, so there is no operator to pass
     # that would take the slow route while staying comparable.
-    original = _determinant._differentiates_slogdet_directly
+    original = _determinant._jvp_through_state
     try:
-        _determinant._differentiates_slogdet_directly = lambda solver, operator: False
+        _determinant._jvp_through_state = lambda solver, operator: False
         fallback = _flops(jax.grad(lad), op)
     finally:
-        _determinant._differentiates_slogdet_directly = original
+        _determinant._jvp_through_state = original
     assert fast < fallback, (
         f"differentiating {kind} directly costs {fast} FLOPs against {fallback} for "
         "the fallback, so it is no longer worth special-casing"
@@ -1053,10 +1057,12 @@ def test_slogdet_structured_state_is_differentiable(getkey):
        value does not depend on `operator` at all. `jax.jvp`'s primal agrees with the
        undifferentiated call, which is what makes that self-consistent.
     """
-    solver = lx.Diagonal(well_posed=True)
+    solver = lx.Tridiagonal()
+    off = jnp.zeros(2)
     diagonal = jnp.array([2.0, 3.0, 4.0])
-    operator = lx.DiagonalLinearOperator(diagonal)
-    t_operator = lx.DiagonalLinearOperator(jnp.ones(3))
+    make = lambda d: lx.TridiagonalLinearOperator(d, off, off)
+    operator = make(diagonal)
+    t_operator = make(jnp.ones(3))
     expected = jnp.sum(1.0 / diagonal)
 
     primal, tangent = jax.jvp(
@@ -1073,7 +1079,7 @@ def test_slogdet_structured_state_is_differentiable(getkey):
     assert jnp.allclose(tangent, expected)
 
     foreign_diagonal = jnp.array([10.0, 20.0, 30.0])
-    foreign = solver.init(lx.DiagonalLinearOperator(foreign_diagonal), {})
+    foreign = solver.init(make(foreign_diagonal), {})
 
     def with_foreign(o):
         return lx.slogdet(o, solver, state=foreign)[1]
@@ -1099,20 +1105,28 @@ def test_slogdet_generic_state_stays_nondifferentiable():
     assert jnp.allclose(tangent, 1.5)
 
 
-def test_slogdet_structured_grad_singular_is_nonfinite():
-    """A singular operator gives a non-finite gradient rather than raising.
+def test_slogdet_singular_grad_through_state_vs_solve():
+    """What a singular operator does to the gradient depends on the rule.
 
-    The generic rule solves against the operator and passes `throw=True`, so it
-    raises. The fast path differentiates the solver's own `slogdet`, where
-    `d log|det A|` genuinely does not exist, and a non-finite gradient is the honest
-    answer. Documented beside the `throw=True`; pinned here because it is a change
-    in behaviour rather than a refinement of it.
+    A through-state solver differentiates its own `slogdet`, where `d log|det A|`
+    genuinely does not exist, so a non-finite gradient is the honest answer. The
+    solve-based rule instead surfaces the failed tangent solve loudly: it passes
+    `throw=True`, and the non-finite solution against a singular operator raises.
+    Both pinned here, since each is a deliberate choice documented beside the
+    `throw=True` in `_slogdet_jvp`.
     """
-    operator = lx.DiagonalLinearOperator(jnp.array([1.0, 0.0, 3.0]))
-    grad = jax.grad(lambda o: lx.slogdet(o, lx.Diagonal(well_posed=True))[1])(operator)
-    (leaf,) = jtu.tree_leaves(grad)
-    assert not jnp.isfinite(leaf[1])
-    assert jnp.allclose(leaf[jnp.array([0, 2])], jnp.array([1.0, 1.0 / 3.0]))
+    off = jnp.zeros(2)
+    tri_op = lx.TridiagonalLinearOperator(jnp.array([1.0, 0.0, 3.0]), off, off)
+    grad = jax.grad(lambda o: lx.slogdet(o, lx.Tridiagonal())[1])(tri_op)
+    assert not jnp.all(jnp.isfinite(grad.diagonal))
+
+    diag_op = lx.DiagonalLinearOperator(jnp.array([1.0, 0.0, 3.0]))
+    with pytest.raises(Exception, match="non-finite"):
+        # `block_until_ready`: the runtime error is raised when the value is
+        # materialised, not when the (asynchronously dispatched) call returns.
+        jax.block_until_ready(
+            jax.grad(lambda o: lx.slogdet(o, lx.Diagonal(well_posed=True))[1])(diag_op)
+        )
 
 
 def test_slogdet_circulant_pseudodeterminant_jvp(getkey):
@@ -1138,10 +1152,10 @@ def test_slogdet_circulant_pseudodeterminant_jvp(getkey):
 def test_slogdet_pseudodeterminant_jvp(getkey):
     """A rank-deficient solver computes a pseudodeterminant, a different function.
 
-    The fast path differentiates whatever the solver computes, so it needs no rank
-    guard: `Diagonal(well_posed=False)` masks small entries and its tangent masks the
-    same ones. This pins that, since getting it wrong would silently differentiate the
-    full determinant of a singular operator.
+    The solve-based rule needs no rank guard: `trace(A^+ dA)` solves with
+    `Diagonal(well_posed=False)`, which masks the same (near-)zero entries the
+    pseudodeterminant drops. This pins that, since getting it wrong would silently
+    differentiate the full determinant of a singular operator.
     """
     diag = jnp.array([2.0, 3.0, 0.0, 5.0])
     t_diag = jnp.array([1.0, 1.0, 1.0, 1.0])
@@ -1258,11 +1272,26 @@ def test_slogdet_unit_diagonal_jvp(lower):
     assert jnp.allclose(lad_dot, 0.0)
 
 
+def test_slogdet_pseudodeterminant_grad_masked_entry_is_zero():
+    """Reverse mode: the pseudodeterminant's gradient at a masked entry is zero.
+
+    The pseudodeterminant is locally constant in the entries it drops, so their
+    gradient is an exact zero. The solve-based rule gets this from the masked
+    pseudoinverse solve; differentiating `Diagonal.slogdet`'s masked `log` directly
+    instead produced `nan` here (`0/0` in the `where`'s transpose), which is the
+    regression this pins against.
+    """
+    diag = jnp.array([2.0, 3.0, 0.0, 5.0])
+    solver = lx.Diagonal(well_posed=False)
+    grad = jax.grad(lambda d: lx.slogdet(lx.DiagonalLinearOperator(d), solver)[1])(diag)
+    assert jnp.allclose(grad, jnp.array([1 / 2, 1 / 3, 0.0, 1 / 5]))
+
+
 def test_slogdet_pseudodeterminant_complex_sign_jvp():
     """The masked pseudodeterminant's *sign* also has a tangent, for complex operators.
 
-    `jnp.sign` reports a zero tangent, which is right for real inputs and wrong for
-    complex ones, so this path needs `unit_phase` as much as the full-rank one does.
+    The solve-based rule carries the phase in the imaginary part of `trace(A^+ dA)`,
+    and the masked pseudoinverse solve confines the trace to the retained entries.
     """
     diag = jnp.array([2.0 + 1.0j, 3.0 - 2.0j, 0.0 + 0.0j, 5.0 + 4.0j])
     t_diag = jnp.array([1.0 + 1.0j, 1.0 - 1.0j, 1.0 + 0.0j, 1.0 + 2.0j])
