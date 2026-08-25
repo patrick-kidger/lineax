@@ -31,6 +31,7 @@ Run it once per platform; sections that only make sense on one skip themselves:
 import argparse
 import os
 import time
+from collections.abc import Callable
 
 
 os.environ.setdefault("JAX_ENABLE_X64", "1")
@@ -53,6 +54,7 @@ def time_us(fn, args, reps, trials=3):
     best = float("inf")
     for _ in range(trials):
         start = time.perf_counter()
+        out = None
         for _ in range(reps):
             out = jitted(*args)
         jax.block_until_ready(out)
@@ -105,6 +107,8 @@ def tridiagonal_arrays(n, seed=0, dtype=np.float64):
 def structured_operator(kind, n, seed=0):
     """(operator, tangent operator, solver) for each structure with a fast JVP."""
     rng = np.random.default_rng(seed)
+    make: Callable
+    args: Callable
     if kind == "diagonal":
         make = lx.DiagonalLinearOperator
         args = lambda r: (jnp.asarray(3.0 + r.uniform(size=n)),)  # noqa: E731
@@ -119,23 +123,25 @@ def structured_operator(kind, n, seed=0):
         solver = lx.Tridiagonal()
     elif kind == "circulant":
 
-        def args(r):
+        def _circulant_args(r):
             column = r.uniform(size=n)
             column[0] += n
             return (jnp.asarray(column),)
 
         make = lx.CirculantLinearOperator
+        args = _circulant_args
         solver = lx.Circulant(well_posed=True)
     elif kind == "triangular":
 
-        def make(matrix):
-            return lx.MatrixLinearOperator(matrix, lx.lower_triangular_tag)
-
-        def args(r):
+        def _triangular_args(r):
             matrix = np.tril(r.uniform(-1, 1, (n, n)))
             np.fill_diagonal(matrix, 3.0 + r.uniform(size=n))
             return (jnp.asarray(matrix),)
 
+        make = lambda matrix: (  # noqa: E731
+            lx.MatrixLinearOperator(matrix, lx.lower_triangular_tag)
+        )
+        args = _triangular_args
         solver = lx.Triangular()
     else:
         raise ValueError(kind)
@@ -421,7 +427,7 @@ def main():
     on_gpu = jax.default_backend() == "gpu"
     print(
         f"jax {jax.__version__}, backend {jax.default_backend()}, "
-        f"x64={jax.config.jax_enable_x64}"
+        f"x64={jax.config.read('jax_enable_x64')}"
     )
 
     if args.quick:

@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from collections.abc import Callable
+
 import equinox as eqx
 import jax
 import jax.lax as lax
@@ -760,6 +762,8 @@ def _structured_case(kind, n, key, complex_):
     """(operator, tangent_operator, solver) for each structure with a fast JVP."""
     dtype = jnp.complex128 if complex_ else jnp.float64
     keys = jr.split(key, 2)
+    make: Callable
+    args: Callable
     if kind == "diagonal":
         make = lx.DiagonalLinearOperator
         args = lambda k: (jr.normal(k, (n,), dtype=dtype) + 4.0,)  # noqa: E731
@@ -779,10 +783,9 @@ def _structured_case(kind, n, key, complex_):
         )
         solver = lx.Circulant(well_posed=True)
     elif kind == "triangular":
-
-        def make(matrix):
-            return lx.MatrixLinearOperator(matrix, lx.lower_triangular_tag)
-
+        make = lambda matrix: (  # noqa: E731
+            lx.MatrixLinearOperator(matrix, lx.lower_triangular_tag)
+        )
         args = lambda k: (  # noqa: E731
             jnp.tril(jr.normal(k, (n, n), dtype=dtype)) + 4.0 * jnp.eye(n, dtype=dtype),
         )
@@ -790,16 +793,17 @@ def _structured_case(kind, n, key, complex_):
     elif kind == "tridiagonal_tagged":
         # A dense matrix that merely *promises* to be tridiagonal: the fast path has to
         # reach it through `tridiagonal(...)`, including on the tangent operator.
-        def make(matrix):
-            return lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
-
-        def args(k):
+        def _tagged_args(k):
             k0, k1, k2 = jr.split(k, 3)
             d = jr.normal(k0, (n,), dtype=dtype) + 4.0
             lo = jr.normal(k1, (n - 1,), dtype=dtype) * 0.3
             up = jr.normal(k2, (n - 1,), dtype=dtype) * 0.3
             return (jnp.diag(d) + jnp.diag(lo, -1) + jnp.diag(up, 1),)
 
+        make = lambda matrix: (  # noqa: E731
+            lx.MatrixLinearOperator(matrix, lx.tridiagonal_tag)
+        )
+        args = _tagged_args
         solver = lx.Tridiagonal()
     else:
         raise AssertionError(kind)
@@ -1019,9 +1023,11 @@ def test_slogdet_structured_vmap(kind, getkey):
     n = 8
     batch = 3
     ops = []
+    solver = None
     for _ in range(batch):
         op, _, solver = _structured_case(kind, n, getkey(), False)
         ops.append(op)
+    assert solver is not None
     stacked = jtu.tree_map(lambda *xs: jnp.stack(xs), *ops)
 
     def lad(o):
