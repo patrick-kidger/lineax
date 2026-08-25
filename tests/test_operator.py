@@ -424,6 +424,21 @@ def test_tangent_operator_unit_diagonal_is_zero(getkey):
     assert jnp.allclose(lx.diagonal(tangent_op), 0.0)
 
 
+def test_tangent_operator_max_rank(getkey):
+    # A rank bound doubles rather than transfers: writing the family as
+    # `A(t) = U(t) V(t)^T` with rank <= k, the tangent `dU V^T + U dV^T` has rank up
+    # to `2k` -- still capped by the dimension bound.
+    def make(m, r):
+        return lx.MatrixLinearOperator(m, lx.MaxRankTag(r))
+
+    matrix = jr.normal(getkey(), (6, 6))
+    t_matrix = jr.normal(getkey(), (6, 6))
+    tangent_op = TangentLinearOperator(make(matrix, 1), make(t_matrix, 1))
+    assert lx.max_rank(tangent_op) == 2
+    tangent_op = TangentLinearOperator(make(matrix, 4), make(t_matrix, 4))
+    assert lx.max_rank(tangent_op) == 6
+
+
 def test_is_materialised_recurses_through_wrappers(getkey):
     # A flat isinstance check is not enough here: `fn_op + fn_op` is an
     # `AddLinearOperator`, whose `as_matrix` still costs one `mv` per column of each

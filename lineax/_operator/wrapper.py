@@ -384,12 +384,20 @@ for check in (
     is_upper_triangular,
     is_tridiagonal,
     is_circulant,
-    max_rank,
 ):
 
     @check.register(TangentLinearOperator)  # pyright: ignore
     def _(operator, check=check):
         return check(operator.primal)
+
+
+@max_rank.register(TangentLinearOperator)
+def _(operator):
+    # A rank bound doubles rather than transfers: writing the family as
+    # `A(t) = U(t) V(t)^T` with rank <= k, the tangent is `dU V^T + U dV^T`, of rank
+    # up to `2k` -- equivalently, a limit of differences of two rank-<=k matrices.
+    dim_bound = min(operator.out_size(), operator.in_size())
+    return min(dim_bound, 2 * max_rank(operator.primal))
 
 
 for check in (
