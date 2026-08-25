@@ -97,7 +97,16 @@ def strip_weak_dtype(tree: PyTree) -> PyTree:
     )
 
 
+def _strip_weak_dtype_and_sharding(tree: PyTree) -> PyTree:
+    return jtu.tree_map(
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype)
+        if type(x) is jax.ShapeDtypeStruct
+        else x,
+        tree,
+    )
+
+
 def structure_equal(x, y) -> bool:
-    x = strip_weak_dtype(jax.eval_shape(lambda: x))
-    y = strip_weak_dtype(jax.eval_shape(lambda: y))
+    x = _strip_weak_dtype_and_sharding(jax.eval_shape(lambda: x))
+    y = _strip_weak_dtype_and_sharding(jax.eval_shape(lambda: y))
     return eqx.tree_equal(x, y) is True
