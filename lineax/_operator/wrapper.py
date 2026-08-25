@@ -340,22 +340,17 @@ def _(operator):
     return TangentLinearOperator(primal_out, tangent_out)
 
 
-@diagonal.register(TangentLinearOperator)
-def _(operator):
-    # Should be unreachable: TangentLinearOperator is used for a narrow set of
-    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
-    raise NotImplementedError(
-        "Please open a GitHub issue: https://github.com/google/lineax"
-    )
+# As with `TangentLinearOperator.as_matrix`, extraction applies to the *tangent*:
+# differentiating the primal's own registration hands us the tangent's entries at the
+# fast path's cost, whatever that fast path is -- stored entries, probing via
+# `diagonal_via_mv`/`tridiagonal_via_coloring` (probing is linear, so its jvp is the
+# same probe of the tangent), or a constant (whose jvp is structurally zero).
+for extract in (diagonal, tridiagonal, first_column):
 
-
-@tridiagonal.register(TangentLinearOperator)
-def _(operator):
-    # Should be unreachable: TangentLinearOperator is used for a narrow set of
-    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
-    raise NotImplementedError(
-        "Please open a GitHub issue: https://github.com/google/lineax"
-    )
+    @extract.register(TangentLinearOperator)  # pyright: ignore
+    def _(operator, extract=extract):
+        out, t_out = eqx.filter_jvp(extract, (operator.primal,), (operator.tangent,))
+        return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
 
 
 @tridiagonal.register(MulLinearOperator)
@@ -376,24 +371,37 @@ def _(operator):
     return (diag / operator.scalar, lower / operator.scalar, upper / operator.scalar)
 
 
+# Structure that constrains the *family* of operators constrains its tangents too: the
+# tangent of a curve of, say, tridiagonal operators is tridiagonal. Definiteness and a
+# unit diagonal do not transfer: the tangent of a unit-diagonal family has a *zero*
+# diagonal, and the tangent of a positive semidefinite family need not be semidefinite
+# of either sign.
 for check in (
     is_symmetric,
     is_hermitian,
     is_diagonal,
-    has_unit_diagonal,
     is_lower_triangular,
     is_upper_triangular,
     is_tridiagonal,
     is_circulant,
-    is_positive_semidefinite,
-    is_negative_semidefinite,
-    is_semidefinite,
     max_rank,
 ):
 
     @check.register(TangentLinearOperator)  # pyright: ignore
     def _(operator, check=check):
         return check(operator.primal)
+
+
+for check in (
+    has_unit_diagonal,
+    is_positive_semidefinite,
+    is_negative_semidefinite,
+    is_semidefinite,
+):
+
+    @check.register(TangentLinearOperator)  # pyright: ignore
+    def _(operator, check=check):
+        return False
 
 
 # Scaling/negating preserves these structural properties
