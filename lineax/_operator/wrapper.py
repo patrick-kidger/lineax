@@ -53,6 +53,7 @@ from .base import (
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_semidefinite,
@@ -282,6 +283,21 @@ def _(operator):
 @first_column.register(TaggedLinearOperator)
 def _(operator):
     return first_column(operator.operator)
+
+
+@is_materialised.register(TaggedLinearOperator)
+@is_materialised.register(MulLinearOperator)
+@is_materialised.register(NegLinearOperator)
+@is_materialised.register(DivLinearOperator)
+def _(operator):
+    return is_materialised(operator.operator)
+
+
+@is_materialised.register(TangentLinearOperator)
+def _(operator):
+    # `as_matrix` is the jvp of the primal's `as_matrix`, so it costs what the
+    # primal's costs.
+    return is_materialised(operator.primal)
 
 
 for transform in (linearise, materialise, diagonal):

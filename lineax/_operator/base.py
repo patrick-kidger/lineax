@@ -28,6 +28,7 @@ from jaxtyping import (
     Array,
     Inexact,
     PyTree,  # pyright: ignore
+    Scalar,
     Shaped,
 )
 
@@ -357,6 +358,22 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     _default_not_implemented("materialise", operator)
 
 
+@ft.singledispatch
+def is_materialised(operator: AbstractLinearOperator) -> bool:
+    """Returns whether the operator's entries are already stored in memory, so that
+    [`lineax.AbstractLinearOperator.as_matrix`][] is essentially free.
+
+    For an operator defined only through its matrix-vector product (e.g.
+    [`lineax.FunctionLinearOperator`][]), `as_matrix` instead costs one `mv` per
+    column. Fast paths consult this to decide between materialising an operator and
+    probing it.
+
+    This is a conservative performance hint, not a correctness property: operator
+    types without a registered rule report `False`.
+    """
+    return False
+
+
 def in_dtype(operator: AbstractLinearOperator) -> jnp.dtype:
     """The dtype of `operator`'s entries, as promoted across its input structure."""
     leaves = jtu.tree_leaves(operator.in_structure())
@@ -385,6 +402,16 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     function ensures that you always get the most efficient implementation.
     """
     _default_not_implemented("diagonal", operator)
+
+
+def trace(operator: AbstractLinearOperator) -> Scalar:
+    """Computes the trace of a linear operator.
+
+    Shorthand for `jnp.sum(diagonal(operator))`, not a singledispatch function. We
+    don't attempt special handling of constant diagonal operators here and instead
+    defer to XLA to recognise the broadcast followed by a reduction.
+    """
+    return jnp.sum(diagonal(operator))
 
 
 @ft.singledispatch

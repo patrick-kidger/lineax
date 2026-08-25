@@ -49,6 +49,7 @@ from .base import (
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_symmetric,
@@ -296,6 +297,15 @@ for transform in (linearise, materialise):
     @transform.register(CirculantLinearOperator)
     def _(operator):
         return operator
+
+
+@is_materialised.register(IdentityLinearOperator)
+@is_materialised.register(DiagonalLinearOperator)
+@is_materialised.register(TridiagonalLinearOperator)
+@is_materialised.register(CirculantLinearOperator)
+def _(operator):
+    # Building the dense matrix from the stored entries costs no `mv`s.
+    return True
 
 
 @diagonal.register(IdentityLinearOperator)
