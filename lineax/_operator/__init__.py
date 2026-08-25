@@ -24,6 +24,7 @@ from .base import (
     is_lower_triangular as is_lower_triangular,
     is_negative_semidefinite as is_negative_semidefinite,
     is_positive_semidefinite as is_positive_semidefinite,
+    is_semidefinite as is_semidefinite,
     is_symmetric as is_symmetric,
     is_tridiagonal as is_tridiagonal,
     is_upper_triangular as is_upper_triangular,

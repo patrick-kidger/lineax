@@ -37,6 +37,7 @@ lower_triangular_tag = _HasRepr("lower_triangular_tag")
 upper_triangular_tag = _HasRepr("upper_triangular_tag")
 positive_semidefinite_tag = _HasRepr("positive_semidefinite_tag")
 negative_semidefinite_tag = _HasRepr("negative_semidefinite_tag")
+semidefinite_tag = _HasRepr("semidefinite_tag")
 circulant_tag = _HasRepr("circulant_tag")
 
 
@@ -134,6 +135,7 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
         is_lower_triangular,
         is_negative_semidefinite,
         is_positive_semidefinite,
+        is_semidefinite,
         is_symmetric,
         is_tridiagonal,
         is_upper_triangular,
@@ -150,6 +152,7 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
             (is_upper_triangular, upper_triangular_tag),
             (is_positive_semidefinite, positive_semidefinite_tag),
             (is_negative_semidefinite, negative_semidefinite_tag),
+            (is_semidefinite, semidefinite_tag),
             (has_unit_diagonal, unit_diagonal_tag),
             (is_tridiagonal, tridiagonal_tag),
             (is_circulant, circulant_tag),
@@ -174,6 +177,7 @@ for tag in (
     diagonal_tag,
     positive_semidefinite_tag,
     negative_semidefinite_tag,
+    semidefinite_tag,
     tridiagonal_tag,
     circulant_tag,
 ):
@@ -241,6 +245,7 @@ for tag in (
     upper_triangular_tag,
     positive_semidefinite_tag,
     negative_semidefinite_tag,
+    semidefinite_tag,
     circulant_tag,
 ):
 

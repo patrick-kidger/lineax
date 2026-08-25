@@ -299,13 +299,17 @@ def test_hevd_truncates_state_to_max_rank():
 
 # PSD (eigenvalues >= 0) and NSD (<= 0) operators have their near-zero eigenvalues at
 # a contiguous *end* of eigh's ascending order, so truncation is a slice rather than a
-# reorder. Indefinite operators need the reordering gather. Cover all three branches.
+# reorder. `semidefinite_tag` is also a slice, but at an offset chosen at runtime from
+# the sign of the spectrum. Indefinite operators need the reordering gather. Cover all
+# four branches, and both signs of the runtime-resolved one.
 @pytest.mark.parametrize(
     "tag, eigvals",
     (
         (lx.hermitian_tag, [3.0, -2.0, 0.0, 0.0, 0.0]),  # indefinite -> reorder
         (lx.positive_semidefinite_tag, [3.0, 2.0, 0.0, 0.0, 0.0]),  # PSD -> slice tail
         (lx.negative_semidefinite_tag, [-3.0, -2.0, 0.0, 0.0, 0.0]),  # NSD -> head
+        (lx.semidefinite_tag, [3.0, 2.0, 0.0, 0.0, 0.0]),  # +ve -> dynamic slice tail
+        (lx.semidefinite_tag, [-3.0, -2.0, 0.0, 0.0, 0.0]),  # -ve -> dynamic slice head
     ),
 )
 def test_hevd_truncation_branches(tag, eigvals):
@@ -330,6 +334,8 @@ def test_hevd_truncation_branches(tag, eigvals):
         (lx.hermitian_tag, [3.0, -2.0, 1.5, 0.0, 0.0]),
         (lx.positive_semidefinite_tag, [3.0, 2.0, 1.5, 0.0, 0.0]),
         (lx.negative_semidefinite_tag, [-3.0, -2.0, -1.5, 0.0, 0.0]),
+        (lx.semidefinite_tag, [3.0, 2.0, 1.5, 0.0, 0.0]),
+        (lx.semidefinite_tag, [-3.0, -2.0, -1.5, 0.0, 0.0]),
     ),
 )
 def test_hevd_raises_when_max_rank_too_small(tag, eigvals):

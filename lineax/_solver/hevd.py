@@ -25,6 +25,7 @@ from .._operator import (
     is_hermitian,
     is_negative_semidefinite,
     is_positive_semidefinite,
+    is_semidefinite,
     max_rank,
 )
 from .._solution import RESULTS
@@ -69,11 +70,23 @@ class HEVD(AbstractLinearSolver[_HEVDState]):
             if is_positive_semidefinite(operator):
                 # Eigenvalues are >= 0, so in ascending order the `r` largest are a
                 # contiguous trailing slice (cheaper than a reordering gather).
-                w, v, dropped = w[m - r :], v[:, m - r :], w[: m - r]
+                dropped, w = jnp.split(w, [m - r])
+                v = v[:, -r:]
             elif is_negative_semidefinite(operator):
                 # Eigenvalues are <= 0, so the `r` largest in magnitude are a
                 # contiguous leading slice.
-                w, v, dropped = w[:r], v[:, :r], w[r:]
+                w, dropped = jnp.split(w, [r])
+                v = v[:, :r]
+            elif is_semidefinite(operator):
+                # Definite, but the sign isn't known statically.
+                # The largest eigenvalues in absolute value are guaranteed to be at
+                # its two ends so probing the sign is cheap. The split point is traced,
+                # so we need to use `dynamic_slice` instead of `jnp.split`.
+                is_nsd = jnp.abs(w[0]) > jnp.abs(w[-1])
+                keep, drop = jnp.where(is_nsd, 0, m - r), jnp.where(is_nsd, r, 0)
+                dropped = lax.dynamic_slice(w, (drop,), (m - r,))
+                w = lax.dynamic_slice(w, (keep,), (r,))
+                v = lax.dynamic_slice(v, (0, keep), (m, r))
             else:
                 # Indefinite: the small-magnitude eigenvalues sit in the interior of
                 # the spectrum, so no contiguous slice works. Reorder by descending
@@ -81,7 +94,8 @@ class HEVD(AbstractLinearSolver[_HEVDState]):
                 # and take the leading `r`.
                 order = jnp.argsort(jnp.abs(w))[::-1]
                 w, v = w[order], v[:, order]
-                w, v, dropped = w[:r], v[:, :r], w[r:]
+                w, dropped = jnp.split(w, [r])
+                v = v[:, :r]
             # `compute` masks out `|w_i| <= rcond * max|w|`, so dropping these is
             # lossless iff they all sit below that floor. Otherwise the `max_rank`
             # claim is false (truncation would change the solution), so error out.

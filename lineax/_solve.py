@@ -234,7 +234,7 @@ def _gram_partner(
             raise ValueError("`QR` has a gram partner only for tall operators")
         # Tall `A = QR` => `AᴴA = RᴴR`: the QR factor `R` is the upper Cholesky factor.
         r = a[: a.shape[1]]
-        return Cholesky(), (r, eqxi.Static(False))
+        return Cholesky(), (r, jnp.asarray(False))
     packed = pack_structures(gram_operator)
     if isinstance(solver, Circulant):
         (eigenvalues, is_complex), _ = state

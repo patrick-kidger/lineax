@@ -86,12 +86,7 @@ class AbstractLinearOperator(eqx.Module):
     """
 
     def __check_init__(self):
-        if (
-            is_symmetric(self)
-            or is_hermitian(self)
-            or is_positive_semidefinite(self)
-            or is_negative_semidefinite(self)
-        ):
+        if is_symmetric(self) or is_hermitian(self):
             # In particular, we check that dtypes match.
             in_structure = self.in_structure()
             out_structure = self.out_structure()
@@ -492,7 +487,8 @@ def is_hermitian(operator: AbstractLinearOperator) -> bool:
     # `AbstractLinearOperator`s written before it existed): derive it from the other
     # property checks, the same way the built-in operators do minus the
     # `hermitian_tag` check, which needs operator-specific `.tags`.
-    if is_positive_semidefinite(operator) or is_negative_semidefinite(operator):
+    # (`is_semidefinite` subsumes `is_positive_semidefinite`/`is_negative_semidefinite`)
+    if is_semidefinite(operator):
         return True
     if has_real_dtype(operator) and is_symmetric(operator):
         return True
@@ -641,6 +637,28 @@ def is_negative_semidefinite(operator: AbstractLinearOperator) -> bool:
     Either `True` or `False.`
     """
     _default_not_implemented("is_negative_semidefinite", operator)
+
+
+@ft.singledispatch
+def is_semidefinite(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as (positive or negative) semidefinite,
+    without necessarily knowing which sign it is.
+
+    See [`lineax.semidefinite_tag`][] and
+    [the documentation on linear operator tags](../api/tags.md) for more information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
+    # Default for operators that don't register `is_semidefinite` explicitly (e.g.
+    # custom `AbstractLinearOperator`s written before it existed): a known sign
+    # always implies the weaker, sign-agnostic property.
+    return is_positive_semidefinite(operator) or is_negative_semidefinite(operator)
 
 
 @ft.singledispatch

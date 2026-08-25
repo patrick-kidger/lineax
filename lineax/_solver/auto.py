@@ -22,8 +22,7 @@ from .._operator import (
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
-    is_negative_semidefinite,
-    is_positive_semidefinite,
+    is_semidefinite,
     is_tridiagonal,
     is_upper_triangular,
 )
@@ -102,9 +101,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Circulant(well_posed=True)
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
-            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
-                operator
-            ):
+            elif is_semidefinite(operator):
                 solver = Cholesky()
             else:
                 solver = LU()
@@ -133,9 +130,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Circulant()
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
-            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
-                operator
-            ):
+            elif is_semidefinite(operator):
                 solver = Cholesky()
             else:
                 solver = LU()
