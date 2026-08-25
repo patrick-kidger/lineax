@@ -26,13 +26,13 @@ from .._operator import (
     is_semidefinite,
 )
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 
 
 _CholeskyState: TypeAlias = tuple[Array, Array]
 
 
-class Cholesky(AbstractLinearSolver[_CholeskyState]):
+class Cholesky(AbstractDirectLinearSolver[_CholeskyState]):
     """Cholesky solver for linear systems. This is generally the preferred solver for
     positive or negative definite systems.
 
@@ -99,6 +99,19 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         # Matrix is self-adjoint
         factor, is_nsd = state
         return (factor.conj(), is_nsd), options
+
+    def slogdet(
+        self, state: _CholeskyState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        del options
+        factor, is_nsd = state
+        n = factor.shape[0]
+        sign_val = -1 if (is_nsd.value and n % 2 == 1) else 1
+        # `sign` is always real (+/-1), but takes the operator's dtype so a complex
+        # (Hermitian) operator yields a complex `sign`, matching `numpy.linalg.slogdet`.
+        sign = jnp.array(sign_val, dtype=factor.dtype)
+        lad = 2.0 * jnp.sum(jnp.log(jnp.abs(jnp.diag(factor))))
+        return sign, lad
 
     def assume_full_rank(self):
         return True

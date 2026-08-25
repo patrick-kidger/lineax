@@ -29,7 +29,7 @@ from .._operator import (
     max_rank,
 )
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -41,7 +41,7 @@ from .misc import (
 _HEVDState: TypeAlias = tuple[tuple[Array, Array], PackedStructures]
 
 
-class HEVD(AbstractLinearSolver[_HEVDState]):
+class HEVD(AbstractDirectLinearSolver[_HEVDState]):
     """Eigenvalue decomposition solver for Hermitian linear systems.
 
     The operator must be square and Hermitian (self-adjoint), but need not be
@@ -157,6 +157,27 @@ class HEVD(AbstractLinearSolver[_HEVDState]):
         conj_state = (w, v.conj()), packed_structures
         conj_options = {}
         return conj_state, conj_options
+
+    def slogdet(
+        self, state: _HEVDState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        del options
+        (w, v), _ = state
+        m = v.shape[0]
+        rcond = resolve_rcond(self.rcond, m, m, w.dtype)
+        abs_w = jnp.abs(w)
+        if w.size > 0:
+            threshold = jnp.array(rcond, dtype=w.dtype) * jnp.max(abs_w)
+        else:
+            threshold = jnp.array(rcond, dtype=w.dtype)
+        mask = abs_w > threshold
+        safe_w = jnp.where(mask, w, 1.0)
+        # Eigenvalues are real, so `sign` is +/-1; take the eigenvectors' dtype so a
+        # complex (Hermitian) operator yields a complex `sign`, matching
+        # `numpy.linalg.slogdet` (and the complex `sign` returned by the other solvers).
+        sign = jnp.prod(jnp.sign(safe_w)).astype(v.dtype)
+        lad = jnp.sum(jnp.where(mask, jnp.log(abs_w), 0.0))
+        return sign, lad
 
     def assume_full_rank(self):
         return False
