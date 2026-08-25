@@ -21,6 +21,19 @@ import pytest
 from .helpers import construct_poisson_matrix, tree_allclose
 
 
+def test_pmap_linear_solve():
+    ndevices = jax.local_device_count()
+    matrices = jnp.broadcast_to(jnp.eye(2), (ndevices, 2, 2))
+    vectors = jnp.ones((ndevices, 2))
+
+    @jax.pmap
+    def solve(matrix, vector):
+        operator = lx.MatrixLinearOperator(matrix)
+        return lx.linear_solve(operator, vector, lx.QR()).value
+
+    assert tree_allclose(solve(matrices, vectors), vectors)
+
+
 def test_gmres_large_dense(getkey):
     if jax.config.jax_enable_x64:  # pyright: ignore
         tol = 1e-10
