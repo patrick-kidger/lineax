@@ -42,8 +42,9 @@ def _construct_matrix_impl(
             elif cond_or_singular == "trim_col":
                 matrix = matrix[:, 1:]
         if tags != ():
-            assert (
-                isinstance(cond_or_singular, (int, float)) or cond_or_singular == "zero"
+            assert isinstance(cond_or_singular, (int, float)) or cond_or_singular in (
+                "zero",
+                "spectral",
             )
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
@@ -75,15 +76,27 @@ def _construct_matrix_impl(
             # detection that `lx.Cholesky` performs for this tag.
             sign = jnp.where(jr.bernoulli(getkey()), 1, -1).astype(matrix.dtype)
             matrix = sign * (matrix @ matrix.T.conj())
-        if cond_or_singular == "zero" and (
-            has_tag(tags, lx.symmetric_tag) or has_tag(tags, lx.hermitian_tag)
-        ):
-            # The symmetric/Hermitian construction refills the leading row that
-            # `zero` cleared, so re-zero the leading row *and* column of the result.
-            # This makes `e_0` a null vector -- a genuinely rank-deficient, and still
-            # indefinite, Hermitian operator -- mirroring how `zero` yields a
-            # rank-deficient matrix for the PSD/NSD constructions.
-            matrix = matrix.at[0, :].set(0).at[:, 0].set(0)
+        if cond_or_singular == "spectral":
+            # Zero the smallest singular value *after* the tags are applied. The
+            # reconstruction preserves symmetry/Hermitian-ness (the SVD of such a
+            # matrix has `V = U D` for a diagonal sign matrix `D`) and thereby
+            # (semi)definiteness too, and gives a *random* null direction rather than
+            # the fixed `e_0` of `zero` -- see `construct_singular_matrix` for why
+            # that matters. Structural tags would not survive the reconstruction.
+            assert not any(
+                has_tag(tags, t)
+                for t in (
+                    lx.diagonal_tag,
+                    lx.tridiagonal_tag,
+                    lx.circulant_tag,
+                    lx.lower_triangular_tag,
+                    lx.upper_triangular_tag,
+                    lx.unit_diagonal_tag,
+                )
+            )
+            u, s, vh = jnp.linalg.svd(matrix, full_matrices=False)
+            s = s.at[-1].set(0)
+            matrix = (u * s[None, :].astype(matrix.dtype)) @ vh
         if isinstance(cond_or_singular, str):
             break
         else:
@@ -101,45 +114,6 @@ def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
         _construct_matrix_impl(getkey, tags, size, dtype, cond_cutoff, i)
         for i in range(num)
     )
-
-
-def _spectral_singular(getkey, tags, size, dtype):
-    """A random rank-(size-1) matrix satisfying `tags`, with its unit null vectors.
-
-    Zeroing the smallest eigenvalue (Hermitian family) or singular value (untagged) of
-    a random draw replaces the old zeroed-row-and-column construction. The old
-    construction's fixed null vector `e_0` made components of reference solutions
-    *exactly* zero, which `allclose`'s absolute tolerance then compared against
-    `eps/gap`-scale eigenvector noise from `eigh` -- amplified by the square of the
-    retained spectrum's condition number, which nothing bounds. A random null
-    direction leaves no exactly-zero components, so the relative tolerance governs,
-    with orders of magnitude to spare. Ported in spirit from
-    https://github.com/patrick-kidger/lineax/pull/221.
-
-    Returns `(matrix, u, v)` with `u`/`v` the unit left/right null vectors.
-    """
-    matrix = jr.normal(getkey(), (size, size), dtype=dtype)
-    if has_tag(tags, lx.positive_semidefinite_tag):
-        matrix = matrix @ matrix.T.conj()
-    elif has_tag(tags, lx.negative_semidefinite_tag):
-        matrix = -matrix @ matrix.T.conj()
-    elif has_tag(tags, lx.semidefinite_tag):
-        sign = jnp.where(jr.bernoulli(getkey()), 1, -1).astype(matrix.dtype)
-        matrix = sign * (matrix @ matrix.T.conj())
-    elif has_tag(tags, lx.symmetric_tag) or has_tag(tags, lx.hermitian_tag):
-        matrix = matrix + matrix.T.conj()
-    else:
-        assert tags == ()
-        u, s, vh = jnp.linalg.svd(matrix, full_matrices=False)
-        s = s.at[-1].set(0)
-        matrix = (u * s[None, :].astype(matrix.dtype)) @ vh
-        return matrix, u[:, -1], vh[-1, :].conj()
-    w, v = jnp.linalg.eigh(matrix)
-    zeroed = jnp.argmin(jnp.abs(w))
-    w = w.at[zeroed].set(0)
-    matrix = (v * w[None, :].astype(matrix.dtype)) @ v.T.conj()
-    null = v[:, zeroed]
-    return matrix, null, null
 
 
 def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
@@ -161,7 +135,21 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
             _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
             for i in range(num)
         )
-    matrix, u, null = _spectral_singular(getkey, tags, size, dtype)
+    # A random rank-(size-1) matrix: zeroing the smallest singular value of a random
+    # tagged draw replaces the old zeroed-row-and-column construction. The old
+    # construction's fixed null vector `e_0` made components of reference solutions
+    # *exactly* zero, which `allclose`'s absolute tolerance then compared against
+    # `eps/gap`-scale eigenvector noise from `eigh` -- amplified by the square of the
+    # retained spectrum's condition number, which nothing bounds. A random null
+    # direction leaves no exactly-zero components, so the relative tolerance governs,
+    # with orders of magnitude to spare. Ported in spirit from
+    # https://github.com/patrick-kidger/lineax/pull/221.
+    matrix = _construct_matrix_impl(getkey, tags, size, dtype, "spectral", 0)
+    # The unit null vectors, recomputed from the constructed matrix; the projection
+    # below is invariant to their sign/phase, so recomputation is safe.
+    u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
+    u = u_full[:, -1]
+    null = vh[-1, :].conj()
     out = [matrix]
     hermitian_family = tags != ()
     # Any further requested matrices are used as tangent directions, so they must lie
