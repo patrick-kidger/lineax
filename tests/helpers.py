@@ -42,10 +42,7 @@ def _construct_matrix_impl(
             elif cond_or_singular == "trim_col":
                 matrix = matrix[:, 1:]
         if tags != ():
-            # Tagged draws are built with a condition cutoff, with `spectral` (rank
-            # deficiency imposed after tag application), or -- for the diagonal tag
-            # only -- with `zero`, whose zeroed leading row becomes a zeroed leading
-            # diagonal entry once the diagonal is extracted below.
+            # Tagged draws: a condition cutoff, `spectral`, or (diagonal only) `zero`.
             assert (
                 isinstance(cond_or_singular, (int, float))
                 or cond_or_singular == "spectral"
@@ -82,12 +79,8 @@ def _construct_matrix_impl(
             sign = jnp.where(jr.bernoulli(getkey()), 1, -1).astype(matrix.dtype)
             matrix = sign * (matrix @ matrix.T.conj())
         if cond_or_singular == "spectral":
-            # Zero the smallest singular value *after* the tags are applied. The
-            # reconstruction preserves symmetry/Hermitian-ness (the SVD of such a
-            # matrix has `V = U D` for a diagonal sign matrix `D`) and thereby
-            # (semi)definiteness too, and gives a *random* null direction rather than
-            # the fixed `e_0` of `zero` -- see `construct_singular_matrix` for why
-            # that matters. Structural tags would not survive the reconstruction.
+            # Zeroing the smallest singular value preserves symmetry/Hermitian-ness
+            # and (semi)definiteness, but not structural tags.
             assert not any(
                 has_tag(tags, t)
                 for t in (
@@ -134,42 +127,31 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
         ]
     size = 3
     if singular_method != "zero" or has_tag(tags, lx.diagonal_tag):
-        # `trim_row`/`trim_col` are full-rank (merely non-square), and the diagonal
-        # construction masks exactly on both sides, so the old construction stands.
+        # Trims are full-rank (merely non-square) and the diagonal construction masks
+        # exactly on both sides, so those keep the old construction.
         return tuple(
             _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
             for i in range(num)
         )
-    # A random rank-(size-1) matrix: zeroing the smallest singular value of a random
-    # tagged draw replaces the old zeroed-row-and-column construction. The old
-    # construction's fixed null vector `e_0` made components of reference solutions
-    # *exactly* zero, which `allclose`'s absolute tolerance then compared against
-    # `eps/gap`-scale eigenvector noise from `eigh` -- amplified by the square of the
-    # retained spectrum's condition number, which nothing bounds. A random null
-    # direction leaves no exactly-zero components, so the relative tolerance governs,
-    # with orders of magnitude to spare. Ported in spirit from
-    # https://github.com/patrick-kidger/lineax/pull/221.
+    # A random rank-(size-1) matrix, after upstream PR
+    # https://github.com/patrick-kidger/lineax/pull/221: the old zeroed-row-and-column
+    # construction fixed the null vector at `e_0`, making components of reference
+    # solutions *exactly* zero -- which `allclose`'s absolute tolerance then compared
+    # against unboundedly-amplified `eigh` noise (flakily). A random null direction
+    # leaves no exact zeros, so the relative tolerance governs.
     matrix = _construct_matrix_impl(getkey, tags, size, dtype, "spectral", 0)
-    # The unit null vectors, recomputed from the constructed matrix; the projection
-    # below is invariant to their sign/phase, so recomputation is safe.
+    # Unit null vectors; the projection below is invariant to their sign/phase.
     u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
     u = u_full[:, -1]
     null = vh[-1, :].conj()
     out = [matrix]
     hermitian_family = tags != ()
-    # Any further requested matrices are used as tangent directions, so they must lie
-    # in the tangent space of the rank-(size-1) locus at `matrix`: the min-norm
-    # least-squares solution is only differentiable along rank-preserving directions,
-    # and an arbitrary direction generically restores full rank. That tangent space is
-    # `{T : u^H T v = 0}` for unit left/right null vectors `u`, `v` -- a single
-    # component to remove. Unlike the old construction, whose tangents fixed the null
-    # space entirely (`T e_0 = 0`), this covers the whole tangent cone, including
-    # directions that rotate the null space -- which are also the only directions that
-    # exercise the residual and null-space terms of the pseudoinverse derivative.
-    #
-    # For the Hermitian family the direction is symmetrised first: the family must
-    # stay Hermitian for the solve to be defined along the path, and the tags are
-    # static, so e.g. the tangent operator transposes to itself.
+    # Further matrices are tangent directions, and the least-squares solution is only
+    # differentiable along rank-preserving ones, so project onto the rank-(size-1)
+    # locus's tangent space `{T : u^H T v = 0}` -- unlike the old fixed-null-space
+    # tangents, this covers the whole tangent cone, including null-rotating
+    # directions. Hermitian-family directions are symmetrised first: the family must
+    # stay Hermitian along the path (the tags are static).
     for _ in range(num - 1):
         direction = jr.normal(getkey(), (size, size), dtype=dtype)
         if hermitian_family:
