@@ -133,12 +133,10 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
             _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
             for i in range(num)
         )
-    # A random rank-(size-1) matrix, after upstream PR
-    # https://github.com/patrick-kidger/lineax/pull/221: the old zeroed-row-and-column
-    # construction fixed the null vector at `e_0`, making components of reference
-    # solutions *exactly* zero -- which `allclose`'s absolute tolerance then compared
-    # against unboundedly-amplified `eigh` noise (flakily). A random null direction
-    # leaves no exact zeros, so the relative tolerance governs.
+    # Create a rank-deficient matrix by zeroing the lowest singular value.
+    # Then compute a tangent to it along the constant rank locus by projecting onto
+    # the range space.
+    # Primal:
     matrix = _construct_matrix_impl(getkey, tags, size, dtype, "spectral", 0)
     # Unit null vectors; the projection below is invariant to their sign/phase.
     u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
@@ -146,12 +144,8 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
     null = vh[-1, :].conj()
     out = [matrix]
     hermitian_family = tags != ()
-    # Further matrices are tangent directions, and the least-squares solution is only
-    # differentiable along rank-preserving ones, so project onto the rank-(size-1)
-    # locus's tangent space `{T : u^H T v = 0}` -- unlike the old fixed-null-space
-    # tangents, this covers the whole tangent cone, including null-rotating
-    # directions. Hermitian-family directions are symmetrised first: the family must
-    # stay Hermitian along the path (the tags are static).
+    # Project tangent onto range space `{T : u^H T v = 0}`, ensuring preservation
+    # of Hermiticity.
     for _ in range(num - 1):
         direction = jr.normal(getkey(), (size, size), dtype=dtype)
         if hermitian_family:
