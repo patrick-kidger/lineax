@@ -130,6 +130,14 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             else:
                 return True
 
+        def is_converged(r):
+            # Whether `r`, used as a residual in its own right, already satisfies the
+            # `b`-space tolerance.
+            if has_scale:
+                return self.norm(r) <= b_scale  # pyright: ignore
+            else:
+                return tree_dot(r, r) == 0
+
         def cond_fun(carry):
             y, r, alpha, omega, rho, _, _, diff, step = carry
             out = jnp.invert(breakdown_occurred(omega, alpha, rho))
@@ -140,6 +148,12 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
         def body_fun(carry):
             y, r, alpha, omega, rho, p, v, diff, step = carry
 
+            # If `r` is already converged (e.g. `r0` lies in an invariant subspace of
+            # the preconditioned operator), `rho_new` below is ~0, and dividing it by
+            # the equally-~0 `<r0, v_new>` to form `alpha_new` would be an unguarded
+            # `0 / 0`. Guard it as `scipy`/`jax.scipy`'s `bicgstab` do.
+            r_converged = is_converged(r)
+
             rho_new = tree_dot(r0, r)
             beta = (rho_new / rho) * (alpha / omega)
             p_new = (r**ω + beta * (p**ω - omega * v**ω)).ω
@@ -149,13 +163,23 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             x = preconditioner.mv(p_new)
             v_new = operator.mv(x)
 
-            alpha_new = rho_new / tree_dot(r0, v_new)
+            r0_dot_v_new = tree_dot(r0, v_new)
+            alpha_new = rho_new / jnp.where(r_converged, 1, r0_dot_v_new)
             s = (r**ω - alpha_new * v_new**ω).ω
 
             z = preconditioner.mv(s)
             t = operator.mv(z)
 
-            omega_new = tree_dot(s, t) / tree_dot(t, t)
+            # Likewise, if the alpha-step alone already converges (so `t = A(M(s))`
+            # is also ~0), `omega_new = <s, t> / <t, t>` would be an unguarded `0 / 0`,
+            # producing `nan` that poisons `y` and `r` and evades `breakdown_occurred`
+            # (`nan == 0.0` is `False`). We report `omega_new = 1`, not `0`, so as not
+            # to spuriously trigger `breakdown_occurred` -- the next iteration then
+            # harmlessly hits the `r_converged` case above instead.
+            s_converged = is_converged(s)
+            t2 = tree_dot(t, t)
+            omega_new = tree_dot(s, t) / jnp.where(s_converged, 1, t2)
+            omega_new = jnp.where(s_converged, 1, omega_new)
 
             diff = (alpha_new * x**ω + omega_new * z**ω).ω
             y_new = (y**ω + diff**ω).ω
