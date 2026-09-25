@@ -103,6 +103,45 @@ def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
     )
 
 
+def _spectral_singular(getkey, tags, size, dtype):
+    """A random rank-(size-1) matrix satisfying `tags`, with its unit null vectors.
+
+    Zeroing the smallest eigenvalue (Hermitian family) or singular value (untagged) of
+    a random draw replaces the old zeroed-row-and-column construction. The old
+    construction's fixed null vector `e_0` made components of reference solutions
+    *exactly* zero, which `allclose`'s absolute tolerance then compared against
+    `eps/gap`-scale eigenvector noise from `eigh` -- amplified by the square of the
+    retained spectrum's condition number, which nothing bounds. A random null
+    direction leaves no exactly-zero components, so the relative tolerance governs,
+    with orders of magnitude to spare. Ported in spirit from
+    https://github.com/patrick-kidger/lineax/pull/221.
+
+    Returns `(matrix, u, v)` with `u`/`v` the unit left/right null vectors.
+    """
+    matrix = jr.normal(getkey(), (size, size), dtype=dtype)
+    if has_tag(tags, lx.positive_semidefinite_tag):
+        matrix = matrix @ matrix.T.conj()
+    elif has_tag(tags, lx.negative_semidefinite_tag):
+        matrix = -matrix @ matrix.T.conj()
+    elif has_tag(tags, lx.semidefinite_tag):
+        sign = jnp.where(jr.bernoulli(getkey()), 1, -1).astype(matrix.dtype)
+        matrix = sign * (matrix @ matrix.T.conj())
+    elif has_tag(tags, lx.symmetric_tag) or has_tag(tags, lx.hermitian_tag):
+        matrix = matrix + matrix.T.conj()
+    else:
+        assert tags == ()
+        u, s, vh = jnp.linalg.svd(matrix, full_matrices=False)
+        s = s.at[-1].set(0)
+        matrix = (u * s[None, :].astype(matrix.dtype)) @ vh
+        return matrix, u[:, -1], vh[-1, :].conj()
+    w, v = jnp.linalg.eigh(matrix)
+    zeroed = jnp.argmin(jnp.abs(w))
+    w = w.at[zeroed].set(0)
+    matrix = (v * w[None, :].astype(matrix.dtype)) @ v.T.conj()
+    null = v[:, zeroed]
+    return matrix, null, null
+
+
 def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
     if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES, lx.HEVD)):
         # `trim_row`/`trim_col` produce non-square matrices, which are incompatible
@@ -115,10 +154,37 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
             jr.choice(getkey(), np.array([0, 1, 2]))
         ]
     size = 3
-    return tuple(
-        _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
-        for i in range(num)
-    )
+    if singular_method != "zero" or has_tag(tags, lx.diagonal_tag):
+        # `trim_row`/`trim_col` are full-rank (merely non-square), and the diagonal
+        # construction masks exactly on both sides, so the old construction stands.
+        return tuple(
+            _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
+            for i in range(num)
+        )
+    matrix, u, null = _spectral_singular(getkey, tags, size, dtype)
+    out = [matrix]
+    hermitian_family = tags != ()
+    # Any further requested matrices are used as tangent directions, so they must lie
+    # in the tangent space of the rank-(size-1) locus at `matrix`: the min-norm
+    # least-squares solution is only differentiable along rank-preserving directions,
+    # and an arbitrary direction generically restores full rank. That tangent space is
+    # `{T : u^H T v = 0}` for unit left/right null vectors `u`, `v` -- a single
+    # component to remove. Unlike the old construction, whose tangents fixed the null
+    # space entirely (`T e_0 = 0`), this covers the whole tangent cone, including
+    # directions that rotate the null space -- which are also the only directions that
+    # exercise the residual and null-space terms of the pseudoinverse derivative.
+    #
+    # For the Hermitian family the direction is symmetrised first: the family must
+    # stay Hermitian for the solve to be defined along the path, and the tags are
+    # static, so e.g. the tangent operator transposes to itself.
+    for _ in range(num - 1):
+        direction = jr.normal(getkey(), (size, size), dtype=dtype)
+        if hermitian_family:
+            direction = (direction + direction.T.conj()) / 2
+        component = u.conj() @ direction @ null
+        direction = direction - component * jnp.outer(u, null.conj())
+        out.append(direction)
+    return tuple(out)
 
 
 def construct_poisson_matrix(size, dtype=jnp.float64):
