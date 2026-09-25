@@ -97,20 +97,24 @@ def test_circulant_singular_jvp(getkey, dtype):
     auto = lx.AutoLinearSolver(well_posed=False)
     assert tree_allclose(lx.linear_solve(operator, vector, auto).value, x)
 
-    # `well_posed=True` promises nonsingularity, so the zero eigenvalue is not
-    # filtered and the solve is reported as failing rather than silently returning a
-    # pseudoinverse solution. Failure detection is division-based, so this needs an
-    # *exactly* zero eigenvalue: a column summing to zero has an exact zero at the
-    # zero frequency, whereas the `irfft`-built column above only zeroes its mode to
-    # ~machine precision.
-    exact = lx.CirculantLinearOperator(
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_singular_well_posed_raises(getkey, dtype):
+    # `well_posed=True` promises nonsingularity, so a zero eigenvalue is not filtered
+    # and the solve is reported as failing rather than silently returning a
+    # pseudoinverse solution. Failure detection is division-based, so it fires on
+    # *exactly* zero eigenvalues -- which is what the common user-constructed
+    # singular circulants have: any column summing to zero (difference and Laplacian
+    # kernels) cancels exactly in the zero-frequency bin.
+    operator = lx.CirculantLinearOperator(
         jnp.array([1.0, -1.0, 2.0, -2.0, 3.0, -3.0], dtype=dtype)
     )
+    vector = jr.normal(getkey(), (6,), dtype=dtype)
     for solver in (lx.Circulant(well_posed=True), lx.AutoLinearSolver(well_posed=True)):
-        sol = lx.linear_solve(exact, vector, solver, throw=False)
+        sol = lx.linear_solve(operator, vector, solver, throw=False)
         assert sol.result != lx.RESULTS.successful
         with pytest.raises(Exception):
-            lx.linear_solve(exact, vector, solver)
+            lx.linear_solve(operator, vector, solver)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
