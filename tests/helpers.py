@@ -28,8 +28,10 @@ from equinox.internal import ω
 
 
 def _zero_smallest_circulant_mode(column, zero_mask=None):
-    """Zero a circulant's smallest-magnitude eigenvalue (FFT mode), or the modes in
-    `zero_mask`. Real columns stay real via `rfft`/`irfft`."""
+    """Zero a circulant's smallest-magnitude eigenvalue(s) (FFT mode(s)), or the modes
+    in `zero_mask`. Real columns stay real via `rfft`/`irfft`, whose modes other than
+    the zero frequency and Nyquist each stand for a conjugate *pair* of eigenvalues,
+    zeroed together."""
     n = column.shape[0]
     if jnp.iscomplexobj(column):
         eig = jnp.fft.fft(column)
@@ -94,17 +96,14 @@ def _construct_matrix_impl(
         if cond_or_singular == "spectral":
             if has_tag(tags, lx.circulant_tag):
                 # Circulancy is structural in the FFT domain, so zero the smallest
-                # eigenvalue there. (`rfft` keeps a real column real, zeroing a
-                # conjugate pair together where the smallest mode is paired.)
+                # eigenvalue(s) there.
                 column = _zero_smallest_circulant_mode(matrix[:, 0])
                 row, col = jnp.ogrid[:size, :size]
                 matrix = column[(row - col) % size]
             else:
                 # Zeroing the smallest singular value preserves symmetry/
-                # Hermitian-ness, (semi)definiteness, and diagonality (a diagonal
-                # matrix's singular vectors are basis-aligned, so this exactly zeroes
-                # the smallest-magnitude entry) -- but not bandedness or
-                # triangularity.
+                # Hermitian-ness, (semi)definiteness, and diagonality -- but not
+                # bandedness or triangularity.
                 assert not any(
                     has_tag(tags, t)
                     for t in (
@@ -148,7 +147,14 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
         singular_method = ["spectral", "trim_row", "trim_col"][
             jr.choice(getkey(), np.array([0, 1, 2]))
         ]
-    size = 3
+    if has_tag(tags, lx.circulant_tag):
+        # A real size-3 circulant has only two modes -- the zero frequency and one
+        # conjugate pair -- so zeroing the pair would leave rank 1. A larger matrix
+        # keeps rank-deficient draws far from that degenerate corner, as in
+        # `test_circulant_singular_jvp`.
+        size = 6
+    else:
+        size = 3
     if singular_method != "spectral":
         # Trims are full-rank (merely non-square), so plain draws stand.
         return tuple(
@@ -156,7 +162,7 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
             for i in range(num)
         )
     # Create a rank-deficient matrix by zeroing the lowest singular value (or, for
-    # circulants, the lowest FFT mode). Then compute tangents to it along the
+    # circulants, the lowest FFT mode(s)). Then compute tangents to it along the
     # constant rank locus.
     # Primal:
     matrix = _construct_matrix_impl(getkey, tags, size, dtype, "spectral", 0)

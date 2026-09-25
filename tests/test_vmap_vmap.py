@@ -127,11 +127,10 @@ def test_vmap_vmap(
                 in_axes=vmap2_op,
                 out_axes=None if vmap2_op is None else 0,
             )(operator)
-            # `as_matrix` reconstructs the drawn matrix only up to floating-point
-            # noise (a `JacobianLinearOperator` re-sums its coefficients), so check it
-            # here, but feed the reference solve the *raw* matrices: an exactly-zero
-            # eigenvalue lifted to ~eps sits right at `lstsq`'s default rank cutoff,
-            # making the reference's rank decision a coin toss for singular draws.
+            # `as_matrix` only reproduces the drawn matrix up to floating-point
+            # noise, which is enough to tip `lstsq`'s rank decision on a singular
+            # draw. So check the reconstruction here, but solve the reference against
+            # the raw matrices.
             assert tree_allclose(as_matrix_vmapped, matrix, rtol=1e-8, atol=1e-8)
 
             vmap1_axes = (vmap1_op, vmap1_vec)
