@@ -42,9 +42,14 @@ def _construct_matrix_impl(
             elif cond_or_singular == "trim_col":
                 matrix = matrix[:, 1:]
         if tags != ():
-            assert isinstance(cond_or_singular, (int, float)) or cond_or_singular in (
-                "zero",
-                "spectral",
+            # Tagged draws are built with a condition cutoff, with `spectral` (rank
+            # deficiency imposed after tag application), or -- for the diagonal tag
+            # only -- with `zero`, whose zeroed leading row becomes a zeroed leading
+            # diagonal entry once the diagonal is extracted below.
+            assert (
+                isinstance(cond_or_singular, (int, float))
+                or cond_or_singular == "spectral"
+                or (cond_or_singular == "zero" and has_tag(tags, lx.diagonal_tag))
             )
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
