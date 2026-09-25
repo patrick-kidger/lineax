@@ -51,18 +51,15 @@ def _construct_matrix_impl(
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if isinstance(cond_or_singular, str):
-            if cond_or_singular == "zero":
-                matrix = matrix.at[0, :].set(0)
-            elif cond_or_singular == "trim_row":
+            if cond_or_singular == "trim_row":
                 matrix = matrix[1:, :]
             elif cond_or_singular == "trim_col":
                 matrix = matrix[:, 1:]
         if tags != ():
-            # Tagged draws: a condition cutoff, `spectral`, or (diagonal only) `zero`.
+            # Tagged draws are built with a condition cutoff or `spectral`.
             assert (
                 isinstance(cond_or_singular, (int, float))
                 or cond_or_singular == "spectral"
-                or (cond_or_singular == "zero" and has_tag(tags, lx.diagonal_tag))
             )
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
@@ -104,12 +101,13 @@ def _construct_matrix_impl(
                 matrix = column[(row - col) % size]
             else:
                 # Zeroing the smallest singular value preserves symmetry/
-                # Hermitian-ness and (semi)definiteness, but not bandedness or
+                # Hermitian-ness, (semi)definiteness, and diagonality (a diagonal
+                # matrix's singular vectors are basis-aligned, so this exactly zeroes
+                # the smallest-magnitude entry) -- but not bandedness or
                 # triangularity.
                 assert not any(
                     has_tag(tags, t)
                     for t in (
-                        lx.diagonal_tag,
                         lx.tridiagonal_tag,
                         lx.lower_triangular_tag,
                         lx.upper_triangular_tag,
@@ -143,18 +141,16 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
         solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES, lx.HEVD, lx.Circulant)
     ):
         # `trim_row`/`trim_col` produce non-square matrices, which are incompatible
-        # with the (square) structure these solvers require. Use `zero` instead,
-        # which keeps the matrix square and (for PSD/NSD/Hermitian tags) Hermitian.
-        singular_method = "zero"
+        # with the (square) structure these solvers require.
+        singular_method = "spectral"
     else:
         # Use `getkey()` rather than the stdlib `random.choice` for reproducibility
-        singular_method = ["zero", "trim_row", "trim_col"][
+        singular_method = ["spectral", "trim_row", "trim_col"][
             jr.choice(getkey(), np.array([0, 1, 2]))
         ]
     size = 3
-    if singular_method != "zero" or has_tag(tags, lx.diagonal_tag):
-        # Trims are full-rank (merely non-square) and the diagonal construction masks
-        # exactly on both sides, so those keep the old construction.
+    if singular_method != "spectral":
+        # Trims are full-rank (merely non-square), so plain draws stand.
         return tuple(
             _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
             for i in range(num)
@@ -176,6 +172,14 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
                 jr.normal(getkey(), (size,), dtype=dtype), zero_mask
             )
             out.append(t_column[(row - col) % size])
+    elif has_tag(tags, lx.diagonal_tag):
+        # A diagonal family is rank-preserving iff the tangent vanishes on the
+        # primal's zeroed entries; matching the slots keeps the rank exact for all t.
+        d = jnp.diag(matrix)
+        kept = jnp.abs(d) > 1e-8 * jnp.max(jnp.abs(d))
+        for _ in range(num - 1):
+            t_d = jnp.where(kept, jr.normal(getkey(), (size,), dtype=dtype), 0)
+            out.append(jnp.diag(t_d))
     else:
         hermitian_family = tags != ()
         # Unit null vectors; the projection below is invariant to their sign/phase.
