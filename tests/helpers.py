@@ -165,34 +165,32 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
     # Primal:
     matrix = _construct_matrix_impl(getkey, tags, size, dtype, "spectral", 0)
     out = [matrix]
-    circulant = has_tag(tags, lx.circulant_tag)
-    hermitian_family = not circulant and tags != ()
-    if circulant:
+    if has_tag(tags, lx.circulant_tag):
         # A circulant family stays rank-preserving iff the tangent's spectrum
         # vanishes on the primal's zeroed modes.
         eig = (jnp.fft.fft if jnp.iscomplexobj(matrix) else jnp.fft.rfft)(matrix[:, 0])
         zero_mask = jnp.abs(eig) < 1e-8 * jnp.max(jnp.abs(eig))
         row, col = jnp.ogrid[:size, :size]
-    else:
-        # Unit null vectors; the projection below is invariant to their sign/phase.
-        u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
-        u = u_full[:, -1]
-        null = vh[-1, :].conj()
-    for _ in range(num - 1):
-        if circulant:
+        for _ in range(num - 1):
             t_column = _zero_smallest_circulant_mode(
                 jr.normal(getkey(), (size,), dtype=dtype), zero_mask
             )
             out.append(t_column[(row - col) % size])
-            continue
-        # Project tangent onto range space `{T : u^H T v = 0}`, ensuring preservation
-        # of Hermiticity.
-        direction = jr.normal(getkey(), (size, size), dtype=dtype)
-        if hermitian_family:
-            direction = (direction + direction.T.conj()) / 2
-        component = u.conj() @ direction @ null
-        direction = direction - component * jnp.outer(u, null.conj())
-        out.append(direction)
+    else:
+        hermitian_family = tags != ()
+        # Unit null vectors; the projection below is invariant to their sign/phase.
+        u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
+        u = u_full[:, -1]
+        null = vh[-1, :].conj()
+        for _ in range(num - 1):
+            # Project tangent onto range space `{T : u^H T v = 0}`, ensuring
+            # preservation of Hermiticity.
+            direction = jr.normal(getkey(), (size, size), dtype=dtype)
+            if hermitian_family:
+                direction = (direction + direction.T.conj()) / 2
+            component = u.conj() @ direction @ null
+            direction = direction - component * jnp.outer(u, null.conj())
+            out.append(direction)
     return tuple(out)
 
 
