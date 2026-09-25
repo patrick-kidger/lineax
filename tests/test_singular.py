@@ -51,10 +51,10 @@ def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
-# `construct_singular_matrix` has no way to build a singular *circulant* matrix (its
-# `zero` method clears the leading row, which the circulant construction then
-# overwrites), so `Circulant` is excluded from the parametrised singular tests above --
-# including their JVP coverage. Build one directly instead, by zeroing an eigenvalue.
+# `construct_singular_matrix` builds singular circulants by zeroing the smallest FFT
+# mode, so the parametrised singular tests above cover `Circulant` too. This test
+# predates that and is kept for its explicit check of the `_gram_partner` JVP path,
+# with a hand-picked (rather than smallest) zeroed eigenvalue.
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_circulant_singular_jvp(getkey, dtype):
     size = 6
