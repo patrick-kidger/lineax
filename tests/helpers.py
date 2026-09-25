@@ -232,7 +232,7 @@ solvers_tags_pseudoinverse = [
     # zeroed FFT mode to ~1e-15 -- right at the default threshold `eps * n * max|eig|`
     # for an (unsquared) circulant spectrum, so masking becomes a coin toss. 1e-10 is
     # far above that noise and far below any retained mode.
-    (lx.Circulant(rcond=1e-10), lx.circulant_tag, True),
+    (lx.Circulant(well_posed=False, rcond=1e-10), lx.circulant_tag, True),
     (lx.LU(), (), False),
     (lx.QR(), (), False),
     (lx.SVD(), (), True),
