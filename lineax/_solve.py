@@ -253,17 +253,19 @@ def _gram_partner(
         gram_solver = Circulant(well_posed=solver.well_posed, rcond=rcond)
         return gram_solver, ((gram_eigenvalues, is_complex), packed)
     if isinstance(solver, SVD):
-        (u, s, vt), _ = state
+        (u, s, vt), rank_bound, _ = state
         # `(AᴴA)⁺ = V Σ⁻² Vᴴ`.
         eigenvalues, eigenvectors = s**2, vt.conj().T
         rcond = _squared_rcond(solver.rcond, vt.shape[1], u.shape[0], s.dtype)
     else:
-        (w, eigenvectors), _ = state
+        (w, eigenvectors), rank_bound, _ = state
         # `(AᴴA)⁺ = (A²)⁺ = V W⁻² Vᴴ`.
         eigenvalues = w**2
         m = eigenvectors.shape[0]
         rcond = _squared_rcond(solver.rcond, m, m, w.dtype)
-    return HEVD(rcond=rcond), ((eigenvalues, eigenvectors), packed)
+    # Both states hold their retained components as a leading slice ordered by
+    # descending magnitude, which squaring preserves, so the rank bound carries over.
+    return HEVD(rcond=rcond), ((eigenvalues, eigenvectors), rank_bound, packed)
 
 
 @eqxi.filter_primitive_jvp

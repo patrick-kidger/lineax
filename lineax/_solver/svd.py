@@ -15,6 +15,7 @@
 from typing import Any, TypeAlias
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -33,7 +34,18 @@ from .misc import (
 )
 
 
-_SVDState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
+# The static integer is the number of leading singular components that `compute`
+# uses: the operator's declared rank bound. The full decomposition is kept, so that
+# the trailing components (e.g. a null space) remain recoverable.
+_SVDState: TypeAlias = tuple[
+    tuple[Array, Array, Array], eqxi.Static[int], PackedStructures
+]
+
+
+def _retained(state: _SVDState) -> tuple[Array, Array, Array]:
+    (u, s, vt), rank_bound, _ = state
+    r = rank_bound.value
+    return u[:, :r], s[:r], vt[:r, :]
 
 
 class SVD(AbstractDirectLinearSolver[_SVDState]):
@@ -55,8 +67,10 @@ class SVD(AbstractDirectLinearSolver[_SVDState]):
         del options
         u, s, vt = jsp.linalg.svd(operator.as_matrix(), full_matrices=False)
         # If the operator is known to have rank at most `r`, the trailing
-        # singular values are mathematically zero, so statically truncate to the
-        # leading `r` components.
+        # singular values are mathematically zero, so `compute` statically truncates to
+        # the leading `r` components. The state itself is not truncated, as that would
+        # discard the trailing components irrecoverably; if they are never used then
+        # JAX eliminates them as dead code.
         r = max_rank(operator)
         if r < s.shape[0]:
             # `compute` masks out `s_i <= rcond * s[0]`, so dropping the tail is
@@ -78,11 +92,8 @@ class SVD(AbstractDirectLinearSolver[_SVDState]):
                 "intend a low-rank approximation, or set `EQX_ON_ERROR=off` to skip "
                 "this check.",
             )
-            u = u[:, :r]
-            s = s[:r]
-            vt = vt[:r, :]
         packed_structures = pack_structures(operator)
-        return (u, s, vt), packed_structures
+        return (u, s, vt), eqxi.Static(r), packed_structures
 
     def compute(
         self,
@@ -91,7 +102,8 @@ class SVD(AbstractDirectLinearSolver[_SVDState]):
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         del options
-        (u, s, vt), packed_structures = state
+        _, _, packed_structures = state
+        u, s, vt = _retained(state)
         vector = ravel_vector(vector, packed_structures)
         m, _ = u.shape
         _, n = vt.shape
@@ -111,22 +123,22 @@ class SVD(AbstractDirectLinearSolver[_SVDState]):
 
     def transpose(self, state: _SVDState, options: dict[str, Any]):
         del options
-        (u, s, vt), packed_structures = state
+        (u, s, vt), rank_bound, packed_structures = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
-        transpose_state = (vt.T, s, u.T), transposed_packed_structures
+        transpose_state = (vt.T, s, u.T), rank_bound, transposed_packed_structures
         transpose_options = {}
         return transpose_state, transpose_options
 
     def conj(self, state: _SVDState, options: dict[str, Any]):
         del options
-        (u, s, vt), packed_structures = state
-        conj_state = (u.conj(), s, vt.conj()), packed_structures
+        (u, s, vt), rank_bound, packed_structures = state
+        conj_state = (u.conj(), s, vt.conj()), rank_bound, packed_structures
         conj_options = {}
         return conj_state, conj_options
 
     def slogdet(self, state: _SVDState, options: dict[str, Any]) -> tuple[Array, Array]:
         del options
-        (u, s, vt), _ = state
+        u, s, vt = _retained(state)
         m, _ = u.shape
         _, n = vt.shape
         rcond = resolve_rcond(self.rcond, n, m, s.dtype)
