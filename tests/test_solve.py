@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -259,3 +260,33 @@ def test_nonfinite_input():
     vector = (jnp.nan, jnp.inf)
     sol = lx.linear_solve(operator, vector, throw=False)
     assert sol.result == lx.RESULTS.nonfinite_input
+
+
+@pytest.mark.parametrize(
+    "dtype", [jnp.float32, jnp.float64, jnp.complex64, jnp.complex128]
+)
+@pytest.mark.parametrize("pytree", [False, True])
+@pytest.mark.parametrize(
+    "solver",
+    [lx.Diagonal(), lx.Diagonal(well_posed=True), lx.AutoLinearSolver(well_posed=None)],
+)
+@pytest.mark.parametrize("compile", [False, True])
+def test_empty_diagonal_solve(dtype, pytree, solver, compile):
+    """The zero-dimensional system has an empty solution, even with rank checks."""
+    diagonal = jnp.zeros((0,), dtype=dtype)
+    if pytree:
+        diagonal = {"a": diagonal, "b": jnp.zeros((0, 3), dtype=dtype)}
+    operator = lx.DiagonalLinearOperator(diagonal)
+    solve = eqx.filter_jit(lx.linear_solve) if compile else lx.linear_solve
+
+    solution = solve(operator, diagonal, solver)
+
+    assert solution.result == lx.RESULTS.successful
+    assert jax.tree_util.tree_structure(solution.value) == jax.tree_util.tree_structure(
+        diagonal
+    )
+    for value, expected in zip(
+        jax.tree_util.tree_leaves(solution.value), jax.tree_util.tree_leaves(diagonal)
+    ):
+        assert value.shape == expected.shape
+        assert value.dtype == expected.dtype
