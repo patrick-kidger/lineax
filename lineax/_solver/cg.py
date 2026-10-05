@@ -232,6 +232,8 @@ class CG(AbstractLinearSolver[_CGState]):
         transpose_options = {}
         if "preconditioner" in options:
             transpose_options["preconditioner"] = options["preconditioner"].transpose()
+        if "y0" in options:
+            transpose_options["y0"] = options["y0"]
         psd_op, is_nsd = state
         transpose_state = psd_op.transpose(), is_nsd
         return transpose_state, transpose_options
@@ -242,6 +244,8 @@ class CG(AbstractLinearSolver[_CGState]):
         conj_options = {}
         if "preconditioner" in options:
             conj_options["preconditioner"] = conj(options["preconditioner"])
+        if "y0" in options:
+            conj_options["y0"] = jtu.tree_map(jnp.conj, options["y0"])
         psd_op, is_nsd = state
         conj_state = conj(psd_op), is_nsd
         return conj_state, conj_options

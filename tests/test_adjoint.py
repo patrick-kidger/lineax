@@ -128,3 +128,21 @@ def test_preconditioner_adjoint(solver):
     # we also do a sanity check, dx/db should give A^{-1}
     assert tree_allclose(A1, jnp.linalg.inv(A.matrix), atol=tol, rtol=tol)
     assert tree_allclose(A2, jnp.linalg.inv(A.matrix), atol=tol, rtol=tol)
+
+
+def test_cg_backward_uses_initial_guess():
+    # The forward and backward right-hand sides are the same here, so an exact
+    # forward initial guess also makes the adjoint solve exact. With one allowed
+    # iteration, CG cannot solve this two-eigenvalue adjoint from zero.
+    matrix = jnp.diag(jnp.array([2.0, 3.0]))
+    operator = lx.MatrixLinearOperator(matrix, tags=(lx.positive_semidefinite_tag,))
+    y0 = jnp.array([1.0, 1.0])
+    b0 = matrix @ y0
+
+    def objective(b):
+        solution = lx.linear_solve(
+            operator, b, lx.CG(tol, tol, max_steps=1), options={"y0": y0}
+        )
+        return jnp.dot(b0, solution.value)
+
+    assert tree_allclose(jax.grad(objective)(b0), y0, atol=tol, rtol=tol)
