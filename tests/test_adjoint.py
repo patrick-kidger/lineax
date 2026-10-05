@@ -130,19 +130,29 @@ def test_preconditioner_adjoint(solver):
     assert tree_allclose(A2, jnp.linalg.inv(A.matrix), atol=tol, rtol=tol)
 
 
-def test_cg_backward_uses_initial_guess():
-    # The forward and backward right-hand sides are the same here, so an exact
-    # forward initial guess also makes the adjoint solve exact. With one allowed
-    # iteration, CG cannot solve this two-eigenvalue adjoint from zero.
+def test_cg_backward_uses_explicit_initial_guess():
+    # Forward and backward right-hand sides differ, so their exact initial guesses
+    # also differ. With one allowed iteration, CG cannot solve the adjoint from zero.
     matrix = jnp.diag(jnp.array([2.0, 3.0]))
     operator = lx.MatrixLinearOperator(matrix, tags=(lx.positive_semidefinite_tag,))
     y0 = jnp.array([1.0, 1.0])
     b0 = matrix @ y0
+    y0_transpose = jnp.array([1.0, 2.0])
+    cotangent = matrix @ y0_transpose
+    solver = lx.CG(tol, tol, max_steps=1)
+
+    # Supplying only a forward initial guess must not change reverse-mode behavior.
+    state = solver.init(operator, {"y0": y0})
+    _, transpose_options = solver.transpose(state, {"y0": y0})
+    assert "y0" not in transpose_options
 
     def objective(b):
         solution = lx.linear_solve(
-            operator, b, lx.CG(tol, tol, max_steps=1), options={"y0": y0}
+            operator,
+            b,
+            solver,
+            options={"y0": y0, "y0_transpose": y0_transpose},
         )
-        return jnp.dot(b0, solution.value)
+        return jnp.dot(cotangent, solution.value)
 
-    assert tree_allclose(jax.grad(objective)(b0), y0, atol=tol, rtol=tol)
+    assert tree_allclose(jax.grad(objective)(b0), y0_transpose, atol=tol, rtol=tol)

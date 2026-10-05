@@ -64,6 +64,9 @@ class CG(AbstractLinearSolver[_CGState]):
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
         zeros.
 
+    - `y0_transpose`: The initial estimate for the transposed solve used in reverse-mode
+        differentiation. Defaults to all zeros independently of `y0`.
+
     """
 
     rtol: float
@@ -232,8 +235,8 @@ class CG(AbstractLinearSolver[_CGState]):
         transpose_options = {}
         if "preconditioner" in options:
             transpose_options["preconditioner"] = options["preconditioner"].transpose()
-        if "y0" in options:
-            transpose_options["y0"] = options["y0"]
+        if "y0_transpose" in options:
+            transpose_options["y0"] = options["y0_transpose"]
         psd_op, is_nsd = state
         transpose_state = psd_op.transpose(), is_nsd
         return transpose_state, transpose_options
@@ -246,6 +249,10 @@ class CG(AbstractLinearSolver[_CGState]):
             conj_options["preconditioner"] = conj(options["preconditioner"])
         if "y0" in options:
             conj_options["y0"] = jtu.tree_map(jnp.conj, options["y0"])
+        if "y0_transpose" in options:
+            conj_options["y0_transpose"] = jtu.tree_map(
+                jnp.conj, options["y0_transpose"]
+            )
         psd_op, is_nsd = state
         conj_state = conj(psd_op), is_nsd
         return conj_state, conj_options
