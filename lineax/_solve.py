@@ -742,6 +742,10 @@ def linear_solve(
         If `False` then the returned solution object will have a `result` field
         indicating whether any failures occured. (See [`lineax.Solution`][].)
 
+        This option applies only to the original solve. Internal solves performed
+        during forward- or reverse-mode autodifferentiation always use `throw=True`,
+        as their failure status cannot be inspected via the returned `Solution.result`.
+
         Keyword only argument.
 
     **Returns:**
