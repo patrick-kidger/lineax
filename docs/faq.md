@@ -22,6 +22,23 @@ Typically: create a full matrix, with the {lower, upper} part containing your va
 
 This is the most efficient way to store a triangular matrix in JAX's ndarray-based programming model.
 
+## How do I materialise the inverse of a matrix?
+
+For a square, nonsingular matrix, use [`lineax.invert`][] to obtain an inverse operator, then call its [`as_matrix`][lineax.AbstractLinearOperator.as_matrix] method to obtain an array:
+
+```python
+import jax.numpy as jnp
+import lineax as lx
+
+matrix = jnp.array([[2.0, 1.0], [0.0, 3.0]])
+operator = lx.MatrixLinearOperator(matrix)
+inverse_operator = lx.invert(operator)
+inverse_matrix = inverse_operator.as_matrix()
+# inverse_matrix is [[0.5, -1/6], [0.0, 1/3]].
+```
+
+Materialising the inverse solves against the identity matrix. If you only need the solution of `Ax = b`, use [`lineax.linear_solve`][] directly; if you need an operator that applies the inverse, use `inverse_operator.mv(b)` without materialising an array.
+
 ## What about other operations from linear algebra? (Determinants, eigenvalues, etc.)
 
 See [`jax.numpy.linalg`](https://jax.readthedocs.io/en/latest/jax.numpy.html#module-jax.numpy.linalg) and [`jax.scipy.linalg`](https://jax.readthedocs.io/en/latest/jax.scipy.html#module-jax.scipy.linalg).
