@@ -101,7 +101,6 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
         x = options.get("y0", None)
         # damp is not supported at this time.
         #  damp = options.get("damp", 0.0)
-        damp = 0.0
         has_scale = not (
             isinstance(self.atol, (int, float))
             and isinstance(self.rtol, (int, float))
@@ -139,21 +138,29 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
         b = vector
         u = (ω(b) - ω(operator.mv(x))).ω
         normb = self.norm(b)
+        # Keep scalar recurrence state in the real precision of the input norm.
+        zero = jnp.zeros_like(normb)
+        one = jnp.ones_like(normb)
+        damp = zero
         beta = self.norm(u)
 
         def beta_nonzero(beta, u):
-            u = (ω(u) / lax.select(beta == 0.0, 1.0, beta).astype(dtype)).ω
+            u = (
+                ω(u) / lax.select(beta == 0.0, jnp.ones_like(beta), beta).astype(dtype)
+            ).ω
             v = conj(operator).T.mv(u)
             alpha = self.norm(v)
             return u, v, alpha
 
         def beta_zero(beta, u):
             v = jtu.tree_map(jnp.zeros_like, operator.in_structure())
-            alpha = 0.0
+            alpha = jnp.zeros_like(beta)
             return u, v, alpha
 
         u, v, alpha = lax.cond(beta == 0.0, beta_zero, beta_nonzero, beta, u)
-        v = (ω(v) / lax.select(alpha == 0.0, 1.0, alpha).astype(dtype)).ω
+        v = (
+            ω(v) / lax.select(alpha == 0.0, jnp.ones_like(alpha), alpha).astype(dtype)
+        ).ω
 
         h = v
         hbar = jtu.tree_map(jnp.zeros_like, operator.in_structure())
@@ -174,23 +181,23 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             beta=beta,
             zetabar=alpha * beta,
             alphabar=alpha,
-            rho=1.0,
-            rhobar=1.0,
-            cbar=1.0,
-            sbar=0.0,
+            rho=one,
+            rhobar=one,
+            cbar=one,
+            sbar=zero,
             # loop variables for estimation of ||r||.
             betadd=beta,
-            betad=0.0,
-            rhodold=1.0,
-            tautildeold=0.0,
-            thetatilde=0.0,
-            zeta=0.0,
-            delta=0.0,
+            betad=zero,
+            rhodold=one,
+            tautildeold=zero,
+            thetatilde=zero,
+            zeta=zero,
+            delta=zero,
             # variables for estimation of ||A|| and cond(A)
             normA2=alpha**2,
-            maxrbar=0.0,
+            maxrbar=zero,
             minrbar=jnp.finfo(dtype).max,
-            condA=1.0,
+            condA=one,
             # variables for use in stopping rules
             istop=0,
             normr=beta,
@@ -219,11 +226,19 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             st["beta"] = self.norm(st["u"])
 
             def beta_nonzero(alpha, beta, u, v):
-                u = (ω(u) / lax.select(beta == 0.0, 1.0, beta).astype(dtype)).ω
+                u = (
+                    ω(u)
+                    / lax.select(beta == 0.0, jnp.ones_like(beta), beta).astype(dtype)
+                ).ω
                 v = (ω(v) * -beta.astype(dtype)).ω
                 v = (ω(v) + ω(conj(operator).T.mv(u))).ω
                 alpha = self.norm(v)
-                v = (ω(v) / lax.select(alpha == 0.0, 1.0, alpha).astype(dtype)).ω
+                v = (
+                    ω(v)
+                    / lax.select(alpha == 0.0, jnp.ones_like(alpha), alpha).astype(
+                        dtype
+                    )
+                ).ω
                 return alpha, beta, u, v
 
             def beta_zero(alpha, beta, u, v):
@@ -384,23 +399,23 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
         assert not jnp.iscomplexobj(b)
 
         def bzero(a, b):
-            return jnp.sign(a), 0.0, jnp.abs(a)
+            return jnp.sign(a), jnp.zeros_like(a), jnp.abs(a)
 
         def azero(a, b):
-            return 0.0, jnp.sign(b), jnp.abs(b)
+            return jnp.zeros_like(b), jnp.sign(b), jnp.abs(b)
 
         def b_gt_a(a, b):
-            tau = a / lax.select(b == 0.0, 1.0, b)
+            tau = a / lax.select(b == 0.0, jnp.ones_like(b), b)
             s = jnp.sign(b) / jnp.sqrt(1.0 + tau**2)
             c = s * tau
-            r = b / lax.select(s == 0.0, 1.0, s)
+            r = b / lax.select(s == 0.0, jnp.ones_like(s), s)
             return c, s, r
 
         def a_ge_b(a, b):
-            tau = b / lax.select(a == 0.0, 1.0, a)
+            tau = b / lax.select(a == 0.0, jnp.ones_like(a), a)
             c = jnp.sign(a) / jnp.sqrt(1.0 + tau**2)
             s = c * tau
-            r = a / lax.select(c == 0.0, 1.0, c)
+            r = a / lax.select(c == 0.0, jnp.ones_like(c), c)
             return c, s, r
 
         def either_zero(a, b):
