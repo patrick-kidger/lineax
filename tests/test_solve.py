@@ -18,7 +18,13 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from .helpers import construct_poisson_matrix, tree_allclose
+from .helpers import (
+    construct_matrix,
+    construct_poisson_matrix,
+    construct_singular_matrix,
+    solvers_tags_pseudoinverse,
+    tree_allclose,
+)
 
 
 def test_gmres_large_dense(getkey):
@@ -419,9 +425,6 @@ def test_gmres_wide_dynamic_range_rhs():
 
 
 @pytest.mark.parametrize(
-    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
-)
-@pytest.mark.parametrize(
     "operations",
     (
         (),
@@ -433,16 +436,22 @@ def test_gmres_wide_dynamic_range_rhs():
     ),
 )
 @pytest.mark.parametrize("jit", (False, True))
-def test_lu_conjugated_state(dtype, operations, jit):
-    matrix = jnp.array(
-        [[3.0, 1.0, -0.5], [0.5, 4.0, 1.0], [1.0, -1.0, 2.0]], dtype=dtype
-    )
-    if jnp.issubdtype(dtype, jnp.complexfloating):
-        matrix = matrix + 1j * jnp.array(
-            [[0.5, 1.0, 0.0], [-0.5, 0.0, 1.0], [1.0, 0.5, -1.0]], dtype=dtype
-        )
-    operator = lx.MatrixLinearOperator(matrix)
-    solver = lx.LU()
+@pytest.mark.parametrize(
+    "solver,tags,pseudoinverse,singular,dtype",
+    [
+        (solver, tags, pseudo, singular, dtype)
+        for solver, tags, pseudo in solvers_tags_pseudoinverse
+        for singular in ((False, True) if pseudo else (False,))
+        for dtype in (jnp.float64, jnp.complex128)
+    ]
+    + [(lx.LU(), (), False, False, dtype) for dtype in (jnp.float32, jnp.complex64)],
+)
+def test_conjugated_state(
+    getkey, dtype, operations, jit, solver, tags, pseudoinverse, singular
+):
+    make_matrix = construct_singular_matrix if singular else construct_matrix
+    (matrix,) = make_matrix(getkey, solver, tags, dtype=dtype)
+    operator = lx.MatrixLinearOperator(matrix, tags)
     options = {}
     state = solver.init(operator, options)
     for operation in operations:
@@ -452,44 +461,14 @@ def test_lu_conjugated_state(dtype, operations, jit):
         else:
             state, options = solver.transpose(state, options)
             matrix = matrix.T
-    rhs = jnp.array([1.0, 2.0, -1.0], dtype=dtype)
+    rhs = jnp.arange(1, matrix.shape[0] + 1).astype(dtype)
     compute = lambda rhs: solver.compute(state, rhs, options)[0]
     if jit:
         compute = jax.jit(compute)
     actual = compute(rhs)
-    expected = jnp.linalg.solve(matrix, rhs)
-    assert tree_allclose(actual, expected)
-
-
-@pytest.mark.parametrize("dtype", (jnp.complex64, jnp.complex128))
-@pytest.mark.parametrize("tall", (False, True))
-@pytest.mark.parametrize("jit", (False, True))
-def test_normal_lu_complex_gradients(dtype, tall, jit):
-    matrix = jnp.array(
-        [[2.0 + 1j, 1.0 - 0.5j, -0.5 + 1j], [0.5 - 1j, 3.0 + 0.5j, 1.0 + 2j]],
-        dtype=dtype,
+    expected = (
+        (jnp.linalg.pinv(matrix) @ rhs)
+        if pseudoinverse
+        else jnp.linalg.solve(matrix, rhs)
     )
-    if tall:
-        matrix = matrix.T
-    rhs = jnp.arange(1, matrix.shape[0] + 1).astype(dtype)
-
-    def solve(matrix, rhs):
-        return lx.linear_solve(
-            lx.MatrixLinearOperator(matrix), rhs, lx.Normal(lx.LU())
-        ).value
-
-    def reference(matrix, rhs):
-        return jnp.linalg.lstsq(matrix, rhs, rcond=None)[0]
-
-    def loss(fn, matrix, rhs):
-        value = fn(matrix, rhs)
-        return jnp.real(jnp.vdot(value, value))
-
-    actual = jax.value_and_grad(lambda a, b: loss(solve, a, b), argnums=(0, 1))
-    expected = jax.value_and_grad(lambda a, b: loss(reference, a, b), argnums=(0, 1))
-    if jit:
-        actual = jax.jit(actual)
-        expected = jax.jit(expected)
-    assert tree_allclose(
-        actual(matrix, rhs), expected(matrix, rhs), rtol=1e-4, atol=1e-5
-    )
+    assert tree_allclose(actual, expected, rtol=1e-4, atol=1e-5)
