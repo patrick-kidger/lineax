@@ -416,3 +416,80 @@ def test_gmres_wide_dynamic_range_rhs():
     sol = lx.linear_solve(operator, b, lx.GMRES(rtol=1e-12, atol=1e-12), throw=False)
     assert sol.result == lx.RESULTS.successful
     assert tree_allclose(sol.value, jnp.linalg.solve(A, b))
+
+
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
+@pytest.mark.parametrize(
+    "operations",
+    (
+        (),
+        ("conj",),
+        ("transpose",),
+        ("transpose", "conj"),
+        ("conj", "transpose"),
+        ("conj", "conj"),
+    ),
+)
+@pytest.mark.parametrize("jit", (False, True))
+def test_lu_conjugated_state(dtype, operations, jit):
+    matrix = jnp.array(
+        [[3.0, 1.0, -0.5], [0.5, 4.0, 1.0], [1.0, -1.0, 2.0]], dtype=dtype
+    )
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        matrix = matrix + 1j * jnp.array(
+            [[0.5, 1.0, 0.0], [-0.5, 0.0, 1.0], [1.0, 0.5, -1.0]], dtype=dtype
+        )
+    operator = lx.MatrixLinearOperator(matrix)
+    solver = lx.LU()
+    options = {}
+    state = solver.init(operator, options)
+    for operation in operations:
+        if operation == "conj":
+            state, options = solver.conj(state, options)
+            matrix = matrix.conj()
+        else:
+            state, options = solver.transpose(state, options)
+            matrix = matrix.T
+    rhs = jnp.array([1.0, 2.0, -1.0], dtype=dtype)
+    compute = lambda rhs: solver.compute(state, rhs, options)[0]
+    if jit:
+        compute = jax.jit(compute)
+    actual = compute(rhs)
+    expected = jnp.linalg.solve(matrix, rhs)
+    assert tree_allclose(actual, expected)
+
+
+@pytest.mark.parametrize("dtype", (jnp.complex64, jnp.complex128))
+@pytest.mark.parametrize("tall", (False, True))
+@pytest.mark.parametrize("jit", (False, True))
+def test_normal_lu_complex_gradients(dtype, tall, jit):
+    matrix = jnp.array(
+        [[2.0 + 1j, 1.0 - 0.5j, -0.5 + 1j], [0.5 - 1j, 3.0 + 0.5j, 1.0 + 2j]],
+        dtype=dtype,
+    )
+    if tall:
+        matrix = matrix.T
+    rhs = jnp.arange(1, matrix.shape[0] + 1).astype(dtype)
+
+    def solve(matrix, rhs):
+        return lx.linear_solve(
+            lx.MatrixLinearOperator(matrix), rhs, lx.Normal(lx.LU())
+        ).value
+
+    def reference(matrix, rhs):
+        return jnp.linalg.lstsq(matrix, rhs, rcond=None)[0]
+
+    def loss(fn, matrix, rhs):
+        value = fn(matrix, rhs)
+        return jnp.real(jnp.vdot(value, value))
+
+    actual = jax.value_and_grad(lambda a, b: loss(solve, a, b), argnums=(0, 1))
+    expected = jax.value_and_grad(lambda a, b: loss(reference, a, b), argnums=(0, 1))
+    if jit:
+        actual = jax.jit(actual)
+        expected = jax.jit(expected)
+    assert tree_allclose(
+        actual(matrix, rhs), expected(matrix, rhs), rtol=1e-4, atol=1e-5
+    )
