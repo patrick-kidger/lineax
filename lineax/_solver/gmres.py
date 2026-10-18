@@ -260,7 +260,11 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         def main_gmres(y):
             # see the comment at the end of `_arnoldi_gram_schmidt` for a discussion
             # of `initial_breakdown`
-            r_normalised, r_norm, initial_breakdown = self._normalise(r, eps=None)
+            # Arnoldi minimizes the preconditioned residual, while the outer
+            # loop checks convergence using the original system's residual.
+            r_normalised, r_norm, initial_breakdown = self._normalise(
+                preconditioner.mv(r), eps=None
+            )
             basis_init = jtu.tree_map(
                 lambda x: jnp.pad(x[..., None], ((0, 0),) * x.ndim + ((0, restart),)),
                 r_normalised,
@@ -322,7 +326,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
 
         first_pass = eqxi.unvmap_any(first_pass)
         y_new, diff, breakdown = lax.cond(first_pass, first_gmres, main_gmres, y)
-        r_new = preconditioner.mv((vector**ω - operator.mv(y_new) ** ω).ω)
+        r_new = (vector**ω - operator.mv(y_new) ** ω).ω
 
         return y_new, r_new, breakdown, diff
 
@@ -388,13 +392,10 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         # careful and wrap it in a buffer, hence the use of eqxi.while_loop
         # instead of lax.while_loop throughout.
         #
-        # `initial_breakdown` occurs when the previous loop returns a
-        # residual which is small enough to be interpreted as 0 by self._normalise,
-        # but which was passed through the solver anyway. This occurs when
-        # the residual is small but the diff is not, or if the
-        # correct solution was given to GMRES from the start. Both of these tend to
-        # happen at the start of `gmres_compute`.
-        # The latter may happen when using a sequence of iterative methods.
+        # `initial_breakdown` occurs when the preconditioned residual norm
+        # is zero to working precision. The iterate can still reach this step
+        # if the previous update was large or the initial guess already solved
+        # the system.
         # If `initial_breakdown` occurs, then we leave the `coeff_mat` as it was
         # at initialisation. Replacing it with the projection (which will be all 0s)
         # will mean `coeff_mat` is not full-rank, and `QR` can only handle nonsquare
@@ -410,7 +411,9 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
     ) -> tuple[PyTree[Array], Inexact[Array, ""], Bool[ArrayLike, ""]]:
         norm = two_norm(x)
         if eps is None:
-            eps = jnp.finfo(norm.dtype).eps
+            # A small preconditioned residual may still represent a large
+            # original residual. Do not use machine precision as an absolute cutoff.
+            eps = jnp.finfo(norm.dtype).tiny
         else:
             eps = jnp.astype(eps, norm.dtype)
         breakdown = norm < eps  # pyright: ignore
