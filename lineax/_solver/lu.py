@@ -89,7 +89,7 @@ class LU(AbstractLinearSolver[_LUState]):
         conj_state = (
             (lu.conj(), piv),
             packed_structures,
-            eqxi.Static(not transpose.value),
+            transpose,
         )
         conj_options = {}
         return conj_state, conj_options

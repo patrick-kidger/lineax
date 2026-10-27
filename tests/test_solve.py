@@ -18,7 +18,13 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from .helpers import construct_poisson_matrix, tree_allclose
+from .helpers import (
+    construct_matrix,
+    construct_poisson_matrix,
+    construct_singular_matrix,
+    solvers_tags_pseudoinverse,
+    tree_allclose,
+)
 
 
 def test_gmres_large_dense(getkey):
@@ -416,3 +422,53 @@ def test_gmres_wide_dynamic_range_rhs():
     sol = lx.linear_solve(operator, b, lx.GMRES(rtol=1e-12, atol=1e-12), throw=False)
     assert sol.result == lx.RESULTS.successful
     assert tree_allclose(sol.value, jnp.linalg.solve(A, b))
+
+
+@pytest.mark.parametrize(
+    "operations",
+    (
+        (),
+        ("conj",),
+        ("transpose",),
+        ("transpose", "conj"),
+        ("conj", "transpose"),
+        ("conj", "conj"),
+    ),
+)
+@pytest.mark.parametrize("jit", (False, True))
+@pytest.mark.parametrize(
+    "solver,tags,pseudoinverse,singular,dtype",
+    [
+        (solver, tags, pseudo, singular, dtype)
+        for solver, tags, pseudo in solvers_tags_pseudoinverse
+        for singular in ((False, True) if pseudo else (False,))
+        for dtype in (jnp.float64, jnp.complex128)
+    ]
+    + [(lx.LU(), (), False, False, dtype) for dtype in (jnp.float32, jnp.complex64)],
+)
+def test_conjugated_state(
+    getkey, dtype, operations, jit, solver, tags, pseudoinverse, singular
+):
+    make_matrix = construct_singular_matrix if singular else construct_matrix
+    (matrix,) = make_matrix(getkey, solver, tags, dtype=dtype)
+    operator = lx.MatrixLinearOperator(matrix, tags)
+    options = {}
+    state = solver.init(operator, options)
+    for operation in operations:
+        if operation == "conj":
+            state, options = solver.conj(state, options)
+            matrix = matrix.conj()
+        else:
+            state, options = solver.transpose(state, options)
+            matrix = matrix.T
+    rhs = jnp.arange(1, matrix.shape[0] + 1).astype(dtype)
+    compute = lambda rhs: solver.compute(state, rhs, options)[0]
+    if jit:
+        compute = jax.jit(compute)
+    actual = compute(rhs)
+    expected = (
+        (jnp.linalg.pinv(matrix) @ rhs)
+        if pseudoinverse
+        else jnp.linalg.solve(matrix, rhs)
+    )
+    assert tree_allclose(actual, expected, rtol=1e-4, atol=1e-5)
