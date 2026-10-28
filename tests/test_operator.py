@@ -21,7 +21,11 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
-from lineax._operator.base import is_materialised
+from lineax._operator.base import (
+    diagonal_via_mv,
+    is_materialised,
+    tridiagonal_via_coloring,
+)
 
 from .helpers import (
     make_circulant_operator,
@@ -212,6 +216,44 @@ def test_diagonal(dtype, getkey):
             assert jnp.allclose(lx.diagonal(operator), jnp.ones(3, dtype))
         else:
             assert jnp.allclose(lx.diagonal(operator), matrix_diag)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_diagonal_tridiagonal_tagged_wraps_untagged_operator(dtype, getkey):
+    # `TaggedLinearOperator` retroactively asserting is_diagonal/is_tridiagonal on an
+    # opaque (`FunctionLinearOperator`) operator that doesn't know about it itself
+    # should take the coloring-based fast path, not fall through to materialising it.
+    # Using a dense (rather than genuinely diagonal/tridiagonal) matrix here means
+    # `diagonal`/`tridiagonal` would give a different answer had they instead fallen
+    # through to materialising: matching diagonal_via_mv/tridiagonal_via_coloring
+    # directly is what proves it's the fast path that actually ran.
+    size = 4
+    matrix = jr.normal(getkey(), (size, size), dtype=dtype)
+    in_struct = jax.ShapeDtypeStruct((size,), dtype)
+    fn_op = lx.FunctionLinearOperator(lambda x: matrix @ x, in_struct)
+
+    diag_wrapped = lx.TaggedLinearOperator(fn_op, lx.diagonal_tag)
+    assert jnp.allclose(lx.diagonal(diag_wrapped), diagonal_via_mv(diag_wrapped))
+
+    tridiag_wrapped = lx.TaggedLinearOperator(fn_op, lx.tridiagonal_tag)
+    assert tree_allclose(
+        lx.tridiagonal(tridiag_wrapped), tridiagonal_via_coloring(tridiag_wrapped)
+    )
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_has_unit_diagonal_tagged_wrapper_trusts_tag(dtype, getkey):
+    # The has_unit_diagonal fast path must trust `TaggedLinearOperator`'s own tag
+    # rather than the wrapped operator's. Tag a genuinely non-unit-diagonal function
+    # (`2x`, real diagonal `[2, 2, ...]`) as unit-diagonal anyway: getting back all
+    # ones proves the fast path fired (trusting the tag), rather than falling through
+    # to the wrapped operator and materialising its real diagonal.
+    size = 4
+    in_struct = jax.ShapeDtypeStruct((size,), dtype)
+    fn_op = lx.FunctionLinearOperator(lambda x: 2.0 * x, in_struct)
+    wrapped = lx.TaggedLinearOperator(fn_op, lx.unit_diagonal_tag)
+    assert jnp.allclose(lx.diagonal(wrapped), jnp.ones(size, dtype))
+    assert jnp.allclose(lx.trace(wrapped), size)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -785,6 +827,42 @@ def test_identity_diagonal_dtype(dtype):
     assert lx.diagonal(operator).dtype == dtype
     assert all(x.dtype == dtype for x in lx.tridiagonal(operator))
     assert operator.as_matrix().dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64, jnp.complex128))
+def test_unit_diagonal_dtype_matches_untagged(dtype, getkey):
+    # The has_unit_diagonal fast path (`in_dtype`/`in_size`) must agree, dtype
+    # included, with the ordinary is_diagonal/materialise route taken when the
+    # operator isn't tagged -- not just agree on values.
+    size = 4
+    in_struct = jax.ShapeDtypeStruct((size,), dtype)
+    tagged = lx.FunctionLinearOperator(
+        lambda x: x, in_struct, tags=lx.unit_diagonal_tag
+    )
+    untagged = lx.FunctionLinearOperator(lambda x: x, in_struct)
+    fast_path = lx.diagonal(tagged)
+    slow_path = lx.diagonal(untagged)
+    assert fast_path.dtype == slow_path.dtype
+    assert jnp.allclose(fast_path, slow_path)
+
+
+def test_unit_diagonal_mixed_dtype_structure():
+    # The has_unit_diagonal fast path (`in_dtype`/`in_size`) must promote across
+    # leaves the same way `IdentityLinearOperator` does, or this blows up under
+    # strict dtype promotion. Unlike `test_unit_diagonal_dtype_matches_untagged`, this
+    # can't be cross-checked against the untagged form: `materialise` itself builds
+    # its basis via a plain (non-"standard"-promoting) `ravel_pytree`, so it has the
+    # same failure mode for a genuinely mixed-dtype structure -- a separate,
+    # pre-existing limitation, not something introduced by the fast path here.
+    in_struct = {
+        "a": jax.ShapeDtypeStruct((2,), jnp.float32),
+        "b": jax.ShapeDtypeStruct((3,), jnp.float64),
+    }
+    operator = lx.FunctionLinearOperator(
+        lambda x: x, in_struct, tags=lx.unit_diagonal_tag
+    )
+    assert jnp.allclose(lx.diagonal(operator), jnp.ones(5))
+    assert lx.trace(operator) == 5
 
 
 def test_compose_identity_with_different_structures():
