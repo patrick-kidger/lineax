@@ -472,3 +472,107 @@ def test_conjugated_state(
         else jnp.linalg.solve(matrix, rhs)
     )
     assert tree_allclose(actual, expected, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64))
+@pytest.mark.parametrize("sign", (1, -1))
+def test_cg_final_step_exact_solution(dtype, sign):
+    matrix = sign * 2 * jnp.eye(2, dtype=dtype)
+    rhs = jnp.array([2, 4], dtype=dtype)
+    tag = lx.positive_semidefinite_tag if sign == 1 else lx.negative_semidefinite_tag
+    operator = lx.MatrixLinearOperator(matrix, tags=tag)
+    solver = lx.CG(rtol=1e-6, atol=1e-6, max_steps=1)
+    solve = jax.jit(lambda b: lx.linear_solve(operator, b, solver, throw=False))
+    solution = solve(rhs)
+    assert solution.stats["num_steps"] == 1
+    assert tree_allclose(solution.value, jnp.linalg.solve(matrix, rhs))
+    assert tree_allclose(matrix @ solution.value, rhs)
+    assert solution.result == lx.RESULTS.successful
+
+
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64))
+def test_cg_final_step_gradient(dtype):
+    rhs = jnp.array([2, 4], dtype=dtype)
+    solver = lx.CG(rtol=1e-6, atol=1e-6, max_steps=1)
+
+    def loss(scale):
+        matrix = scale * jnp.eye(2, dtype=dtype)
+        operator = lx.MatrixLinearOperator(matrix, tags=lx.positive_semidefinite_tag)
+        value = lx.linear_solve(operator, rhs, solver).value
+        return jnp.sum(value**2)
+
+    scale = jnp.array(2, dtype=dtype)
+    value, grad = jax.jit(jax.value_and_grad(loss))(scale)
+    assert tree_allclose(value, jnp.sum(rhs**2) / scale**2)
+    assert tree_allclose(grad, -2 * jnp.sum(rhs**2) / scale**3)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64))
+@pytest.mark.parametrize("preconditioned", (False, True))
+def test_cg_final_step_tolerance(dtype, preconditioned):
+    matrix = jnp.array([[4, 1, 0.25], [1, 3, 0.5], [0.25, 0.5, 2]], dtype=dtype)
+    rhs = jnp.array([0.5, -0.8, 1.3], dtype=dtype)
+    operator = lx.MatrixLinearOperator(matrix, tags=lx.positive_semidefinite_tag)
+    options = {}
+    if preconditioned:
+        options["preconditioner"] = lx.MatrixLinearOperator(
+            jnp.diag(1 / jnp.diag(matrix)), tags=lx.positive_semidefinite_tag
+        )
+    tol = 1e-5 if dtype == jnp.float32 else 1e-10
+    generous = lx.linear_solve(
+        operator, rhs, lx.CG(rtol=tol, atol=tol, max_steps=32), options=options
+    )
+    steps = int(generous.stats["num_steps"])
+    solution = lx.linear_solve(
+        operator,
+        rhs,
+        lx.CG(rtol=tol, atol=tol, max_steps=steps),
+        options=options,
+        throw=False,
+    )
+    assert solution.stats["num_steps"] == steps
+    assert tree_allclose(solution.value, generous.value)
+    assert tree_allclose(solution.value, jnp.linalg.solve(matrix, rhs))
+    assert jnp.max(jnp.abs(matrix @ solution.value - rhs)) <= tol * (
+        1 + jnp.max(jnp.abs(rhs))
+    )
+    assert solution.result == lx.RESULTS.successful
+
+
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64))
+def test_cg_final_step_insufficient_budget(dtype):
+    matrix = jnp.diag(jnp.array([2, 3], dtype=dtype))
+    rhs = jnp.array([2, 5], dtype=dtype)
+    operator = lx.MatrixLinearOperator(matrix, tags=lx.positive_semidefinite_tag)
+    solution = lx.linear_solve(
+        operator, rhs, lx.CG(rtol=1e-6, atol=1e-6, max_steps=1), throw=False
+    )
+    assert solution.stats["num_steps"] == 1
+    assert jnp.max(jnp.abs(matrix @ solution.value - rhs)) > 1e-3
+    assert solution.result == lx.RESULTS.max_steps_reached
+
+
+def test_cg_final_step_fixed_iteration_mode():
+    operator = lx.MatrixLinearOperator(
+        jnp.diag(jnp.array([2.0, 3.0])), tags=lx.positive_semidefinite_tag
+    )
+    solution = lx.linear_solve(
+        operator, jnp.array([2.0, 5.0]), lx.CG(rtol=0.0, atol=0.0, max_steps=1)
+    )
+    assert solution.stats["num_steps"] == 1
+    assert solution.result == lx.RESULTS.successful
+
+
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64))
+def test_cg_final_step_normal_least_squares(dtype):
+    matrix = jnp.array([[2, 0], [0, 2], [0, 0]], dtype=dtype)
+    rhs = jnp.array([2, 4, 1], dtype=dtype)
+    operator = lx.MatrixLinearOperator(matrix)
+    solver = lx.Normal(lx.CG(rtol=1e-6, atol=1e-6, max_steps=1))
+    solution = lx.linear_solve(operator, rhs, solver, throw=False)
+    expected = jnp.linalg.lstsq(matrix, rhs, rcond=None)[0]
+    assert tree_allclose(solution.value, expected)
+    assert tree_allclose(
+        matrix.T @ (matrix @ solution.value - rhs), jnp.zeros(2, dtype=dtype)
+    )
+    assert solution.result == lx.RESULTS.successful
