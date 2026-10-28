@@ -24,6 +24,8 @@ import pytest
 from .helpers import (
     construct_matrix,
     construct_singular_matrix,
+    finite_difference_jvp,
+    has_tag,
     make_jac_operator,
     make_matrix_operator,
     solvers_tags_pseudoinverse,
@@ -47,10 +49,15 @@ def test_vmap_jvp(
 ):
     if (make_matrix is construct_matrix) or pseudoinverse:
         t_tags = (None,) * len(tags) if isinstance(tags, tuple) else None
-        if pseudoinverse:
+        # See `test_jvp` for the reference selection; `lstsq` only where the
+        # pseudoinverse differs from the inverse, finite differences for singular
+        # circulants (coincident singular values break the `lstsq` derivative).
+        if pseudoinverse and make_matrix is construct_singular_matrix:
             jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
+            force_fd = has_tag(tags, lx.circulant_tag)
         else:
             jnp_solve1 = jnp.linalg.solve  # pyright: ignore
+            force_fd = False
         if use_state:
 
             def linear_solve1(operator, vector):
@@ -115,7 +122,9 @@ def test_vmap_jvp(
                 if not jvp_first:
                     linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
                 linear_solve3 = eqx.filter_jit(linear_solve3)
-                jnp_solve3 = ft.partial(eqx.filter_jvp, jnp_solve2)
+                jnp_solve3 = ft.partial(
+                    finite_difference_jvp if force_fd else eqx.filter_jvp, jnp_solve2
+                )
                 jnp_solve3 = eqx.filter_vmap(jnp_solve3)
                 jnp_solve3 = eqx.filter_jit(jnp_solve3)
                 if mode == "op":

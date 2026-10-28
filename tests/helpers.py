@@ -27,6 +27,24 @@ import numpy as np
 from equinox.internal import ω
 
 
+def _zero_smallest_circulant_mode(column, zero_mask=None):
+    """Zero a circulant's smallest-magnitude eigenvalue(s) (FFT mode(s)), or the modes
+    in `zero_mask`. Real columns stay real via `rfft`/`irfft`, whose modes other than
+    the zero frequency and Nyquist each stand for a conjugate *pair* of eigenvalues,
+    zeroed together."""
+    n = column.shape[0]
+    if jnp.iscomplexobj(column):
+        eig = jnp.fft.fft(column)
+        if zero_mask is None:
+            zero_mask = jnp.arange(n) == jnp.argmin(jnp.abs(eig))
+        return jnp.fft.ifft(jnp.where(zero_mask, 0, eig))
+    else:
+        eig = jnp.fft.rfft(column)
+        if zero_mask is None:
+            zero_mask = jnp.arange(eig.shape[0]) == jnp.argmin(jnp.abs(eig))
+        return jnp.fft.irfft(jnp.where(zero_mask, 0, eig), n=n)
+
+
 @ft.cache
 def _construct_matrix_impl(
     getkey, tags, size, dtype, cond_or_singular: int | float | str, i: int
@@ -35,15 +53,15 @@ def _construct_matrix_impl(
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if isinstance(cond_or_singular, str):
-            if cond_or_singular == "zero":
-                matrix = matrix.at[0, :].set(0)
-            elif cond_or_singular == "trim_row":
+            if cond_or_singular == "trim_row":
                 matrix = matrix[1:, :]
             elif cond_or_singular == "trim_col":
                 matrix = matrix[:, 1:]
         if tags != ():
+            # Tagged draws are built with a condition cutoff or `spectral`.
             assert (
-                isinstance(cond_or_singular, (int, float)) or cond_or_singular == "zero"
+                isinstance(cond_or_singular, (int, float))
+                or cond_or_singular == "spectral"
             )
         if has_tag(tags, lx.diagonal_tag):
             matrix = jnp.diag(jnp.diag(matrix))
@@ -75,15 +93,29 @@ def _construct_matrix_impl(
             # detection that `lx.Cholesky` performs for this tag.
             sign = jnp.where(jr.bernoulli(getkey()), 1, -1).astype(matrix.dtype)
             matrix = sign * (matrix @ matrix.T.conj())
-        if cond_or_singular == "zero" and (
-            has_tag(tags, lx.symmetric_tag) or has_tag(tags, lx.hermitian_tag)
-        ):
-            # The symmetric/Hermitian construction refills the leading row that
-            # `zero` cleared, so re-zero the leading row *and* column of the result.
-            # This makes `e_0` a null vector -- a genuinely rank-deficient, and still
-            # indefinite, Hermitian operator -- mirroring how `zero` yields a
-            # rank-deficient matrix for the PSD/NSD constructions.
-            matrix = matrix.at[0, :].set(0).at[:, 0].set(0)
+        if cond_or_singular == "spectral":
+            if has_tag(tags, lx.circulant_tag):
+                # Circulancy is structural in the FFT domain, so zero the smallest
+                # eigenvalue(s) there.
+                column = _zero_smallest_circulant_mode(matrix[:, 0])
+                row, col = jnp.ogrid[:size, :size]
+                matrix = column[(row - col) % size]
+            else:
+                # Zeroing the smallest singular value preserves symmetry/
+                # Hermitian-ness, (semi)definiteness, and diagonality -- but not
+                # bandedness or triangularity.
+                assert not any(
+                    has_tag(tags, t)
+                    for t in (
+                        lx.tridiagonal_tag,
+                        lx.lower_triangular_tag,
+                        lx.upper_triangular_tag,
+                        lx.unit_diagonal_tag,
+                    )
+                )
+                u, s, vh = jnp.linalg.svd(matrix, full_matrices=False)
+                s = s.at[-1].set(0)
+                matrix = (u * s[None, :].astype(matrix.dtype)) @ vh
         if isinstance(cond_or_singular, str):
             break
         else:
@@ -104,21 +136,72 @@ def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
 
 
 def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
-    if isinstance(solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES, lx.HEVD)):
+    if isinstance(
+        solver, (lx.Diagonal, lx.CG, lx.BiCGStab, lx.GMRES, lx.HEVD, lx.Circulant)
+    ):
         # `trim_row`/`trim_col` produce non-square matrices, which are incompatible
-        # with the (square) structure these solvers require. Use `zero` instead,
-        # which keeps the matrix square and (for PSD/NSD/Hermitian tags) Hermitian.
-        singular_method = "zero"
+        # with the (square) structure these solvers require.
+        singular_method = "spectral"
     else:
         # Use `getkey()` rather than the stdlib `random.choice` for reproducibility
-        singular_method = ["zero", "trim_row", "trim_col"][
+        singular_method = ["spectral", "trim_row", "trim_col"][
             jr.choice(getkey(), np.array([0, 1, 2]))
         ]
-    size = 3
-    return tuple(
-        _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
-        for i in range(num)
-    )
+    if has_tag(tags, lx.circulant_tag):
+        # A real size-3 circulant has only two modes -- the zero frequency and one
+        # conjugate pair -- so zeroing the pair would leave rank 1. A larger matrix
+        # keeps rank-deficient draws far from that degenerate corner, as in
+        # `test_circulant_singular_jvp`.
+        size = 6
+    else:
+        size = 3
+    if singular_method != "spectral":
+        # Trims are full-rank (merely non-square), so plain draws stand.
+        return tuple(
+            _construct_matrix_impl(getkey, tags, size, dtype, singular_method, i)
+            for i in range(num)
+        )
+    # Create a rank-deficient matrix by zeroing the lowest singular value (or, for
+    # circulants, the lowest FFT mode(s)). Then compute tangents to it along the
+    # constant rank locus.
+    # Primal:
+    matrix = _construct_matrix_impl(getkey, tags, size, dtype, "spectral", 0)
+    out = [matrix]
+    if has_tag(tags, lx.circulant_tag):
+        # A circulant family stays rank-preserving iff the tangent's spectrum
+        # vanishes on the primal's zeroed modes.
+        eig = (jnp.fft.fft if jnp.iscomplexobj(matrix) else jnp.fft.rfft)(matrix[:, 0])
+        zero_mask = jnp.abs(eig) < 1e-8 * jnp.max(jnp.abs(eig))
+        row, col = jnp.ogrid[:size, :size]
+        for _ in range(num - 1):
+            t_column = _zero_smallest_circulant_mode(
+                jr.normal(getkey(), (size,), dtype=dtype), zero_mask
+            )
+            out.append(t_column[(row - col) % size])
+    elif has_tag(tags, lx.diagonal_tag):
+        # A diagonal family is rank-preserving iff the tangent vanishes on the
+        # primal's zeroed entries; matching the slots keeps the rank exact for all t.
+        d = jnp.diag(matrix)
+        kept = jnp.abs(d) > 1e-8 * jnp.max(jnp.abs(d))
+        for _ in range(num - 1):
+            t_d = jnp.where(kept, jr.normal(getkey(), (size,), dtype=dtype), 0)
+            out.append(jnp.diag(t_d))
+    else:
+        hermitian_family = tags != ()
+        # Unit null vectors; the projection below is invariant to their sign/phase.
+        u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
+        u = u_full[:, -1]
+        null = vh[-1, :].conj()
+        for _ in range(num - 1):
+            # Project tangent onto range space `{T : u^H T v = 0}`, ensuring
+            # preservation of Hermiticity.
+            direction = jr.normal(getkey(), (size, size), dtype=dtype)
+            if hermitian_family:
+                direction = (direction + direction.T.conj()) / 2
+            component = u.conj() @ direction @ null
+            direction = direction - component * jnp.outer(u, null.conj())
+            out.append(direction)
+    return tuple(out)
 
 
 def construct_poisson_matrix(size, dtype=jnp.float64):
@@ -144,7 +227,12 @@ solvers_tags_pseudoinverse = [
     (lx.Diagonal(), lx.diagonal_tag, False),
     (lx.Diagonal(), (lx.diagonal_tag, lx.unit_diagonal_tag), False),
     (lx.Tridiagonal(), lx.tridiagonal_tag, False),
-    (lx.Circulant(), lx.circulant_tag, False),
+    # An explicit `rcond`: the singular test matrices are exactly rank-deficient, but
+    # a `JacobianLinearOperator` reconstructs its matrix through `jacfwd`, lifting the
+    # zeroed FFT mode to ~1e-15 -- right at the default threshold `eps * n * max|eig|`
+    # for an (unsquared) circulant spectrum, so masking becomes a coin toss. 1e-10 is
+    # far above that noise and far below any retained mode.
+    (lx.Circulant(rcond=1e-10), lx.circulant_tag, True),
     (lx.LU(), (), False),
     (lx.QR(), (), False),
     (lx.SVD(), (), True),
@@ -483,10 +571,10 @@ def jvp_jvp_impl(
                 sol = lx.linear_solve(operator, vector, solver=solver)
                 return sol.value
 
-        if pseudoinverse:
-            jnp_solve1 = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
-        else:
-            jnp_solve1 = jnp.linalg.solve  # pyright: ignore
+        # The draws above are always square and full-rank, where `solve` is a valid
+        # reference for every solver and, unlike SVD-based `lstsq`, keeps a
+        # well-defined derivative when singular values coincide (real circulants).
+        jnp_solve1 = jnp.linalg.solve  # pyright: ignore
 
         linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
         jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
