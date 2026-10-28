@@ -357,6 +357,16 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     _default_not_implemented("materialise", operator)
 
 
+def in_dtype(operator: AbstractLinearOperator) -> jnp.dtype:
+    """The dtype of `operator`'s entries, as promoted across its input structure."""
+    leaves = jtu.tree_leaves(operator.in_structure())
+    with jax.numpy_dtype_promotion("standard"):
+        if len(leaves) == 0:
+            return default_floating_dtype()
+        else:
+            return jnp.result_type(*leaves)
+
+
 @ft.singledispatch
 def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     """Extracts the diagonal from a linear operator, and returns a vector.
