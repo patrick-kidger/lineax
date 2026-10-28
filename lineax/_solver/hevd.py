@@ -15,6 +15,7 @@
 from typing import Any, TypeAlias
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax.lax as lax
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
@@ -38,7 +39,18 @@ from .misc import (
 )
 
 
-_HEVDState: TypeAlias = tuple[tuple[Array, Array], PackedStructures]
+# The static integer is the number of leading eigenpairs that `compute` uses: the
+# operator's declared rank bound. When this is less than the size, `init` orders the
+# eigenpairs by descending magnitude so that these are a leading slice. The full
+# decomposition is kept, so that the trailing eigenpairs (e.g. a null space) remain
+# recoverable.
+_HEVDState: TypeAlias = tuple[tuple[Array, Array], eqxi.Static[int], PackedStructures]
+
+
+def _retained(state: _HEVDState) -> tuple[Array, Array]:
+    (w, v), rank_bound, _ = state
+    r = rank_bound.value
+    return w[:r], v[:, :r]
 
 
 class HEVD(AbstractDirectLinearSolver[_HEVDState]):
@@ -61,49 +73,46 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
         # `jnp.linalg.eigh` returns eigenvalues in ascending (signed) order
         w, v = jnp.linalg.eigh(operator.as_matrix())
         r = max_rank(operator)
-        if r < w.shape[0]:
+        m = v.shape[0]
+        if r < m:
             # The operator is declared to have rank at most `r`, so all but the `r`
-            # largest-magnitude eigenvalues are mathematically zero. Statically drop
-            # them to shrink the matmuls (and storage) in `compute`.
-            m = v.shape[0]
+            # largest-magnitude eigenvalues are mathematically zero, and `compute`
+            # statically truncates to them to shrink its matmuls. The state itself is
+            # not truncated, as that would discard the trailing eigenpairs
+            # irrecoverably; if they are never used then JAX eliminates them as dead
+            # code. So that the truncation is a static leading slice, reorder the
+            # eigenpairs (once, here) by descending magnitude.
             rcond = resolve_rcond(self.rcond, m, m, w.dtype) * jnp.max(jnp.abs(w))
             if is_positive_semidefinite(operator):
-                # Eigenvalues are >= 0, so in ascending order the `r` largest are a
-                # contiguous trailing slice (cheaper than a reordering gather).
-                dropped, w = jnp.split(w, [m - r])
-                v = v[:, -r:]
+                # Eigenvalues are >= 0, so descending magnitude is just the reverse of
+                # eigh's ascending order (cheaper than a reordering gather).
+                w, v = w[::-1], v[:, ::-1]
             elif is_negative_semidefinite(operator):
-                # Eigenvalues are <= 0, so the `r` largest in magnitude are a
-                # contiguous leading slice.
-                w, dropped = jnp.split(w, [r])
-                v = v[:, :r]
+                # Eigenvalues are <= 0, so eigh's ascending order is already by
+                # descending magnitude.
+                pass
             elif is_semidefinite(operator):
-                # Definite, but the sign isn't known statically.
-                # The largest eigenvalues in absolute value are guaranteed to be at
-                # its two ends so probing the sign is cheap. The split point is traced,
-                # so we need to use `dynamic_slice` instead of `jnp.split`.
+                # Definite, but the sign isn't known statically. The largest
+                # eigenvalues in absolute value are guaranteed to be at one of its two
+                # ends, so probing the sign is cheap.
                 is_nsd = jnp.abs(w[0]) > jnp.abs(w[-1])
-                keep, drop = jnp.where(is_nsd, 0, m - r), jnp.where(is_nsd, r, 0)
-                dropped = lax.dynamic_slice(w, (drop,), (m - r,))
-                w = lax.dynamic_slice(w, (keep,), (r,))
-                v = lax.dynamic_slice(v, (0, keep), (m, r))
+                w = jnp.where(is_nsd, w, w[::-1])
+                v = jnp.where(is_nsd, v, v[:, ::-1])
             else:
                 # Indefinite: the small-magnitude eigenvalues sit in the interior of
-                # the spectrum, so no contiguous slice works. Reorder by descending
-                # magnitude (an O(n^2) gather, dominated by the O(n^3) eigensolve)
-                # and take the leading `r`.
+                # the spectrum, so no reversal works. Reorder by descending magnitude
+                # (an O(n^2) gather, dominated by the O(n^3) eigensolve).
                 order = jnp.argsort(jnp.abs(w))[::-1]
                 w, v = w[order], v[:, order]
-                w, dropped = jnp.split(w, [r])
-                v = v[:, :r]
-            # `compute` masks out `|w_i| <= rcond * max|w|`, so dropping these is
-            # lossless iff they all sit below that floor. Otherwise the `max_rank`
-            # claim is false (truncation would change the solution), so error out.
-            # Checking the largest discarded magnitude also catches a mistagged
-            # PSD/NSD operator whose true large eigenvalues sit on the dropped side.
+            # `compute` masks out `|w_i| <= rcond * max|w|`, so dropping the trailing
+            # eigenvalues is lossless iff they all sit below that floor. Otherwise the
+            # `max_rank` claim is false (truncation would change the solution), so
+            # error out. Checking the largest discarded magnitude also catches a
+            # mistagged PSD/NSD operator whose true large eigenvalues sit on the
+            # dropped side.
             w = eqx.error_if(
                 w,
-                jnp.max(jnp.abs(dropped)) > rcond,
+                jnp.max(jnp.abs(w[r:])) > rcond,
                 "lineax.HEVD: the operator was declared (via a `MaxRankTag`, or by "
                 f"composition rules) to have rank at most {r}, but it has an "
                 "eigenvalue above the rcond threshold beyond that rank. Truncating to "
@@ -113,7 +122,7 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
                 "`EQX_ON_ERROR=off` to skip this check.",
             )
         packed_structures = pack_structures(operator)
-        return (w, v), packed_structures
+        return (w, v), eqxi.Static(r), packed_structures
 
     def compute(
         self,
@@ -122,7 +131,8 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         del options
-        (w, v), packed_structures = state
+        _, _, packed_structures = state
+        w, v = _retained(state)
         vector = ravel_vector(vector, packed_structures)
         m = v.shape[0]
         rcond = resolve_rcond(self.rcond, m, m, w.dtype)
@@ -143,18 +153,18 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
 
     def transpose(self, state: _HEVDState, options: dict[str, Any]):
         del options
-        (w, v), packed_structures = state
+        (w, v), rank_bound, packed_structures = state
         # `A` is Hermitian, so `A^T = conj(A)` (with `w` real). The structure is
         # square symmetric, so the packed structures are unchanged.
-        transpose_state = (w, v.conj()), packed_structures
+        transpose_state = (w, v.conj()), rank_bound, packed_structures
         transpose_options = {}
         return transpose_state, transpose_options
 
     def conj(self, state: _HEVDState, options: dict[str, Any]):
         del options
-        (w, v), packed_structures = state
+        (w, v), rank_bound, packed_structures = state
         # `A` is Hermitian, so `conj(A) = conj(V) diag(w) conj(V)^H` (with `w` real).
-        conj_state = (w, v.conj()), packed_structures
+        conj_state = (w, v.conj()), rank_bound, packed_structures
         conj_options = {}
         return conj_state, conj_options
 
@@ -162,7 +172,7 @@ class HEVD(AbstractDirectLinearSolver[_HEVDState]):
         self, state: _HEVDState, options: dict[str, Any]
     ) -> tuple[Array, Array]:
         del options
-        (w, v), _ = state
+        w, v = _retained(state)
         m = v.shape[0]
         rcond = resolve_rcond(self.rcond, m, m, w.dtype)
         abs_w = jnp.abs(w)
