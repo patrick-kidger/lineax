@@ -143,6 +143,7 @@ class CG(AbstractLinearSolver[_CGState]):
             and self.atol == 0
             and self.rtol == 0
         )
+        b_scale = 0.0
         if has_scale:
             b_scale = self.atol + self.rtol * self.norm(vector)
 
@@ -211,17 +212,27 @@ class CG(AbstractLinearSolver[_CGState]):
             p = (z**ω + beta * p**ω).ω
             return diff, y, r, p, gamma, step
 
-        _, solution, _, _, _, num_steps = lax.while_loop(
+        diff, solution, residual, _, gamma, num_steps = lax.while_loop(
             cond_fun, body_fun, initial_value
         )
 
+        max_steps_reached = num_steps == max_steps
+        if has_scale:
+            # The final allowed update may itself satisfy the stopping condition.
+            # An exact residual also stops the recurrence, even for a large update.
+            b_converged = self.norm(residual) <= b_scale
+            y_scale = self.atol + self.rtol * self.norm(solution)
+            y_converged = self.norm(diff) <= y_scale
+            converged = b_converged & (y_converged | (gamma == 0))
+            max_steps_reached = max_steps_reached & ~converged
+
         if self.max_steps is None:
             result = RESULTS.where(
-                num_steps == max_steps, RESULTS.singular, RESULTS.successful
+                max_steps_reached, RESULTS.singular, RESULTS.successful
             )
         elif has_scale:
             result = RESULTS.where(
-                num_steps == max_steps, RESULTS.max_steps_reached, RESULTS.successful
+                max_steps_reached, RESULTS.max_steps_reached, RESULTS.successful
             )
         else:
             result = RESULTS.successful
