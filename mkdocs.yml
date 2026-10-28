@@ -103,6 +103,7 @@ nav:
         - 'examples/complex_solve.ipynb'
     - API:
         - 'api/linear_solve.md'
+        - 'api/determinant.md'
         - 'api/solvers.md'
         - 'api/operators.md'
         - 'api/tags.md'

@@ -99,9 +99,9 @@ def test_grad_vmap_basic(getkey):
     def fn(A):
         op = lx.MatrixLinearOperator(A)
         return jax.vmap(
-            lambda b: lx.linear_solve(
-                op, b, lx.AutoLinearSolver(well_posed=False)
-            ).value
+            lambda b: (
+                lx.linear_solve(op, b, lx.AutoLinearSolver(well_posed=False)).value
+            )
         )(B).mean()
 
     fn(A)

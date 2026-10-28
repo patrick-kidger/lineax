@@ -13,16 +13,18 @@
 # limitations under the License.
 
 import functools as ft
+import math
 from typing import Any, TypeAlias
 
 import equinox.internal as eqxi
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
 from .._misc import cyclic_reverse, resolve_rcond
 from .._operator import AbstractLinearOperator, first_column, is_circulant
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -35,7 +37,7 @@ from .misc import (
 _CirculantState: TypeAlias = tuple[tuple[Array, eqxi.Static[bool]], PackedStructures]
 
 
-class Circulant(AbstractLinearSolver[_CirculantState]):
+class Circulant(AbstractDirectLinearSolver[_CirculantState]):
     """Circulant solver for linear systems.
 
     Requires that the operator be circulant. Then $Ax = b$ is solved by dividing by the
@@ -126,6 +128,50 @@ class Circulant(AbstractLinearSolver[_CirculantState]):
             conj_state = state
         conj_options = {}
         return conj_state, conj_options
+
+    def slogdet(
+        self, state: _CirculantState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        del options
+        (eigenvalues, is_complex), packed_structures = state
+        # A circulant matrix is diagonalised by the DFT, so its determinant is the
+        # product of its eigenvalues (the FFT of the first column).
+        leaves, treedef = packed_structures.value
+        out_structure, _ = jtu.tree_unflatten(treedef, leaves)
+        n = sum(math.prod(x.shape) for x in jtu.tree_leaves(out_structure))
+        abs_eig = jnp.abs(eigenvalues)
+        if self.well_posed:
+            mask = jnp.ones(abs_eig.shape, dtype=bool)
+        else:
+            # Match `compute`: drop (near-)zero eigenvalues to return the
+            # pseudodeterminant. Magnitudes are conjugate-symmetric, so each pair is
+            # masked together and the completion below stays consistent.
+            rcond = resolve_rcond(self.rcond, n, n, eigenvalues.dtype)
+            threshold = jnp.array(rcond, dtype=abs_eig.dtype) * jnp.max(abs_eig)
+            mask = abs_eig > threshold
+        log_abs = jnp.where(mask, jnp.log(jnp.where(mask, abs_eig, 1.0)), 0.0)
+        if is_complex.value:
+            # `fft` stores all `n` eigenvalues, each with multiplicity one.
+            safe_abs = jnp.where(mask, abs_eig, 1.0).astype(eigenvalues.dtype)
+            unit = jnp.where(mask, eigenvalues / safe_abs, 1.0)
+            sign = jnp.prod(unit)
+            lad = jnp.sum(log_abs)
+        else:
+            # `rfft` stores the non-redundant half of a conjugate-symmetric spectrum.
+            # The DC term (index 0) and, when `n` is even, the Nyquist term (index
+            # `n // 2`) are real and unpaired; every other stored eigenvalue pairs with
+            # its conjugate, contributing `|lambda|**2` (real, positive) to the
+            # determinant. So paired terms count double in `lad` and never affect sign.
+            m = eigenvalues.shape[0]
+            mult = jnp.full((m,), 2.0).at[0].set(1.0)
+            if n % 2 == 0:
+                mult = mult.at[m - 1].set(1.0)
+            lad = jnp.sum(mult * log_abs)
+            real_sign = jnp.sign(eigenvalues.real)
+            sign = jnp.where(mask[0], real_sign[0], 1.0)
+            if n % 2 == 0:
+                sign = sign * jnp.where(mask[m - 1], real_sign[m - 1], 1.0)
+        return sign, lad
 
     def assume_full_rank(self):
         return self.well_posed

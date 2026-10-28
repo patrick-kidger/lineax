@@ -99,9 +99,11 @@ def complex_to_real_dtype(dtype):
 
 def strip_weak_dtype(tree: PyTree) -> PyTree:
     return jtu.tree_map(
-        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=x.sharding)
-        if type(x) is jax.ShapeDtypeStruct
-        else x,
+        lambda x: (
+            jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=x.sharding)
+            if type(x) is jax.ShapeDtypeStruct
+            else x
+        ),
         tree,
     )
 
@@ -110,3 +112,17 @@ def structure_equal(x, y) -> bool:
     x = strip_weak_dtype(jax.eval_shape(lambda: x))
     y = strip_weak_dtype(jax.eval_shape(lambda: y))
     return eqx.tree_equal(x, y) is True
+
+
+def unit_phase(x: Array) -> Array:
+    """`x / |x|`: the `sign` convention of `numpy.linalg.slogdet`, and zero at zero.
+
+    Prefer this to `jnp.sign` anywhere the result may be differentiated. `jnp.sign`
+    reports a zero tangent, which is correct for real inputs (it is piecewise constant)
+    but wrong for complex ones, where the phase varies smoothly.
+    """
+    if jnp.iscomplexobj(x):
+        abs_x = jnp.abs(x)
+        safe = jnp.where(abs_x == 0, 1, abs_x).astype(x.dtype)
+        return jnp.where(abs_x == 0, 0, x / safe)
+    return jnp.sign(x)
