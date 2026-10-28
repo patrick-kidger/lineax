@@ -21,6 +21,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
+from lineax._operator.base import is_materialised
 
 from .helpers import (
     make_circulant_operator,
@@ -33,26 +34,31 @@ from .helpers import (
 )
 
 
-@pytest.mark.parametrize("make_operator", make_operators)
-@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_ops(make_operator, getkey, dtype):
+def _square_matrix_and_tags(make_operator, getkey, dtype, size=3):
     if (
         make_operator is make_trivial_diagonal_operator
         or make_operator is make_identity_operator
     ):
-        matrix = jnp.eye(3, dtype=dtype)
+        matrix = jnp.eye(size, dtype=dtype)
         tags = lx.diagonal_tag
     elif make_operator is make_tridiagonal_operator:
-        matrix = jnp.eye(3, dtype=dtype)
+        matrix = jnp.eye(size, dtype=dtype)
         tags = lx.tridiagonal_tag
     elif make_operator is make_circulant_operator:
-        column = jr.normal(getkey(), (3,), dtype=dtype)
-        i, j = jnp.ogrid[:3, :3]
-        matrix = column[(i - j) % 3]
+        column = jr.normal(getkey(), (size,), dtype=dtype)
+        i, j = jnp.ogrid[:size, :size]
+        matrix = column[(i - j) % size]
         tags = lx.circulant_tag
     else:
-        matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
+        matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         tags = ()
+    return matrix, tags
+
+
+@pytest.mark.parametrize("make_operator", make_operators)
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_ops(make_operator, getkey, dtype):
+    matrix, tags = _square_matrix_and_tags(make_operator, getkey, dtype)
     if make_operator is make_jacrev_operator and dtype is jnp.complex128:
         # JacobianLinearOperator does not support complex dtypes when jac="bwd"
         return
@@ -251,6 +257,93 @@ def test_tridiagonal(dtype, getkey):
     assert jnp.allclose(diag, jnp.diagonal(td_matrix, 0))
     assert jnp.allclose(lower_diag, jnp.diagonal(td_matrix, -1))
     assert jnp.allclose(upper_diag, jnp.diagonal(td_matrix, 1))
+
+
+@pytest.mark.parametrize("make_operator2", make_operators)
+@pytest.mark.parametrize("make_operator1", make_operators)
+def test_diagonal_composed(make_operator1, make_operator2, getkey):
+    # Sweeping every pair of operator flavours naturally exercises every fast path in
+    # `diagonal(ComposedLinearOperator)`: diagonal-or-anything (make_trivial_diagonal/
+    # make_identity crossed with anything), tridiagonal-or-anything, and circulant @
+    # circulant, in addition to the generic materialising fallback.
+    dtype = jnp.float64
+    matrix1, tags1 = _square_matrix_and_tags(make_operator1, getkey, dtype)
+    matrix2, tags2 = _square_matrix_and_tags(make_operator2, getkey, dtype)
+    op1 = make_operator1(getkey, matrix1, tags1)
+    op2 = make_operator2(getkey, matrix2, tags2)
+    composed_matrix = op1.as_matrix() @ op2.as_matrix()
+    composed = op1 @ op2
+    assert tree_allclose(lx.diagonal(composed), jnp.diag(composed_matrix))
+    assert tree_allclose(lx.trace(composed), jnp.trace(composed_matrix))
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_diagonal_composed_triangular(dtype, getkey):
+    # `make_operators` has no triangular-tagged flavour, so this isn't reachable via
+    # the sweep in `test_diagonal_composed` above and needs its own construction.
+    size = 5
+
+    def make_triangular(triangularise, tag):
+        matrix = triangularise(jr.normal(getkey(), (size, size), dtype=dtype))
+        return lx.MatrixLinearOperator(matrix, tags=tag), matrix
+
+    def check(composed, composed_matrix):
+        assert tree_allclose(lx.diagonal(composed), jnp.diag(composed_matrix))
+        assert tree_allclose(lx.trace(composed), jnp.trace(composed_matrix))
+
+    # same-orientation triangular @ triangular
+    lower_op, lower_matrix = make_triangular(jnp.tril, lx.lower_triangular_tag)
+    lower_op2, lower_matrix2 = make_triangular(jnp.tril, lx.lower_triangular_tag)
+    check(lower_op @ lower_op2, lower_matrix @ lower_matrix2)
+
+    upper_op, upper_matrix = make_triangular(jnp.triu, lx.upper_triangular_tag)
+    upper_op2, upper_matrix2 = make_triangular(jnp.triu, lx.upper_triangular_tag)
+    check(upper_op @ upper_op2, upper_matrix @ upper_matrix2)
+
+    # mixed-orientation triangular @ triangular: falls back to materialising, but
+    # should still be correct
+    check(lower_op @ upper_op, lower_matrix @ upper_matrix)
+
+
+def test_is_materialised_recurses_through_wrappers(getkey):
+    # A flat isinstance check is not enough here: `fn_op + fn_op` is an
+    # `AddLinearOperator`, whose `as_matrix` still costs one `mv` per column of each
+    # operand. The predicate has to recurse.
+    matrix = jr.normal(getkey(), (3, 3))
+    mat_op = lx.MatrixLinearOperator(matrix)
+    in_struct = jax.ShapeDtypeStruct((3,), matrix.dtype)
+    fn_op = lx.FunctionLinearOperator(lambda x: matrix @ x, in_struct)
+    assert is_materialised(mat_op)
+    assert not is_materialised(fn_op)
+    assert is_materialised(lx.TaggedLinearOperator(mat_op, ()))
+    assert not is_materialised(lx.TaggedLinearOperator(fn_op, ()))
+    assert is_materialised(mat_op + mat_op)
+    assert not is_materialised(fn_op + fn_op)
+    assert not is_materialised(mat_op + fn_op)
+    assert is_materialised(-mat_op)
+    assert is_materialised(2.0 * mat_op)
+    assert not is_materialised(fn_op / 2.0)
+    # A composition's matrix is computed on demand, never stored.
+    assert not is_materialised(mat_op @ mat_op)
+
+
+@pytest.mark.parametrize("make_operator", make_operators)
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_trace(make_operator, dtype, getkey):
+    matrix, tags = _square_matrix_and_tags(make_operator, getkey, dtype)
+    if make_operator is make_jacrev_operator and dtype is jnp.complex128:
+        # JacobianLinearOperator does not support complex dtypes when jac="bwd"
+        return
+    operator = make_operator(getkey, matrix, tags)
+    assert jnp.allclose(lx.trace(operator), jnp.trace(matrix))
+    assert jnp.allclose(lx.trace(operator), jnp.sum(lx.diagonal(operator)))
+
+
+def test_trace_is_not_singledispatch():
+    # `trace` is documented as `jnp.sum(diagonal(operator))` and nothing more, with
+    # all fast paths belonging in `diagonal` -- so it should stay a plain function,
+    # not a `functools.singledispatch` one (which would expose a `.register` method).
+    assert not hasattr(lx.trace, "register")
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))

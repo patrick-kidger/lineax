@@ -31,6 +31,7 @@ from .base import (
     linearise as linearise,
     materialise as materialise,
     max_rank as max_rank,
+    trace as trace,
     tridiagonal as tridiagonal,
 )
 from .binary import (
