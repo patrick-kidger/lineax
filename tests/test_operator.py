@@ -26,6 +26,7 @@ from lineax._operator.base import (
     is_materialised,
     tridiagonal_via_coloring,
 )
+from lineax._operator.wrapper import TangentLinearOperator
 
 from .helpers import (
     make_circulant_operator,
@@ -345,6 +346,96 @@ def test_diagonal_composed_triangular(dtype, getkey):
     # mixed-orientation triangular @ triangular: falls back to materialising, but
     # should still be correct
     check(lower_op @ upper_op, lower_matrix @ upper_matrix)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_tangent_operator_structure(dtype, getkey):
+    # A tangent operator inherits its primal's structure -- extraction returns the
+    # *tangent's* entries (consistent with `TangentLinearOperator.as_matrix`), by
+    # differentiating whatever fast path the primal has.
+    size = 5
+
+    primal_diag = jr.normal(getkey(), (size,), dtype=dtype)
+    tangent_diag = jr.normal(getkey(), (size,), dtype=dtype)
+    tangent_op = TangentLinearOperator(
+        lx.DiagonalLinearOperator(primal_diag), lx.DiagonalLinearOperator(tangent_diag)
+    )
+    assert lx.is_diagonal(tangent_op)
+    assert jnp.allclose(lx.diagonal(tangent_op), tangent_diag)
+    assert jnp.allclose(lx.trace(tangent_op), jnp.sum(tangent_diag))
+
+    primal_col = jr.normal(getkey(), (size,), dtype=dtype)
+    tangent_col = jr.normal(getkey(), (size,), dtype=dtype)
+    tangent_op = TangentLinearOperator(
+        lx.CirculantLinearOperator(primal_col), lx.CirculantLinearOperator(tangent_col)
+    )
+    assert lx.is_circulant(tangent_op)
+    assert jnp.allclose(lx.first_column(tangent_op), tangent_col)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_tangent_operator_tridiagonal_probes(dtype, getkey):
+    # An opaque tridiagonal-tagged primal extracts by colouring; the tangent's bands
+    # come from differentiating that probe, with no materialisation. The tangent
+    # operator is built the way lineax itself builds them: as the jvp of the operator's
+    # construction, so the primal and tangent share their static (closure) structure.
+    size = 5
+    band = lambda m: jnp.tril(jnp.triu(m, -1), 1)
+    primal_matrix = band(jr.normal(getkey(), (size, size), dtype=dtype))
+    tangent_matrix = band(jr.normal(getkey(), (size, size), dtype=dtype))
+    in_struct = jax.ShapeDtypeStruct((size,), dtype)
+
+    def make(m):
+        return lx.TaggedLinearOperator(
+            lx.FunctionLinearOperator(lambda x: m @ x, in_struct), lx.tridiagonal_tag
+        )
+
+    primal_op, t_op = eqx.filter_jvp(make, (primal_matrix,), (tangent_matrix,))
+    tangent_op = TangentLinearOperator(primal_op, t_op)
+    assert lx.is_tridiagonal(tangent_op)
+    main, lower, upper = lx.tridiagonal(tangent_op)
+    assert jnp.allclose(main, jnp.diag(tangent_matrix))
+    assert jnp.allclose(lower, jnp.diag(tangent_matrix, -1))
+    assert jnp.allclose(upper, jnp.diag(tangent_matrix, 1))
+
+
+def test_tangent_operator_unit_diagonal_is_zero(getkey):
+    # The tangent of a unit-diagonal family has a *zero* diagonal, so the tag must not
+    # be inherited; nor is semidefiniteness of either sign.
+    size = 4
+    in_struct = jax.ShapeDtypeStruct((size,), jnp.float64)
+
+    def make(scale):
+        return lx.TaggedLinearOperator(
+            lx.FunctionLinearOperator(lambda x: scale * x, in_struct),
+            (lx.diagonal_tag, lx.unit_diagonal_tag, lx.positive_semidefinite_tag),
+        )
+
+    primal_op, t_op = eqx.filter_jvp(make, (jnp.array(1.0),), (jnp.array(0.5),))
+    tangent_op = TangentLinearOperator(primal_op, t_op)
+    assert lx.is_diagonal(tangent_op)
+    assert not lx.has_unit_diagonal(tangent_op)
+    assert not lx.is_positive_semidefinite(tangent_op)
+    assert not lx.is_negative_semidefinite(tangent_op)
+    # The unit-diagonal tag means the primal's diagonal is *constant* ones whatever
+    # `scale` is, so the honest tangent diagonal here is zero, not 0.5: the tag wins
+    # over the arithmetic, exactly as it does for the primal.
+    assert jnp.allclose(lx.diagonal(tangent_op), 0.0)
+
+
+def test_tangent_operator_max_rank(getkey):
+    # A rank bound doubles rather than transfers: writing the family as
+    # `A(t) = U(t) V(t)^T` with rank <= k, the tangent `dU V^T + U dV^T` has rank up
+    # to `2k` -- still capped by the dimension bound.
+    def make(m, r):
+        return lx.MatrixLinearOperator(m, lx.MaxRankTag(r))
+
+    matrix = jr.normal(getkey(), (6, 6))
+    t_matrix = jr.normal(getkey(), (6, 6))
+    tangent_op = TangentLinearOperator(make(matrix, 1), make(t_matrix, 1))
+    assert lx.max_rank(tangent_op) == 2
+    tangent_op = TangentLinearOperator(make(matrix, 4), make(t_matrix, 4))
+    assert lx.max_rank(tangent_op) == 6
 
 
 def test_is_materialised_recurses_through_wrappers(getkey):
