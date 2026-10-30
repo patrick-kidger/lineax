@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import numpy as np
 import pytest
 
 from .helpers import (
@@ -820,3 +821,82 @@ def test_circulant_tags_preserved(dtype, getkey):
         lx.CirculantLinearOperator(column), lx.symmetric_tag
     )
     assert lx.is_symmetric(op_sym.T)
+
+
+@pytest.mark.parametrize("scalar_type", (complex, np.complex128, np.asarray))
+@pytest.mark.parametrize("divide", (False, True))
+@pytest.mark.parametrize("value", (1 + 2j, -1 + 2j, 2j))
+def test_complex_scalar_structure(scalar_type, divide, value):
+    scalar = scalar_type(value)
+    operator = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((3,), jnp.complex128))
+    operator = operator / scalar if divide else operator * scalar
+    assert not lx.has_unit_diagonal(operator)
+    assert not lx.is_positive_semidefinite(operator)
+    assert not lx.is_negative_semidefinite(operator)
+    assert lx.max_rank(operator) == 3
+
+
+@pytest.mark.parametrize("scalar_type", (complex, np.complex128, np.asarray))
+@pytest.mark.parametrize("divide", (False, True))
+@pytest.mark.parametrize("triangular", (False, True))
+def test_complex_scalar_cached_solve(scalar_type, divide, triangular):
+    scalar = scalar_type(1 + 2j)
+    matrix = np.eye(3, dtype=np.complex128)
+    if triangular:
+        matrix[0, 1] = 0.5 + 0.25j
+        matrix[1, 2] = -0.75j
+        operator = lx.MatrixLinearOperator(
+            jnp.asarray(matrix),
+            tags=(lx.upper_triangular_tag, lx.unit_diagonal_tag),
+        )
+        solver = lx.Triangular()
+    else:
+        operator = lx.DiagonalLinearOperator(jnp.ones(3, dtype=jnp.complex128))
+        solver = lx.Diagonal()
+    operator = operator / scalar if divide else operator * scalar
+    scaled_matrix = matrix / (1 + 2j) if divide else matrix * (1 + 2j)
+    vector = np.array([3 + 1j, 2 - 1j, -1 + 0.5j])
+    expected = np.linalg.solve(scaled_matrix, vector)
+    state = solver.init(operator, {})
+
+    def solve(vector):
+        return lx.linear_solve(operator, vector, solver, state=state).value
+
+    np.testing.assert_allclose(solve(jnp.asarray(vector)), expected, atol=1e-12)
+    np.testing.assert_allclose(
+        jax.jit(solve)(jnp.asarray(vector)), expected, atol=1e-12
+    )
+    # The derivative in an RHS direction is another solve with that direction.
+    direction = np.array([0.5j, 1 - 2j, 3 + 1j])
+    _, tangent = jax.jvp(solve, (jnp.asarray(vector),), (jnp.asarray(direction),))
+    np.testing.assert_allclose(
+        tangent, np.linalg.solve(scaled_matrix, direction), atol=1e-12
+    )
+
+
+@pytest.mark.parametrize("scalar_type", (float, np.float64, np.asarray))
+@pytest.mark.parametrize("value", (-1, 0, 1, 2))
+def test_real_scalar_structure(scalar_type, value):
+    operator = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((1,), jnp.float64))
+    scalar = scalar_type(value)
+    scaled = operator * scalar
+    assert lx.has_unit_diagonal(scaled) == (value == 1)
+    assert lx.is_positive_semidefinite(scaled) == (value >= 0)
+    assert lx.is_negative_semidefinite(scaled) == (value <= 0)
+    if value != 0:
+        divided = operator / scalar
+        assert lx.has_unit_diagonal(divided) == (value == 1)
+        assert lx.is_positive_semidefinite(divided) == (value > 0)
+        assert lx.is_negative_semidefinite(divided) == (value < 0)
+
+
+@pytest.mark.parametrize("scalar_type", (complex, np.complex128, np.asarray))
+def test_imaginary_scalar_cached_svd(scalar_type):
+    operator = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((3,), jnp.complex128))
+    operator = operator * scalar_type(2j)
+    solver = lx.SVD()
+    state = solver.init(operator, {})
+    vector = jnp.array([1 + 2j, -3j, 4 - 1j])
+    solution = lx.linear_solve(operator, vector, solver, state=state).value
+    np.testing.assert_allclose(solution, np.asarray(vector) / (2j), atol=1e-12)
+    assert lx.max_rank(operator) == 3
