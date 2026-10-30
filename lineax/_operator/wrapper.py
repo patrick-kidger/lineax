@@ -436,7 +436,7 @@ def _(operator):
     scalar = operator.scalar
     if not isinstance(scalar, (int, float, np.ndarray, np.generic)):
         return False
-    return float(scalar) == 1.0 and has_unit_diagonal(operator.operator)
+    return bool(scalar == 1.0) and has_unit_diagonal(operator.operator)
 
 
 class _ScalarSign(enum.Enum):
@@ -449,6 +449,8 @@ class _ScalarSign(enum.Enum):
 def _scalar_sign(scalar) -> _ScalarSign:
     """Returns the sign of a scalar, or unknown for JAX tracers."""
     if isinstance(scalar, (int, float, np.ndarray, np.generic)):
+        if np.iscomplexobj(scalar):
+            return _ScalarSign.unknown
         scalar = float(scalar)
         if scalar > 0:
             return _ScalarSign.positive
