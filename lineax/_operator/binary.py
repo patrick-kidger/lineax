@@ -173,9 +173,14 @@ def _(operator):
 
 @materialise.register(ComposedLinearOperator)
 def _(operator):
-    if isinstance(operator.operator1, IdentityLinearOperator):
+    # A reshaping identity must remain in the composition to preserve its structures.
+    if isinstance(operator.operator1, IdentityLinearOperator) and is_symmetric(
+        operator.operator1
+    ):
         return materialise(operator.operator2)
-    if isinstance(operator.operator2, IdentityLinearOperator):
+    if isinstance(operator.operator2, IdentityLinearOperator) and is_symmetric(
+        operator.operator2
+    ):
         return materialise(operator.operator1)
     maybe_structured_op = try_structured_materialise(operator)
     if maybe_structured_op is not operator:
