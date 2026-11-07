@@ -434,7 +434,7 @@ def _(operator):
 @has_unit_diagonal.register(DivLinearOperator)
 def _(operator):
     scalar = operator.scalar
-    if not isinstance(scalar, (int, float, np.ndarray, np.generic)):
+    if not isinstance(scalar, (int, float, complex, np.ndarray, np.generic)):
         return False
     return bool(scalar == 1.0) and has_unit_diagonal(operator.operator)
 

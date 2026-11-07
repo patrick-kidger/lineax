@@ -825,12 +825,12 @@ def test_circulant_tags_preserved(dtype, getkey):
 
 @pytest.mark.parametrize("scalar_type", (complex, np.complex128, np.asarray))
 @pytest.mark.parametrize("divide", (False, True))
-@pytest.mark.parametrize("value", (1 + 2j, -1 + 2j, 2j))
+@pytest.mark.parametrize("value", (1 + 0j, 1 + 2j, -1 + 2j, 2j))
 def test_complex_scalar_structure(scalar_type, divide, value):
     scalar = scalar_type(value)
     operator = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((3,), jnp.complex128))
     operator = operator / scalar if divide else operator * scalar
-    assert not lx.has_unit_diagonal(operator)
+    assert lx.has_unit_diagonal(operator) == (value == 1)
     assert not lx.is_positive_semidefinite(operator)
     assert not lx.is_negative_semidefinite(operator)
     assert lx.max_rank(operator) == 3
@@ -839,8 +839,9 @@ def test_complex_scalar_structure(scalar_type, divide, value):
 @pytest.mark.parametrize("scalar_type", (complex, np.complex128, np.asarray))
 @pytest.mark.parametrize("divide", (False, True))
 @pytest.mark.parametrize("triangular", (False, True))
-def test_complex_scalar_cached_solve(scalar_type, divide, triangular):
-    scalar = scalar_type(1 + 2j)
+@pytest.mark.parametrize("value", (1 + 0j, 1 + 2j))
+def test_complex_scalar_cached_solve(scalar_type, divide, triangular, value):
+    scalar = scalar_type(value)
     matrix = np.eye(3, dtype=np.complex128)
     if triangular:
         matrix[0, 1] = 0.5 + 0.25j
@@ -854,7 +855,7 @@ def test_complex_scalar_cached_solve(scalar_type, divide, triangular):
         operator = lx.DiagonalLinearOperator(jnp.ones(3, dtype=jnp.complex128))
         solver = lx.Diagonal()
     operator = operator / scalar if divide else operator * scalar
-    scaled_matrix = matrix / (1 + 2j) if divide else matrix * (1 + 2j)
+    scaled_matrix = matrix / value if divide else matrix * value
     vector = np.array([3 + 1j, 2 - 1j, -1 + 0.5j])
     expected = np.linalg.solve(scaled_matrix, vector)
     state = solver.init(operator, {})
