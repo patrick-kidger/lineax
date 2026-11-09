@@ -823,6 +823,71 @@ def test_circulant_tags_preserved(dtype, getkey):
     assert lx.is_symmetric(op_sym.T)
 
 
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
+@pytest.mark.parametrize("left", (False, True))
+@pytest.mark.parametrize("kind", ("dense", "diagonal", "tridiagonal", "circulant"))
+def test_materialise_reshaping_identity(dtype, left, kind):
+    if kind == "dense":
+        matrix = jnp.array([[4, 1, 0.5], [-0.5, 3, 1], [1, 0.5, 2]], dtype)
+        tags = ()
+    elif kind == "diagonal":
+        matrix = jnp.diag(jnp.array([2, 3, 4], dtype))
+        tags = lx.diagonal_tag
+    elif kind == "tridiagonal":
+        matrix = jnp.array([[4, 1, 0], [-0.5, 3, 0.75], [0, 0.5, 2]], dtype)
+        tags = lx.tridiagonal_tag
+    else:
+        matrix = jnp.array([[4, 0.5, 1], [1, 4, 0.5], [0.5, 1, 4]], dtype)
+        tags = lx.circulant_tag
+    flat = jax.ShapeDtypeStruct((3,), dtype)
+    tree = (jax.ShapeDtypeStruct((), dtype), {"v": jax.ShapeDtypeStruct((2,), dtype)})
+    pack = lambda x: (x[0], {"v": x[1:]})
+    operator = lx.MatrixLinearOperator(matrix, tags)
+    vector = jnp.array([1, 2, 3], dtype)
+    expected = matrix @ vector
+    if left:
+        operator = lx.IdentityLinearOperator(flat, tree) @ operator
+        expected = pack(expected)
+    else:
+        operator = operator @ lx.IdentityLinearOperator(tree, flat)
+        vector = pack(vector)
+    materialised = lx.materialise(operator)
+    assert eqx.tree_equal(materialised.in_structure(), operator.in_structure())
+    assert eqx.tree_equal(materialised.out_structure(), operator.out_structure())
+    for op in (operator, materialised):
+        assert tree_allclose(op.mv(vector), expected)
+        assert tree_allclose(eqx.filter_jit(op.mv)(vector), expected)
+
+
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
+@pytest.mark.parametrize("left", (False, True))
+def test_normal_solve_reshaping_identity(dtype, left):
+    matrix = jnp.array([[3, 1], [1, 2]], dtype)
+    flat = jax.ShapeDtypeStruct((2,), dtype)
+    tree = {"v": flat}
+    operator = lx.MatrixLinearOperator(matrix)
+    expected = jnp.array([1, 2], dtype)
+    vector = matrix @ expected
+    if left:
+        operator = lx.IdentityLinearOperator(flat, tree) @ operator
+        vector = {"v": vector}
+    else:
+        operator = operator @ lx.IdentityLinearOperator(tree, flat)
+        expected = {"v": expected}
+
+    def solve(vector):
+        return lx.linear_solve(operator, vector, lx.Normal(lx.Cholesky())).value
+
+    assert tree_allclose(solve(vector), expected)
+    assert tree_allclose(eqx.filter_jit(solve)(vector), expected)
+    _, tangent = eqx.filter_jvp(solve, (vector,), (vector,))
+    assert tree_allclose(tangent, expected)
+
+
 @pytest.mark.parametrize("scalar_type", (complex, np.complex128, np.asarray))
 @pytest.mark.parametrize("divide", (False, True))
 @pytest.mark.parametrize("value", (1 + 0j, 1 + 2j, -1 + 2j, 2j))
