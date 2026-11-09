@@ -8,14 +8,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Lint and test at both ends of the supported range: the oldest Python with the
+  # oldest declared dependencies, and the newest Python with the newest dependencies.
+  # `UV_RESOLUTION` takes effect because `uv.lock` is not committed, so `uv run`
+  # resolves afresh. (jax>=0.11 requires Python>=3.12, so on 3.11 a plain resolve would
+  # in any case pick the oldest jax line; `lowest-direct` makes the floors of every
+  # direct dependency, including equinox and jaxtyping, explicit and tested.)
   lint:
-    name: lint
+    name: lint (py${{ matrix.python-version }}, ${{ matrix.deps }})
     strategy:
       matrix:
-        python-version: [ 3.11 ]
         os: [ ubuntu-latest ]
+        # A matrix dimension, so that each `include` below extends one combination
+        # instead of the second overwriting the first.
+        deps: [ lowest, newest ]
+        include:
+          - deps: lowest
+            python-version: "3.11"
+            resolution: lowest-direct
+          - deps: newest
+            python-version: "3.15"
+            resolution: highest
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    env:
+      UV_RESOLUTION: ${{ matrix.resolution }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -41,12 +58,15 @@ jobs:
           uv run -- python .github/scripts/check_test_groups.py
 
   test:
-    name: test (${{ matrix.group }})
+    name: test (py${{ matrix.python-version }}, ${{ matrix.deps }}, ${{ matrix.group }})
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ 3.11 ]
         os: [ ubuntu-latest ]
+        # See `lint` above. As with `group`, `deps` is a matrix dimension so that each
+        # `include` entry keyed on it below extends its own half of the jobs, instead
+        # of the second overwriting the first.
+        deps: [ lowest, newest ]
         # Split by measured runtime so that the slowest job bounds the wall clock.
         # The three second-order-autodiff files dominate the suite and so get a job
         # each; everything else is fast enough to share.
@@ -62,6 +82,12 @@ jobs:
           - vmap
           - core
         include:
+          - deps: lowest
+            python-version: "3.11"
+            resolution: lowest-direct
+          - deps: newest
+            python-version: "3.15"
+            resolution: highest
           - group: jvp-jvp-1
             files: test_jvp_jvp1.py
           - group: jvp-jvp-2
@@ -77,6 +103,8 @@ jobs:
               test_singular.py test_solve.py test_transpose.py
               test_well_posed.py test_gram_partner.py
     runs-on: ${{ matrix.os }}
+    env:
+      UV_RESOLUTION: ${{ matrix.resolution }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
