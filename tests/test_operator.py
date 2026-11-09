@@ -886,6 +886,8 @@ def test_normal_solve_reshaping_identity(dtype, left):
     assert tree_allclose(eqx.filter_jit(solve)(vector), expected)
     _, tangent = eqx.filter_jvp(solve, (vector,), (vector,))
     assert tree_allclose(tangent, expected)
+
+
 @pytest.mark.parametrize("scalar_type", (complex, np.complex128, np.asarray))
 @pytest.mark.parametrize("divide", (False, True))
 @pytest.mark.parametrize("value", (1 + 0j, 1 + 2j, -1 + 2j, 2j))
