@@ -23,7 +23,7 @@ from jaxtyping import Array, PyTree
 from .._misc import resolve_rcond
 from .._operator import AbstractLinearOperator, max_rank
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -36,7 +36,7 @@ from .misc import (
 _SVDState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
 
 
-class SVD(AbstractLinearSolver[_SVDState]):
+class SVD(AbstractDirectLinearSolver[_SVDState]):
     """SVD solver for linear systems.
 
     This solver can handle any operator, even nonsquare or singular ones. In these
@@ -123,6 +123,30 @@ class SVD(AbstractLinearSolver[_SVDState]):
         conj_state = (u.conj(), s, vt.conj()), packed_structures
         conj_options = {}
         return conj_state, conj_options
+
+    def slogdet(self, state: _SVDState, options: dict[str, Any]) -> tuple[Array, Array]:
+        del options
+        (u, s, vt), _ = state
+        m, _ = u.shape
+        _, n = vt.shape
+        rcond = resolve_rcond(self.rcond, n, m, s.dtype)
+        rcond_arr = jnp.array(rcond, dtype=s.dtype)
+        if s.size > 0:
+            threshold = rcond_arr * s[0]
+        else:
+            threshold = rcond_arr
+        mask = s > threshold
+        # Log-pseudodeterminant: sum of logs of non-zero singular values only.
+        # Zero singular values (below threshold) contribute 0 via log(1) = 0.
+        # For full-rank operators this equals the true logabsdet.
+        safe_s = jnp.where(mask, s, 1.0)
+        lad = jnp.sum(jnp.log(safe_s))
+        # Sign is not recoverable from SVD alone:
+        #   full-rank square: needs sign(det(U)) * sign(det(V^T)), O(n^3) extra work
+        #   full-rank rectangular: future work via QR Householder vectors
+        #   rank-deficient: needs an eigensolver for pseudodeterminant sign
+        sign = jnp.full((), jnp.nan, dtype=s.dtype)
+        return sign, lad
 
     def assume_full_rank(self):
         return False

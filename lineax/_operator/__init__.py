@@ -18,6 +18,7 @@ from .base import (
     diagonal as diagonal,
     first_column as first_column,
     has_unit_diagonal as has_unit_diagonal,
+    in_dtype as in_dtype,
     is_circulant as is_circulant,
     is_diagonal as is_diagonal,
     is_hermitian as is_hermitian,

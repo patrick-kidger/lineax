@@ -49,7 +49,10 @@ from ._solver import (
     QR,
     SVD,
 )
-from ._solver.base import AbstractLinearSolver as AbstractLinearSolver
+from ._solver.base import (
+    AbstractDirectLinearSolver as AbstractDirectLinearSolver,
+    AbstractLinearSolver as AbstractLinearSolver,
+)
 from ._solver.misc import pack_structures
 from ._tags import (
     invert_tags,

@@ -14,13 +14,15 @@
 
 from typing import Any, TypeAlias
 
+import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
-from .._misc import resolve_rcond
+from .._misc import resolve_rcond, unit_phase
 from .._operator import AbstractLinearOperator, diagonal, has_unit_diagonal, is_diagonal
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -33,7 +35,7 @@ from .misc import (
 _DiagonalState: TypeAlias = tuple[Array | None, PackedStructures]
 
 
-class Diagonal(AbstractLinearSolver[_DiagonalState]):
+class Diagonal(AbstractDirectLinearSolver[_DiagonalState]):
     """Diagonal solver for linear systems.
 
     Requires that the operator be diagonal. Then $Ax = b$, with $A = diag[a]$, is
@@ -100,6 +102,32 @@ class Diagonal(AbstractLinearSolver[_DiagonalState]):
         conj_options = {}
         conj_state = conj_diag, packed_structures
         return conj_state, conj_options
+
+    def slogdet(
+        self, state: _DiagonalState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        del options
+        diag, packed_structures = state
+        if diag is None:
+            # A unit diagonal has determinant one. `sign` takes the operator's dtype,
+            # so a complex operator yields a complex `sign`, matching the other paths.
+            leaves, treedef = packed_structures.value
+            out_structure, _ = jtu.tree_unflatten(treedef, leaves)
+            with jax.numpy_dtype_promotion("standard"):
+                dtype = jnp.result_type(*jtu.tree_leaves(out_structure))
+            return jnp.ones((), dtype), jnp.zeros((), jnp.finfo(dtype).dtype)
+        if not self.well_posed:
+            (size,) = diag.shape
+            rcond = resolve_rcond(self.rcond, size, size, diag.dtype)
+            abs_diag = jnp.abs(diag)
+            mask = abs_diag > rcond * jnp.max(abs_diag)
+            safe_diag = jnp.where(mask, diag, 1.0)
+            sign = jnp.prod(unit_phase(safe_diag))
+            lad = jnp.sum(jnp.where(mask, jnp.log(abs_diag), 0.0))
+        else:
+            sign = jnp.prod(unit_phase(diag))
+            lad = jnp.sum(jnp.log(jnp.abs(diag)))
+        return sign, lad
 
     def assume_full_rank(self):
         return self.well_posed
