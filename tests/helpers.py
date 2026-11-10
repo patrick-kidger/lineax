@@ -27,11 +27,11 @@ import numpy as np
 from equinox.internal import ω
 
 
-def _zero_smallest_circulant_mode(column, zero_mask=None):
-    """Zero a circulant's smallest-magnitude eigenvalue(s) (FFT mode(s)), or the modes
-    in `zero_mask`. Real columns stay real via `rfft`/`irfft`, whose modes other than
-    the zero frequency and Nyquist each stand for a conjugate *pair* of eigenvalues,
-    zeroed together."""
+def _zero_circulant_modes(column, zero_mask=None):
+    """Zero the eigenvalues (FFT modes) of a circulant selected by `zero_mask`,
+    defaulting to the smallest-magnitude one. Real columns stay real via
+    `rfft`/`irfft`, whose modes other than the zero frequency and Nyquist each stand
+    for a conjugate *pair* of eigenvalues, zeroed together."""
     n = column.shape[0]
     if jnp.iscomplexobj(column):
         eig = jnp.fft.fft(column)
@@ -97,7 +97,7 @@ def _construct_matrix_impl(
             if has_tag(tags, lx.circulant_tag):
                 # Circulancy is structural in the FFT domain, so zero the smallest
                 # eigenvalue(s) there.
-                column = _zero_smallest_circulant_mode(matrix[:, 0])
+                column = _zero_circulant_modes(matrix[:, 0])
                 row, col = jnp.ogrid[:size, :size]
                 matrix = column[(row - col) % size]
             else:
@@ -174,7 +174,7 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
         zero_mask = jnp.abs(eig) < 1e-8 * jnp.max(jnp.abs(eig))
         row, col = jnp.ogrid[:size, :size]
         for _ in range(num - 1):
-            t_column = _zero_smallest_circulant_mode(
+            t_column = _zero_circulant_modes(
                 jr.normal(getkey(), (size,), dtype=dtype), zero_mask
             )
             out.append(t_column[(row - col) % size])
@@ -187,7 +187,18 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
             t_d = jnp.where(kept, jr.normal(getkey(), (size,), dtype=dtype), 0)
             out.append(jnp.diag(t_d))
     else:
-        hermitian_family = tags != ()
+        # The family must keep the primal's tags along the path. Only untagged and
+        # Hermitian-family tags are handled here; anything else (e.g. a complex
+        # `symmetric_tag`, whose tangents must be complex symmetric rather than
+        # Hermitian) needs its own construction.
+        hermitian_tags = (
+            lx.hermitian_tag,
+            lx.positive_semidefinite_tag,
+            lx.negative_semidefinite_tag,
+            lx.semidefinite_tag,
+        )
+        hermitian_family = any(has_tag(tags, tag) for tag in hermitian_tags)
+        assert hermitian_family or tags == (), f"No tangent construction for {tags=}"
         # Unit null vectors; the projection below is invariant to their sign/phase.
         u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
         u = u_full[:, -1]
