@@ -124,14 +124,21 @@ def _construct_matrix_impl(
     return matrix
 
 
-def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
+def cond_cutoff(solver) -> float:
+    """The largest condition number a randomly generated test matrix may have for
+    `solver` to be expected to meet the suite's tight tolerances. `Normal` solvers
+    work with `A^H A`, which squares the condition number, hence the square root.
+    """
     if isinstance(solver, lx.Normal):
-        cond_cutoff = math.sqrt(1000)
+        return math.sqrt(1000)
     else:
-        cond_cutoff = 1000
+        return 1000
+
+
+def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
+    cutoff = cond_cutoff(solver)
     return tuple(
-        _construct_matrix_impl(getkey, tags, size, dtype, cond_cutoff, i)
-        for i in range(num)
+        _construct_matrix_impl(getkey, tags, size, dtype, cutoff, i) for i in range(num)
     )
 
 
