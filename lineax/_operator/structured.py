@@ -67,7 +67,7 @@ def _identity_dtype(operator) -> jnp.dtype:
     leaves = jtu.tree_leaves(operator.in_structure())
     with jax.numpy_dtype_promotion("standard"):
         if len(leaves) == 0:
-            return default_floating_dtype()
+            return jnp.dtype(default_floating_dtype())
         else:
             return jnp.result_type(*leaves)
 

@@ -8,12 +8,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Lint and test at both ends of the supported range: the oldest Python with the
+  # oldest declared dependencies, and the newest Python with the newest dependencies.
+  # `uv.lock` is not committed, so each job locks afresh with its own resolution, then
+  # runs every later step with `UV_FROZEN`. Without `UV_FROZEN`, a plain `uv run`
+  # would silently re-resolve to the newest versions. Locking (rather than exporting
+  # `UV_RESOLUTION` for the whole job) also keeps the resolution away from the
+  # environments `prek` builds for its own hooks.
+  #
+  # jax>=0.11 requires Python>=3.12, so on 3.11 a plain resolve would in any case pick
+  # the oldest jax line; `lowest-direct` makes the floors of every direct dependency,
+  # including equinox and jaxtyping, explicit and tested.
+  #
+  # The newest end is 3.14 rather than 3.15 because jaxtyping's import hook does not
+  # yet support Python 3.15 (`cache_from_source()` changed signature).
   lint:
-    name: lint
+    name: lint (py${{ matrix.python-version }}, ${{ matrix.deps }})
     strategy:
       matrix:
-        python-version: [ 3.11 ]
         os: [ ubuntu-latest ]
+        # A matrix dimension, so that each `include` below extends one combination
+        # instead of the second overwriting the first.
+        deps: [ lowest, newest ]
+        include:
+          - deps: lowest
+            python-version: "3.11"
+            resolution: lowest-direct
+          - deps: newest
+            python-version: "3.14"
+            resolution: highest
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -27,9 +50,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv run echo done
+          uv lock --resolution ${{ matrix.resolution }}
+          uv sync --frozen
 
       - name: Checks with pre-commit
+        env:
+          UV_FROZEN: "1"
         run: |
           uv run prek run --all-files
 
@@ -37,16 +63,21 @@ jobs:
       # newly-added test file would otherwise silently never run in CI. Also run by
       # `pre-commit`, so this is normally caught before pushing.
       - name: Check every test file is in a test group
+        env:
+          UV_FROZEN: "1"
         run: |
           uv run -- python .github/scripts/check_test_groups.py
 
   test:
-    name: test (${{ matrix.group }})
+    name: test (py${{ matrix.python-version }}, ${{ matrix.deps }}, ${{ matrix.group }})
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ 3.11 ]
         os: [ ubuntu-latest ]
+        # See `lint` above. As with `group`, `deps` is a matrix dimension so that each
+        # `include` entry keyed on it below extends its own half of the jobs, instead
+        # of the second overwriting the first.
+        deps: [ lowest, newest ]
         # Split by measured runtime so that the slowest job bounds the wall clock.
         # The three second-order-autodiff files dominate the suite and so get a job
         # each; everything else is fast enough to share.
@@ -62,6 +93,12 @@ jobs:
           - vmap
           - core
         include:
+          - deps: lowest
+            python-version: "3.11"
+            resolution: lowest-direct
+          - deps: newest
+            python-version: "3.14"
+            resolution: highest
           - group: jvp-jvp-1
             files: test_jvp_jvp1.py
           - group: jvp-jvp-2
@@ -88,13 +125,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv run echo done
+          uv lock --resolution ${{ matrix.resolution }}
+          uv sync --frozen
 
       # One `pytest` process per file, matching `python -m tests`, which does this to
       # avoid out-of-memorying.
       - name: Test with pytest
         env:
           FILES: ${{ matrix.files }}
+          UV_FROZEN: "1"
         run: |
           status=0
           for name in $FILES; do
