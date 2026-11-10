@@ -238,9 +238,9 @@ def test_nonsquare_mat_vec(solver, full_rank, jvp, wide, dtype, getkey):
         # nontrivial rank 2 sparsity pattern
         matrix = matrix.at[1:, 1:].set(0)
     vector = jr.normal(getkey(), (out_size,), dtype=dtype)
-    lx_solve = lambda mat, vec: lx.linear_solve(
-        lx.MatrixLinearOperator(mat), vec, solver
-    ).value
+    lx_solve = lambda mat, vec: (
+        lx.linear_solve(lx.MatrixLinearOperator(mat), vec, solver).value
+    )
     jnp_solve = lambda mat, vec: jnp.linalg.lstsq(mat, vec)[0]  # pyright: ignore
     if jvp:
         lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))
@@ -289,9 +289,9 @@ def test_nonsquare_vec(solver, full_rank, jvp, wide, dtype, getkey):
         # nontrivial rank 2 sparsity pattern
         matrix = matrix.at[1:, 1:].set(0)
     vector = jr.normal(getkey(), (out_size,), dtype=dtype)
-    lx_solve = lambda vec: lx.linear_solve(
-        lx.MatrixLinearOperator(matrix), vec, solver
-    ).value
+    lx_solve = lambda vec: (
+        lx.linear_solve(lx.MatrixLinearOperator(matrix), vec, solver).value
+    )
     jnp_solve = lambda vec: jnp.linalg.lstsq(matrix, vec)[0]  # pyright: ignore
     if jvp:
         lx_solve = eqx.filter_jit(ft.partial(eqx.filter_jvp, lx_solve))

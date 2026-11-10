@@ -32,7 +32,6 @@ from jaxtyping import (
 from .._custom_types import sentinel
 from .._misc import (
     cyclic_reverse,
-    default_floating_dtype,
     inexact_asarray,
     strip_weak_dtype,
 )
@@ -44,11 +43,13 @@ from .base import (
     FlatPyTree,
     has_real_dtype,
     has_unit_diagonal,
+    in_dtype,
     inexact_structure,
     is_circulant,
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_symmetric,
@@ -58,18 +59,6 @@ from .base import (
     materialise,
     tridiagonal,
 )
-
-
-def _identity_dtype(operator) -> jnp.dtype:
-    """The dtype of an `IdentityLinearOperator`'s entries, as promoted across its
-    input structure.
-    """
-    leaves = jtu.tree_leaves(operator.in_structure())
-    with jax.numpy_dtype_promotion("standard"):
-        if len(leaves) == 0:
-            return jnp.dtype(default_floating_dtype())
-        else:
-            return jnp.result_type(*leaves)
 
 
 # `structure` must be static as with `JacobianLinearOperator`
@@ -138,7 +127,7 @@ class IdentityLinearOperator(AbstractLinearOperator):
             return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
-        return jnp.eye(self.in_size(), dtype=_identity_dtype(self))
+        return jnp.eye(self.in_size(), dtype=in_dtype(self))
 
     def transpose(self):
         return IdentityLinearOperator(self.out_structure(), self.in_structure())
@@ -310,9 +299,18 @@ for transform in (linearise, materialise):
         return operator
 
 
+@is_materialised.register(IdentityLinearOperator)
+@is_materialised.register(DiagonalLinearOperator)
+@is_materialised.register(TridiagonalLinearOperator)
+@is_materialised.register(CirculantLinearOperator)
+def _(operator):
+    # Building the dense matrix from the stored entries costs no `mv`s.
+    return True
+
+
 @diagonal.register(IdentityLinearOperator)
 def _(operator):
-    return jnp.ones(operator.in_size(), dtype=_identity_dtype(operator))
+    return jnp.ones(operator.in_size(), dtype=in_dtype(operator))
 
 
 @diagonal.register(DiagonalLinearOperator)
@@ -334,7 +332,7 @@ def _(operator):
 @tridiagonal.register(IdentityLinearOperator)
 def _(operator):
     size = operator.in_size()
-    dtype = _identity_dtype(operator)
+    dtype = in_dtype(operator)
     main_diagonal = jnp.ones(size, dtype=dtype)
     off_diagonal = jnp.zeros(size - 1, dtype=dtype)
     return main_diagonal, off_diagonal, off_diagonal

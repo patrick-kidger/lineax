@@ -28,6 +28,7 @@ from jaxtyping import (
     Array,
     Inexact,
     PyTree,  # pyright: ignore
+    Scalar,
     Shaped,
 )
 
@@ -358,6 +359,83 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 
 
 @ft.singledispatch
+def is_materialised(operator: AbstractLinearOperator) -> bool:
+    """Returns whether the operator's entries are already stored in memory, so that
+    [`lineax.AbstractLinearOperator.as_matrix`][] is essentially free.
+
+    For an operator defined only through its matrix-vector product (e.g.
+    [`lineax.FunctionLinearOperator`][]), `as_matrix` instead costs one `mv` per
+    column. Fast paths consult this to decide between materialising an operator and
+    probing it.
+
+    This is a conservative performance hint, not a correctness property: operator
+    types without a registered rule report `False`.
+    """
+    return False
+
+
+def in_dtype(operator: AbstractLinearOperator) -> jnp.dtype:
+    """The dtype of `operator`'s entries, as promoted across its input structure."""
+    leaves = jtu.tree_leaves(operator.in_structure())
+    with jax.numpy_dtype_promotion("standard"):
+        if len(leaves) == 0:
+            return jnp.dtype(default_floating_dtype())
+        else:
+            return jnp.result_type(*leaves)
+
+
+def diagonal_via_mv(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
+    """Extracts the diagonal via a single `operator.mv` against a vector of ones.
+
+    Valid whenever `is_diagonal(operator)`.
+    """
+    with jax.ensure_compile_time_eval():
+        basis = jtu.tree_map(
+            lambda s: jnp.ones(s.shape, s.dtype), operator.in_structure()
+        )
+    diag_as_pytree = operator.mv(basis)
+    diag, _ = jfu.ravel_pytree(diag_as_pytree)
+    return diag
+
+
+def tridiagonal_via_coloring(operator: AbstractLinearOperator):
+    """Extracts the tridiagonal bands via three `vmap`-ed `operator.mv` calls,
+    according to a 3-colouring of the input.
+
+    Valid whenever `is_tridiagonal(operator)`.
+    """
+    with jax.ensure_compile_time_eval():
+        flat, unravel = strip_weak_dtype(
+            eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+        )
+
+        basis = jnp.zeros((3, flat.size), dtype=flat.dtype)
+        for i in range(3):
+            basis = basis.at[i, i::3].set(1.0)
+
+        basis = jax.vmap(unravel)(basis)
+
+        coloring = jnp.arange(flat.size) % 3
+
+    compressed_as_pytree = jax.vmap(operator.mv)(basis)
+    compressed_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(compressed_as_pytree)
+
+    # unique_indices propagates through linear_transpose to set unique_indices=True
+    # on the scatter, allowing assignment rather than accumulation.
+    rows = jnp.arange(flat.size)
+    diag = compressed_flat.at[coloring, rows].get(
+        wrap_negative_indices=False, unique_indices=True
+    )
+    lower_diag = compressed_flat.at[coloring[:-1], rows[1:]].get(
+        wrap_negative_indices=False, unique_indices=True
+    )
+    upper_diag = compressed_flat.at[coloring[1:], rows[:-1]].get(
+        wrap_negative_indices=False, unique_indices=True
+    )
+    return diag, lower_diag, upper_diag
+
+
+@ft.singledispatch
 def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     """Extracts the diagonal from a linear operator, and returns a vector.
 
@@ -375,6 +453,16 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     function ensures that you always get the most efficient implementation.
     """
     _default_not_implemented("diagonal", operator)
+
+
+def trace(operator: AbstractLinearOperator) -> Scalar:
+    """Computes the trace of a linear operator.
+
+    Shorthand for `jnp.sum(diagonal(operator))`, not a singledispatch function. We
+    don't attempt special handling of constant diagonal operators here and instead
+    defer to XLA to recognise the broadcast followed by a reduction.
+    """
+    return jnp.sum(diagonal(operator))
 
 
 @ft.singledispatch
