@@ -51,10 +51,10 @@ def test_small_singular(make_operator, solver, tags, ops, getkey, dtype):
     assert tree_allclose(x, jax_x, atol=tol, rtol=tol)
 
 
-# `construct_singular_matrix` has no way to build a singular *circulant* matrix (its
-# `zero` method clears the leading row, which the circulant construction then
-# overwrites), so `Circulant` is excluded from the parametrised singular tests above --
-# including their JVP coverage. Build one directly instead, by zeroing an eigenvalue.
+# `construct_singular_matrix` builds singular circulants by zeroing the smallest FFT
+# mode, so the parametrised singular tests above cover `Circulant` too. This test
+# predates that and is kept for its explicit check of the `_gram_partner` JVP path,
+# with a hand-picked (rather than smallest) zeroed eigenvalue.
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_circulant_singular_jvp(getkey, dtype):
     size = 6
@@ -91,6 +91,30 @@ def test_circulant_singular_jvp(getkey, dtype):
     # The JVP takes the `_gram_partner` path, as `Circulant.assume_full_rank()` is
     # `False`: the gram matrix `AᴴA` is itself circulant, with eigenvalues `|λ|²`.
     assert tree_allclose(t_x, true_t_x, atol=tol, rtol=tol)
+
+    # `AutoLinearSolver(well_posed=False)` dispatches to the same pseudo-solve.
+    operator = lx.CirculantLinearOperator(column)
+    auto = lx.AutoLinearSolver(well_posed=False)
+    assert tree_allclose(lx.linear_solve(operator, vector, auto).value, x)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_circulant_singular_well_posed_raises(getkey, dtype):
+    # `well_posed=True` promises nonsingularity, so a zero eigenvalue is not filtered
+    # and the solve is reported as failing rather than silently returning a
+    # pseudoinverse solution. Failure detection is division-based, so it fires on
+    # *exactly* zero eigenvalues -- which is what the common user-constructed
+    # singular circulants have: any column summing to zero (difference and Laplacian
+    # kernels) cancels exactly in the zero-frequency bin.
+    operator = lx.CirculantLinearOperator(
+        jnp.array([1.0, -1.0, 2.0, -2.0, 3.0, -3.0], dtype=dtype)
+    )
+    vector = jr.normal(getkey(), (6,), dtype=dtype)
+    for solver in (lx.Circulant(well_posed=True), lx.AutoLinearSolver(well_posed=True)):
+        sol = lx.linear_solve(operator, vector, solver, throw=False)
+        assert sol.result != lx.RESULTS.successful
+        with pytest.raises(Exception):
+            lx.linear_solve(operator, vector, solver)
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
@@ -279,32 +303,6 @@ def test_nonsquare_vec(solver, full_rank, jvp, wide, dtype, getkey):
     x = lx_solve(*args)  # pyright: ignore
     true_x = jnp_solve(*args)
     assert tree_allclose(x, true_x, atol=1e-4, rtol=1e-4)
-
-
-@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
-def test_circulant_singular(getkey, dtype):
-    # A column summing to zero gives a zero eigenvalue at the zero frequency, so the
-    # operator is singular but still circulant.
-    column = jnp.array([1.0, -1.0, 2.0, -2.0], dtype=dtype)
-    operator = lx.CirculantLinearOperator(column)
-    matrix = operator.as_matrix()
-    vec = jr.normal(getkey(), (4,), dtype=dtype)
-
-    # The DFT diagonalises, so zeroing the vanishing eigenvalue is exactly the
-    # pseudoinverse.
-    expected = jnp.linalg.pinv(matrix) @ vec
-    assert tree_allclose(lx.linear_solve(operator, vec, lx.Circulant()).value, expected)
-    auto = lx.AutoLinearSolver(well_posed=False)
-    assert tree_allclose(lx.linear_solve(operator, vec, auto).value, expected)
-
-    # `well_posed=True` promises nonsingularity, so the zero eigenvalue is not filtered
-    # and the solve is reported as failing rather than silently returning a
-    # pseudoinverse solution.
-    for solver in (lx.Circulant(well_posed=True), lx.AutoLinearSolver(well_posed=True)):
-        sol = lx.linear_solve(operator, vec, solver, throw=False)
-        assert sol.result != lx.RESULTS.successful
-        with pytest.raises(Exception):
-            lx.linear_solve(operator, vec, solver)
 
 
 def test_circulant_singular_rcond_size():
