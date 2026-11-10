@@ -34,6 +34,71 @@ from .helpers import (
 )
 
 
+class _CustomMatrixOperator(lx.AbstractLinearOperator):
+    matrix: jax.Array
+
+    def mv(self, vector):
+        return self.matrix @ vector
+
+    def as_matrix(self):
+        return self.matrix
+
+    def transpose(self):
+        return _CustomMatrixOperator(self.matrix.T)
+
+    def in_structure(self):
+        return jax.ShapeDtypeStruct((self.matrix.shape[1],), self.matrix.dtype)
+
+    def out_structure(self):
+        return jax.ShapeDtypeStruct((self.matrix.shape[0],), self.matrix.dtype)
+
+
+class _PositiveSemidefiniteOperator(_CustomMatrixOperator):
+    pass
+
+
+@lx.is_positive_semidefinite.register(_PositiveSemidefiniteOperator)
+def _(_operator):
+    return True
+
+
+def test_custom_operator_unregistered_tags():
+    operator = _CustomMatrixOperator(jnp.array([[2.0, 1.0], [3.0, 4.0]]))
+    checks = (
+        lx.is_symmetric,
+        lx.is_hermitian,
+        lx.is_diagonal,
+        lx.is_tridiagonal,
+        lx.is_circulant,
+        lx.has_unit_diagonal,
+        lx.is_lower_triangular,
+        lx.is_upper_triangular,
+        lx.is_positive_semidefinite,
+        lx.is_negative_semidefinite,
+        lx.is_semidefinite,
+    )
+    for check in checks:
+        assert check(operator) is False
+
+    solver = lx.AutoLinearSolver(well_posed=True)
+    assert isinstance(solver.select_solver(operator), lx.LU)
+    expected = jnp.array([1.0, 2.0])
+    solution = lx.linear_solve(operator, operator.mv(expected)).value
+    assert jnp.allclose(solution, expected)
+
+
+def test_custom_operator_registered_tag():
+    operator = _PositiveSemidefiniteOperator(jnp.array([[3.0, 1.0], [1.0, 2.0]]))
+    assert lx.is_positive_semidefinite(operator) is True
+    assert lx.is_semidefinite(operator) is True
+    assert lx.is_hermitian(operator) is True
+    solver = lx.AutoLinearSolver(well_posed=True)
+    assert isinstance(solver.select_solver(operator), lx.Cholesky)
+
+    with pytest.raises(ValueError, match="must have matching input and output"):
+        _PositiveSemidefiniteOperator(jnp.ones((2, 3)))
+
+
 @pytest.mark.parametrize("make_operator", make_operators)
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_ops(make_operator, getkey, dtype):

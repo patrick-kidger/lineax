@@ -465,7 +465,7 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_symmetric", operator)
+    return False
 
 
 @ft.singledispatch
@@ -510,7 +510,7 @@ def is_diagonal(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_diagonal", operator)
+    return False
 
 
 @ft.singledispatch
@@ -528,7 +528,7 @@ def is_tridiagonal(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_tridiagonal", operator)
+    return False
 
 
 @ft.singledispatch
@@ -546,7 +546,7 @@ def has_unit_diagonal(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("has_unit_diagonal", operator)
+    return False
 
 
 @ft.singledispatch
@@ -564,7 +564,7 @@ def is_lower_triangular(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_lower_triangular", operator)
+    return False
 
 
 @ft.singledispatch
@@ -582,7 +582,7 @@ def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_upper_triangular", operator)
+    return False
 
 
 @ft.singledispatch
@@ -600,7 +600,7 @@ def is_circulant(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_circulant", operator)
+    return False
 
 
 @ft.singledispatch
@@ -618,7 +618,7 @@ def is_positive_semidefinite(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_positive_semidefinite", operator)
+    return False
 
 
 @ft.singledispatch
@@ -636,7 +636,7 @@ def is_negative_semidefinite(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_negative_semidefinite", operator)
+    return False
 
 
 @ft.singledispatch
