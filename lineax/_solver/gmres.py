@@ -260,7 +260,11 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
         def main_gmres(y):
             # see the comment at the end of `_arnoldi_gram_schmidt` for a discussion
             # of `initial_breakdown`
-            r_normalised, r_norm, initial_breakdown = self._normalise(r, eps=None)
+            # Arnoldi minimizes the preconditioned residual, while the outer
+            # loop checks convergence using the original system's residual.
+            r_normalised, r_norm, initial_breakdown = self._normalise(
+                preconditioner.mv(r), eps=None
+            )
             basis_init = jtu.tree_map(
                 lambda x: jnp.pad(x[..., None], ((0, 0),) * x.ndim + ((0, restart),)),
                 r_normalised,
@@ -322,7 +326,7 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
 
         first_pass = eqxi.unvmap_any(first_pass)
         y_new, diff, breakdown = lax.cond(first_pass, first_gmres, main_gmres, y)
-        r_new = preconditioner.mv((vector**ω - operator.mv(y_new) ** ω).ω)
+        r_new = (vector**ω - operator.mv(y_new) ** ω).ω
 
         return y_new, r_new, breakdown, diff
 
@@ -410,7 +414,9 @@ class GMRES(AbstractLinearSolver[_GMRESState]):
     ) -> tuple[PyTree[Array], Inexact[Array, ""], Bool[ArrayLike, ""]]:
         norm = two_norm(x)
         if eps is None:
-            eps = jnp.finfo(norm.dtype).eps
+            # A small preconditioned residual may still represent a large
+            # original residual. Do not use machine precision as an absolute cutoff.
+            eps = jnp.finfo(norm.dtype).tiny
         else:
             eps = jnp.astype(eps, norm.dtype)
         breakdown = norm < eps  # pyright: ignore

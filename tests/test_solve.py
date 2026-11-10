@@ -16,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import lineax.internal as lxi
 import pytest
 
 from .helpers import (
@@ -42,6 +43,32 @@ def test_gmres_large_dense(getkey):
     lx_soln = lx.linear_solve(operator, b, solver).value
 
     assert tree_allclose(lx_soln, true_x, atol=tol, rtol=tol)
+
+
+@pytest.mark.parametrize(
+    "dtype, scale, tol",
+    [(jnp.float32, 1e8, 1e-5), (jnp.float64, 1e8, 1e-6)],
+)
+@pytest.mark.parametrize("norm", [lxi.max_norm, lxi.two_norm])
+def test_gmres_preconditioned_residual(dtype, scale, tol, norm):
+    """Jacobi preconditioning must not relax the original system's tolerance."""
+    matrix = scale * jnp.array([[2.0, 1.0], [1.0, 2.0]], dtype=dtype)
+    vector = jnp.array([1.0, 2.0], dtype=dtype)
+    operator = lx.MatrixLinearOperator(matrix)
+    preconditioner = lx.DiagonalLinearOperator(1 / jnp.diag(matrix))
+    solver = lx.GMRES(rtol=tol, atol=tol, norm=norm, restart=1, max_steps=100)
+
+    solution = lx.linear_solve(
+        operator, vector, solver, options={"preconditioner": preconditioner}
+    )
+
+    assert norm(vector - matrix @ solution.value) <= tol + tol * norm(vector)
+    assert tree_allclose(
+        scale * solution.value,
+        jnp.array([0.0, 1.0], dtype=dtype),
+        atol=3 * tol,
+        rtol=3 * tol,
+    )
 
 
 def test_nontrivial_pytree_operator():
