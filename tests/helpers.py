@@ -238,12 +238,7 @@ solvers_tags_pseudoinverse = [
     (lx.Diagonal(), lx.diagonal_tag, False),
     (lx.Diagonal(), (lx.diagonal_tag, lx.unit_diagonal_tag), False),
     (lx.Tridiagonal(), lx.tridiagonal_tag, False),
-    # An explicit `rcond`: the singular test matrices are exactly rank-deficient, but
-    # a `JacobianLinearOperator` reconstructs its matrix through `jacfwd`, lifting the
-    # zeroed FFT mode to ~1e-15 -- right at the default threshold `eps * n * max|eig|`
-    # for an (unsquared) circulant spectrum, so masking becomes a coin toss. 1e-10 is
-    # far above that noise and far below any retained mode.
-    (lx.Circulant(rcond=1e-10), lx.circulant_tag, True),
+    (lx.Circulant(), lx.circulant_tag, True),
     (lx.LU(), (), False),
     (lx.QR(), (), False),
     (lx.SVD(), (), True),
