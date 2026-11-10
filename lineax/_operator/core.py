@@ -64,6 +64,7 @@ from .base import (
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_semidefinite,
@@ -526,6 +527,17 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return strip_weak_dtype(
             eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
         )
+
+
+@is_materialised.register(MatrixLinearOperator)
+@is_materialised.register(PyTreeLinearOperator)
+def _(operator):
+    return True
+
+
+# `FunctionLinearOperator` and `JacobianLinearOperator` are defined only through
+# their matrix-vector product, so they fall through to `is_materialised`'s
+# default `False`.
 
 
 def try_structured_materialise(
