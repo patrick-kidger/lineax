@@ -46,9 +46,11 @@ from .base import (
     as_frozenset,
     conj,
     diagonal,
+    diagonal_via_mv,
     first_column,
     has_real_dtype,
     has_unit_diagonal,
+    in_dtype,
     is_circulant,
     is_diagonal,
     is_hermitian,
@@ -64,6 +66,7 @@ from .base import (
     materialise,
     max_rank,
     tridiagonal,
+    tridiagonal_via_coloring,
 )
 
 
@@ -272,11 +275,17 @@ def _(operator):
 
 @diagonal.register(TaggedLinearOperator)
 def _(operator):
+    if has_unit_diagonal(operator):
+        return jnp.ones(operator.in_size(), dtype=in_dtype(operator))
+    if is_diagonal(operator) and not is_materialised(operator.operator):
+        return diagonal_via_mv(operator)
     return diagonal(operator.operator)
 
 
 @tridiagonal.register(TaggedLinearOperator)
 def _(operator):
+    if is_tridiagonal(operator) and not is_materialised(operator.operator):
+        return tridiagonal_via_coloring(operator)
     return tridiagonal(operator.operator)
 
 
