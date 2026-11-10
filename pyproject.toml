@@ -23,7 +23,6 @@ docs = [
 ]
 tests = [
   "beartype>=0.20",
-  "equinox",
   "pytest>=8",
   "pytest-xdist>=3.6",
   "jaxlib"
