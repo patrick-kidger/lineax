@@ -88,15 +88,12 @@ class AbstractLinearOperator(eqx.Module):
 
     def __check_init__(self):
         if is_symmetric(self) or is_hermitian(self):
-            # In particular, we check that dtypes match.
-            in_structure = self.in_structure()
-            out_structure = self.out_structure()
-            # `is` check to handle the possibility of a tracer.
-            if eqx.tree_equal(in_structure, out_structure) is not True:
+            # In particular, this checks that dtypes match.
+            if not has_matching_structures(self):
                 raise ValueError(
                     "Symmetric/Hermitian matrices must have matching input and output "
-                    f"structures. Got input structure {in_structure} and output "
-                    f"structure {out_structure}."
+                    f"structures. Got input structure {self.in_structure()} and output "
+                    f"structure {self.out_structure()}."
                 )
         # A diagonal operator may map between different structures (as a reshaping
         # `IdentityLinearOperator` does), but must still be square.

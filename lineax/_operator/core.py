@@ -555,7 +555,7 @@ def try_structured_materialise(
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
     """
-    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+    if not has_matching_structures(operator):
         return operator
     if is_diagonal(operator):
         diag_flat = diagonal(operator)

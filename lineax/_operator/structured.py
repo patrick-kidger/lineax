@@ -41,6 +41,7 @@ from .base import (
     diagonal,
     first_column,
     FlatPyTree,
+    has_matching_structures,
     has_real_dtype,
     has_unit_diagonal,
     in_dtype,
@@ -371,7 +372,7 @@ def _(operator):
 @is_symmetric.register(IdentityLinearOperator)
 @is_hermitian.register(IdentityLinearOperator)
 def _(operator):
-    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
+    return has_matching_structures(operator)
 
 
 @is_symmetric.register(DiagonalLinearOperator)
@@ -455,7 +456,7 @@ def _(operator):
 
 @is_positive_semidefinite.register(IdentityLinearOperator)
 def _(operator):
-    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
+    return has_matching_structures(operator)
 
 
 @is_negative_semidefinite.register(IdentityLinearOperator)
