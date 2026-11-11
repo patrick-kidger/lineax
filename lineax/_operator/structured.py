@@ -51,7 +51,6 @@ from .base import (
     is_hermitian,
     is_lower_triangular,
     is_materialised,
-    is_negative_semidefinite,
     is_positive_semidefinite,
     is_symmetric,
     is_tridiagonal,
@@ -385,24 +384,10 @@ def _(operator):
     return has_real_dtype(operator)
 
 
-@is_symmetric.register(TridiagonalLinearOperator)
-@is_hermitian.register(TridiagonalLinearOperator)
-@is_symmetric.register(CirculantLinearOperator)
-@is_hermitian.register(CirculantLinearOperator)
-def _(operator):
-    return False
-
-
 @is_diagonal.register(IdentityLinearOperator)
 @is_diagonal.register(DiagonalLinearOperator)
 def _(operator):
     return True
-
-
-@is_diagonal.register(TridiagonalLinearOperator)
-@is_diagonal.register(CirculantLinearOperator)
-def _(operator):
-    return operator.in_size() == 1
 
 
 for check in (is_lower_triangular, is_upper_triangular):
@@ -412,14 +397,8 @@ for check in (is_lower_triangular, is_upper_triangular):
     def _(operator):
         return True
 
-    @check.register(TridiagonalLinearOperator)  # pyright: ignore
-    @check.register(CirculantLinearOperator)  # pyright: ignore
-    def _(operator):
-        return False
 
-
-@is_tridiagonal.register(IdentityLinearOperator)
-@is_tridiagonal.register(DiagonalLinearOperator)
+# (Identity and Diagonal are tridiagonal via the default, as diagonal operators.)
 @is_tridiagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return True
@@ -459,20 +438,10 @@ def _(operator):
     return has_matching_structures(operator)
 
 
-@is_negative_semidefinite.register(IdentityLinearOperator)
-def _(operator):
-    return False
-
-
-# TODO: refine these. For now we conservatively report Diagonal, Tridiagonal and
-# Circulant operators as not having unit diagonal and as not being (semi)definite.
-for check in (has_unit_diagonal, is_positive_semidefinite, is_negative_semidefinite):
-
-    @check.register(DiagonalLinearOperator)
-    @check.register(TridiagonalLinearOperator)
-    @check.register(CirculantLinearOperator)
-    def _(operator):
-        return False
+# Not registered, so `False` via the defaults: symmetry, Hermitian-ness, triangularity,
+# unit diagonal and (semi)definiteness of Tridiagonal and Circulant operators, and unit
+# diagonal and (semi)definiteness of Diagonal operators.
+# TODO: refine these (e.g. from the stored values, where known at trace time).
 
 
 @conj.register(IdentityLinearOperator)

@@ -401,16 +401,8 @@ def _(operator):
     return min(dim_bound, 2 * max_rank(operator.primal))
 
 
-for check in (
-    has_unit_diagonal,
-    is_positive_semidefinite,
-    is_negative_semidefinite,
-    is_semidefinite,
-):
-
-    @check.register(TangentLinearOperator)  # pyright: ignore
-    def _(operator, check=check):
-        return False
+# A tangent has no particular unit diagonal or (semi)definiteness, so those checks
+# are not registered for `TangentLinearOperator` (and are `False` via the defaults).
 
 
 # Scaling/negating preserves these structural properties
@@ -465,10 +457,8 @@ def _(operator):
     return _scalar_is_real(operator.scalar) and is_semidefinite(operator.operator)
 
 
-# has_unit_diagonal is NOT preserved by negation
-@has_unit_diagonal.register(NegLinearOperator)
-def _(operator):
-    return False
+# has_unit_diagonal is NOT preserved by negation, so is not registered for
+# `NegLinearOperator` (and is `False` via the default).
 
 
 # has_unit_diagonal is preserved by scaling/dividing only when scalar == 1
