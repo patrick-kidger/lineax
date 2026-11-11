@@ -82,6 +82,8 @@ Marks that an operator is Hermitian (self-adjoint). (As a matrix, $A = A^*$, the
 
 Marks that an operator is diagonal. (As a matrix, it must have zeros in the off-diagonal entries.)
 
+A diagonal operator is also treated as symmetric (and, for real dtypes, Hermitian) when its input and output structures match. It may instead map between different structures with the same number of elements, as a reshaping [`lineax.IdentityLinearOperator`][] does, in which case it is not equal to its transpose.
+
 For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Diagonal`][] as the solver.
 
 ---

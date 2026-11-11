@@ -48,6 +48,7 @@ from .base import (
     diagonal,
     diagonal_via_mv,
     first_column,
+    has_matching_structures,
     has_real_dtype,
     has_unit_diagonal,
     in_dtype,
@@ -578,7 +579,6 @@ def _(operator):
 
 
 for check, tag in (
-    (is_symmetric, symmetric_tag),
     (is_diagonal, diagonal_tag),
     (has_unit_diagonal, unit_diagonal_tag),
     (is_lower_triangular, lower_triangular_tag),
@@ -625,7 +625,29 @@ def _(operator):
         or semidefinite_tag in tags
     ):
         return True
-    if symmetric_tag in tags or diagonal_tag in tags:
+    if symmetric_tag in tags:
+        return has_real_dtype(operator)
+    if diagonal_tag in tags and has_matching_structures(operator):
+        return has_real_dtype(operator)
+    return False
+
+
+# `is_symmetric` is special-cased for the same reason, mirroring the rule for the core
+# operators: a diagonal tag implies symmetry only with matching input and output
+# structures, and semidefinite/Hermitian tags imply it only for real dtypes.
+@is_symmetric.register(TaggedLinearOperator)
+def _(operator):
+    tags = operator.tags
+    if is_symmetric(operator.operator) or symmetric_tag in tags:
+        return True
+    if diagonal_tag in tags and has_matching_structures(operator):
+        return True
+    if (
+        hermitian_tag in tags
+        or positive_semidefinite_tag in tags
+        or negative_semidefinite_tag in tags
+        or semidefinite_tag in tags
+    ):
         return has_real_dtype(operator)
     return False
 

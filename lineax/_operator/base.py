@@ -36,7 +36,7 @@ from .._misc import (
     default_floating_dtype,
     strip_weak_dtype,
 )
-from .._tags import MaxRankTag
+from .._tags import diagonal_tag, MaxRankTag
 
 
 def as_frozenset(x: object | Iterable[object]) -> frozenset[object]:
@@ -97,6 +97,14 @@ class AbstractLinearOperator(eqx.Module):
                     "Symmetric/Hermitian matrices must have matching input and output "
                     f"structures. Got input structure {in_structure} and output "
                     f"structure {out_structure}."
+                )
+        # A diagonal operator may map between different structures (as a reshaping
+        # `IdentityLinearOperator` does), but must still be square.
+        if diagonal_tag in getattr(self, "tags", frozenset()):
+            if self.in_size() != self.out_size():
+                raise ValueError(
+                    f"An operator tagged with `{diagonal_tag}` must be square. Got "
+                    f"input size {self.in_size()} and output size {self.out_size()}."
                 )
 
     @abc.abstractmethod
@@ -495,6 +503,17 @@ def tridiagonal(
     that you always get the most efficient implementation.
     """
     _default_not_implemented("tridiagonal", operator)
+
+
+def has_matching_structures(operator) -> bool:
+    """Check if an operator's input and output structures (shapes and dtypes) match.
+
+    A diagonal operator is symmetric only when this holds: e.g. a reshaping
+    `IdentityLinearOperator` is diagonal (as a matrix acting on flattened inputs) but
+    is not equal to its transpose, which maps between the structures the other way.
+    """
+    # `is` check to handle the possibility of a tracer.
+    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
 
 
 def has_real_dtype(operator) -> bool:
