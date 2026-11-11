@@ -471,4 +471,9 @@ def test_conjugated_state(
         if pseudoinverse
         else jnp.linalg.solve(matrix, rhs)
     )
-    assert tree_allclose(actual, expected, rtol=1e-4, atol=1e-5)
+    # Scale `atol` by the size of the solution: the error of a solve is relative to
+    # that, so a small entry beside large ones cannot meet an elementwise tolerance in
+    # single precision (condition numbers up to `cond_cutoff` give errors of order
+    # `cond * eps * max|x|`).
+    atol = 1e-4 * float(jnp.max(jnp.abs(expected)))
+    assert tree_allclose(actual, expected, rtol=1e-4, atol=atol)
