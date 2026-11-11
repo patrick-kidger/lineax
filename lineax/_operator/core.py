@@ -58,6 +58,7 @@ from .base import (
     diagonal_via_mv,
     first_column,
     FlatPyTree,
+    has_matching_structures,
     has_real_dtype,
     has_unit_diagonal,
     in_dtype,
@@ -554,7 +555,7 @@ def try_structured_materialise(
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
     """
-    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+    if not has_matching_structures(operator):
         return operator
     if is_diagonal(operator):
         diag_flat = diagonal(operator)
@@ -672,7 +673,9 @@ def _(operator):
 
 @diagonal.register(PyTreeLinearOperator)
 def _(operator):
-    if is_diagonal(operator):
+    # The block-diagonal fast path pairs each output leaf with the input leaf at the
+    # same position, so needs matching structures (a diagonal operator may reshape).
+    if is_diagonal(operator) and has_matching_structures(operator):
 
         def extract_diag(keypath, struct, subpytree):
             block = _leaf_from_keypath(subpytree, keypath)
@@ -740,8 +743,12 @@ def _(operator):
 @is_symmetric.register(JacobianLinearOperator)
 @is_symmetric.register(FunctionLinearOperator)
 def _(operator):
-    # Symmetric (A = A^T) if explicitly tagged symmetric or diagonal
-    if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
+    # Symmetric (A = A^T) if explicitly tagged symmetric, or tagged diagonal with
+    # matching input and output structures (a diagonal operator may also reshape, as
+    # `IdentityLinearOperator` can, in which case it differs from its transpose).
+    if symmetric_tag in operator.tags:
+        return True
+    if diagonal_tag in operator.tags and has_matching_structures(operator):
         return True
     # semidefinite/Hermitian imply A = A^T only for real dtypes
     if (
@@ -766,7 +773,9 @@ def _(operator):
         or semidefinite_tag in operator.tags
     ):
         return True
-    if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
+    if symmetric_tag in operator.tags:
+        return has_real_dtype(operator)
+    if diagonal_tag in operator.tags and has_matching_structures(operator):
         return has_real_dtype(operator)
     return False
 

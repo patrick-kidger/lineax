@@ -1228,3 +1228,89 @@ def test_imaginary_scalar_cached_svd(scalar_type):
     solution = lx.linear_solve(operator, vector, solver, state=state).value
     np.testing.assert_allclose(solution, np.asarray(vector) / (2j), atol=1e-12)
     assert lx.max_rank(operator) == 3
+
+
+# A diagonal tag implies symmetry only when the input and output structures match: a
+# diagonal operator may also reshape, as a reshaping `IdentityLinearOperator` does.
+def _reshaping_diagonal_operators(dtype):
+    flat = jax.ShapeDtypeStruct((3,), dtype)
+    diag = jnp.array([2, 4, 8], dtype)
+    fn = lambda x: {"v": diag * x}
+    return diag, {
+        "function": lx.FunctionLinearOperator(fn, flat, lx.diagonal_tag),
+        "pytree": lx.PyTreeLinearOperator(
+            {"v": jnp.diag(diag)}, {"v": flat}, lx.diagonal_tag
+        ),
+        "jacobian": lx.JacobianLinearOperator(
+            lambda x, _: fn(x), jnp.ones(3, dtype), None, lx.diagonal_tag
+        ),
+        "tagged": lx.TaggedLinearOperator(
+            lx.FunctionLinearOperator(fn, flat), lx.diagonal_tag
+        ),
+    }
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize("kind", ("function", "pytree", "jacobian", "tagged"))
+def test_reshaping_diagonal_operator(dtype, kind):
+    diag, operators = _reshaping_diagonal_operators(dtype)
+    operator = operators[kind]
+    assert lx.is_diagonal(operator)
+    assert not lx.is_symmetric(operator)
+    assert not lx.is_hermitian(operator)
+    assert tree_allclose(lx.diagonal(operator), diag)
+    assert tree_allclose(lx.tridiagonal(operator)[0], diag)
+
+    x = jnp.array([1, 2, 3], dtype)
+    b = {"v": diag * x}
+    solver = lx.AutoLinearSolver(well_posed=True)
+    assert isinstance(solver.select_solver(operator), lx.Diagonal)
+    assert tree_allclose(lx.linear_solve(operator, b).value, x)
+
+    transpose = operator.T
+    assert eqx.tree_equal(transpose.in_structure(), operator.out_structure())
+    assert eqx.tree_equal(transpose.out_structure(), operator.in_structure())
+    assert tree_allclose(transpose.mv(b), diag * b["v"])
+    assert tree_allclose(lx.materialise(operator).mv(x), b)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_diagonal_tag_symmetric_with_matching_structures(dtype):
+    struct = jax.ShapeDtypeStruct((3,), dtype)
+    diag = jnp.array([2, 4, 8], dtype)
+    real = not jnp.issubdtype(dtype, jnp.complexfloating)
+    function = lx.FunctionLinearOperator(lambda x: diag * x, struct, lx.diagonal_tag)
+    tagged = lx.TaggedLinearOperator(
+        lx.MatrixLinearOperator(jnp.diag(diag)), lx.diagonal_tag
+    )
+    for operator in (function, tagged):
+        assert lx.is_symmetric(operator)
+        assert lx.is_hermitian(operator) == real
+    # The symmetric shortcut: no need to transpose the function.
+    assert function.T is function
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize(
+    "tag", (lx.symmetric_tag, lx.hermitian_tag, lx.positive_semidefinite_tag)
+)
+def test_reshaping_operator_impossible_tags(dtype, tag):
+    # Unlike a diagonal tag, these promise properties that require matching input
+    # and output structures, so they are rejected at construction.
+    flat = jax.ShapeDtypeStruct((3,), dtype)
+    with pytest.raises(ValueError, match="must have matching input and output"):
+        lx.FunctionLinearOperator(lambda x: {"v": x}, flat, (lx.diagonal_tag, tag))
+    with pytest.raises(ValueError, match="must have matching input and output"):
+        lx.TaggedLinearOperator(
+            lx.FunctionLinearOperator(lambda x: {"v": x}, flat), tag
+        )
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_diagonal_tag_requires_square(dtype):
+    with pytest.raises(ValueError, match="must be square"):
+        lx.MatrixLinearOperator(jnp.ones((4, 3), dtype), lx.diagonal_tag)
+    with pytest.raises(ValueError, match="must be square"):
+        lx.TaggedLinearOperator(
+            lx.MatrixLinearOperator(jnp.ones((4, 3), dtype)), lx.diagonal_tag
+        )

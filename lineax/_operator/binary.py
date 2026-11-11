@@ -25,6 +25,7 @@ from .base import (
     conj,
     diagonal,
     first_column,
+    has_matching_structures,
     has_real_dtype,
     has_unit_diagonal,
     is_circulant,
@@ -319,7 +320,7 @@ for check in (
 # still land back where it started, and the result is then genuinely symmetric.
 @is_symmetric.register(ComposedLinearOperator)
 def _(operator):
-    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+    if not has_matching_structures(operator):
         return False
     return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
 
@@ -329,7 +330,7 @@ def _(operator):
 # structure check is on the composition itself, for the same reason as `is_symmetric`.
 @is_hermitian.register(ComposedLinearOperator)
 def _(operator):
-    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+    if not has_matching_structures(operator):
         return False
     return (
         is_diagonal(operator.operator1)
