@@ -37,47 +37,25 @@ from .._misc import (
     strip_weak_dtype,
 )
 from .._tags import (
-    circulant_tag,
-    diagonal_tag,
-    hermitian_tag,
-    lower_triangular_tag,
-    negative_semidefinite_tag,
-    positive_semidefinite_tag,
-    semidefinite_tag,
-    symmetric_tag,
     transpose_tags,
-    tridiagonal_tag,
-    unit_diagonal_tag,
-    upper_triangular_tag,
 )
 from .base import (
     AbstractLinearOperator,
     as_frozenset,
     conj,
     diagonal,
-    diagonal_via_mv,
     first_column,
     FlatPyTree,
     has_matching_structures,
-    has_real_dtype,
-    has_unit_diagonal,
-    in_dtype,
     inexact_structure,
     is_circulant,
     is_diagonal,
-    is_hermitian,
-    is_lower_triangular,
     is_materialised,
-    is_negative_semidefinite,
-    is_positive_semidefinite,
-    is_semidefinite,
     is_symmetric,
     is_tridiagonal,
-    is_upper_triangular,
     linearise,
     materialise,
     tridiagonal,
-    tridiagonal_via_coloring,
 )
 from .structured import (
     CirculantLinearOperator,
@@ -689,35 +667,12 @@ def _(operator):
         return jnp.diag(operator.as_matrix())
 
 
-@diagonal.register(JacobianLinearOperator)
-@diagonal.register(FunctionLinearOperator)
-def _(operator):
-    if has_unit_diagonal(operator):
-        return jnp.ones(operator.in_size(), dtype=in_dtype(operator))
-    if is_diagonal(operator):
-        return diagonal_via_mv(operator)
-    return diagonal(materialise(operator))
-
-
 # tridiagonal
 
 
 @tridiagonal.register(MatrixLinearOperator)
 @tridiagonal.register(PyTreeLinearOperator)
 def _(operator):
-    matrix = operator.as_matrix()
-    assert matrix.ndim == 2
-    main_diagonal = jnp.diagonal(matrix, offset=0)
-    upper_diagonal = jnp.diagonal(matrix, offset=1)
-    lower_diagonal = jnp.diagonal(matrix, offset=-1)
-    return main_diagonal, lower_diagonal, upper_diagonal
-
-
-@tridiagonal.register(JacobianLinearOperator)
-@tridiagonal.register(FunctionLinearOperator)
-def _(operator):
-    if is_tridiagonal(operator):
-        return tridiagonal_via_coloring(operator)
     matrix = operator.as_matrix()
     assert matrix.ndim == 2
     main_diagonal = jnp.diagonal(matrix, offset=0)
@@ -733,99 +688,6 @@ def _(operator):
 @first_column.register(PyTreeLinearOperator)
 def _(operator):
     return operator.as_matrix()[:, 0]
-
-
-# checks
-
-
-@is_symmetric.register(MatrixLinearOperator)
-@is_symmetric.register(PyTreeLinearOperator)
-@is_symmetric.register(JacobianLinearOperator)
-@is_symmetric.register(FunctionLinearOperator)
-def _(operator):
-    # Symmetric (A = A^T) if explicitly tagged symmetric, or tagged diagonal with
-    # matching input and output structures (a diagonal operator may also reshape, as
-    # `IdentityLinearOperator` can, in which case it differs from its transpose).
-    if symmetric_tag in operator.tags:
-        return True
-    if diagonal_tag in operator.tags and has_matching_structures(operator):
-        return True
-    # semidefinite/Hermitian imply A = A^T only for real dtypes
-    if (
-        positive_semidefinite_tag in operator.tags
-        or negative_semidefinite_tag in operator.tags
-        or semidefinite_tag in operator.tags
-        or hermitian_tag in operator.tags
-    ):
-        return has_real_dtype(operator)
-    return False
-
-
-@is_hermitian.register(MatrixLinearOperator)
-@is_hermitian.register(PyTreeLinearOperator)
-@is_hermitian.register(JacobianLinearOperator)
-@is_hermitian.register(FunctionLinearOperator)
-def _(operator):
-    if (
-        hermitian_tag in operator.tags
-        or positive_semidefinite_tag in operator.tags
-        or negative_semidefinite_tag in operator.tags
-        or semidefinite_tag in operator.tags
-    ):
-        return True
-    if symmetric_tag in operator.tags:
-        return has_real_dtype(operator)
-    if diagonal_tag in operator.tags and has_matching_structures(operator):
-        return has_real_dtype(operator)
-    return False
-
-
-@is_semidefinite.register(MatrixLinearOperator)
-@is_semidefinite.register(PyTreeLinearOperator)
-@is_semidefinite.register(JacobianLinearOperator)
-@is_semidefinite.register(FunctionLinearOperator)
-def _(operator):
-    return (
-        semidefinite_tag in operator.tags
-        or positive_semidefinite_tag in operator.tags
-        or negative_semidefinite_tag in operator.tags
-    )
-
-
-@is_diagonal.register(MatrixLinearOperator)
-@is_diagonal.register(PyTreeLinearOperator)
-@is_diagonal.register(JacobianLinearOperator)
-@is_diagonal.register(FunctionLinearOperator)
-def _(operator):
-    return diagonal_tag in operator.tags or (
-        operator.in_size() == 1 and operator.out_size() == 1
-    )
-
-
-@is_tridiagonal.register(MatrixLinearOperator)
-@is_tridiagonal.register(PyTreeLinearOperator)
-@is_tridiagonal.register(JacobianLinearOperator)
-@is_tridiagonal.register(FunctionLinearOperator)
-def _(operator):
-    return tridiagonal_tag in operator.tags or diagonal_tag in operator.tags
-
-
-# The remaining checks are true iff the operator carries the corresponding tag.
-for check, tag in (
-    (has_unit_diagonal, unit_diagonal_tag),
-    (is_lower_triangular, lower_triangular_tag),
-    (is_upper_triangular, upper_triangular_tag),
-    (is_positive_semidefinite, positive_semidefinite_tag),
-    (is_negative_semidefinite, negative_semidefinite_tag),
-    (is_circulant, circulant_tag),
-):
-
-    @check.register(MatrixLinearOperator)
-    @check.register(PyTreeLinearOperator)
-    @check.register(JacobianLinearOperator)
-    @check.register(FunctionLinearOperator)
-    def _(operator, tag=tag):
-        return tag in operator.tags
 
 
 # conj
