@@ -1314,3 +1314,19 @@ def test_diagonal_tag_requires_square(dtype):
         lx.TaggedLinearOperator(
             lx.MatrixLinearOperator(jnp.ones((4, 3), dtype)), lx.diagonal_tag
         )
+
+
+@pytest.mark.parametrize("tag", (lx.tridiagonal_tag, lx.circulant_tag))
+@pytest.mark.parametrize("construction", ("matrix", "function", "tagged"))
+def test_structured_tags_require_square(tag, construction):
+    with pytest.raises(ValueError, match="must be square"):
+        if construction == "matrix":
+            lx.MatrixLinearOperator(jnp.ones((3, 4)), tag)
+        elif construction == "function":
+            lx.FunctionLinearOperator(
+                lambda x: jnp.concatenate([x, x[:1]]),
+                jax.ShapeDtypeStruct((3,), jnp.float64),
+                tag,
+            )
+        else:
+            lx.TaggedLinearOperator(lx.MatrixLinearOperator(jnp.ones((3, 4))), tag)

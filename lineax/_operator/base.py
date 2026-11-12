@@ -36,7 +36,7 @@ from .._misc import (
     default_floating_dtype,
     strip_weak_dtype,
 )
-from .._tags import diagonal_tag, MaxRankTag
+from .._tags import circulant_tag, diagonal_tag, MaxRankTag, tridiagonal_tag
 
 
 def as_frozenset(x: object | Iterable[object]) -> frozenset[object]:
@@ -95,13 +95,18 @@ class AbstractLinearOperator(eqx.Module):
                     f"structures. Got input structure {self.in_structure()} and output "
                     f"structure {self.out_structure()}."
                 )
-        # A diagonal operator may map between different structures (as a reshaping
-        # `IdentityLinearOperator` does), but must still be square.
-        if diagonal_tag in getattr(self, "tags", frozenset()):
-            if self.in_size() != self.out_size():
+        # Diagonal, tridiagonal and circulant matrices are square: `diagonal`,
+        # `tridiagonal`, `first_column` and the corresponding solvers all assume so.
+        # (A diagonal operator may still map between different structures, as a
+        # reshaping `IdentityLinearOperator` does.) Only check what a tag promises;
+        # deriving these properties here would require every operator type to
+        # register `is_diagonal`/`is_tridiagonal`/`is_circulant`.
+        tags = getattr(self, "tags", frozenset())
+        for tag in (diagonal_tag, tridiagonal_tag, circulant_tag):
+            if tag in tags and self.in_size() != self.out_size():
                 raise ValueError(
-                    f"An operator tagged with `{diagonal_tag}` must be square. Got "
-                    f"input size {self.in_size()} and output size {self.out_size()}."
+                    f"An operator tagged with `{tag}` must be square. Got input size "
+                    f"{self.in_size()} and output size {self.out_size()}."
                 )
 
     @abc.abstractmethod

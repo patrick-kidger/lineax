@@ -39,6 +39,8 @@ In this way they are analogous to flags like `scipy.linalg.solve(..., assume_a="
     lx.linear_solve(operator, vector)  # Returns the wrong solution!
     ```
 
+Tags describe the operator as a matrix, i.e. acting on its flattened input and output (as returned by `operator.as_matrix()`). The one thing that *is* checked is whether a tag is possible for an operator of that shape: an error is raised when the operator is constructed if a symmetric, Hermitian or (semi)definite operator has different input and output structures, or if a diagonal, tridiagonal or circulant operator is not square.
+
 Of the built-in operators: [`lineax.MatrixLinearOperator`][], [`lineax.PyTreeLinearOperator`][], [`lineax.JacobianLinearOperator`][], [`lineax.FunctionLinearOperator`][], [`lineax.TaggedLinearOperator`][] directly support a `tags` argument that mark them as having certain characteristics:
 ```python
 operator = lx.MatrixLinearOperator(matrix, lx.symmetric_tag)
@@ -86,9 +88,17 @@ For example, the default solver for [`lineax.linear_solve`][] uses this to dispa
 
 ---
 
+::: lineax.tridiagonal_tag
+
+Marks that an operator is tridiagonal. (As a square matrix, it must have zeros everywhere except on the main diagonal and the diagonals immediately above and below it.)
+
+For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Tridiagonal`][] as the solver.
+
+---
+
 ::: lineax.circulant_tag
 
-Marks that an operator is circulant. (As a matrix $A$ of size $n$, then each column is the previous one rolled downwards, wrapping around: $A_{ij} = c_{(i - j) \bmod n}$, where the vector $c$ is the first column.)
+Marks that an operator is circulant. (As a square matrix $A$ of size $n$, then each column is the previous one rolled downwards, wrapping around: $A_{ij} = c_{(i - j) \bmod n}$, where the vector $c$ is the first column.)
 
 For example, the default solver for [`lineax.linear_solve`][] uses this to dispatch to [`lineax.Circulant`][] as the solver.
 
