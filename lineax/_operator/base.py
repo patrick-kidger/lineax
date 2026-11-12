@@ -290,12 +290,7 @@ class AbstractLinearOperator(eqx.Module):
 
 
 def _tags(operator: "AbstractLinearOperator") -> Iterable[object]:
-    """The tags an operator declares, or none if it has no `tags` attribute.
-
-    The defaults of the property checks below read tags through this, so that an
-    operator type which registers nothing behaves like a `FunctionLinearOperator` with
-    the same tags (and an operator type with no `tags` at all declares no structure).
-    """
+    """The tags an operator declares, or none if it has no `tags` attribute. """
     return getattr(operator, "tags", frozenset())
 
 
@@ -604,11 +599,9 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
     Either `True` or `False.`
     """
     tags = _tags(operator)
-    # Symmetric (A = A^T) if explicitly tagged symmetric, or tagged diagonal with
-    # matching input and output structures (a diagonal operator may also reshape, as
-    # `IdentityLinearOperator` can, in which case it differs from its transpose).
     if symmetric_tag in tags:
         return True
+    # A reshaping diagonal operator differs from its transpose
     if diagonal_tag in tags and has_matching_structures(operator):
         return True
     # Semidefinite/Hermitian imply A = A^T only for real dtypes.
@@ -645,9 +638,6 @@ def is_hermitian(operator: AbstractLinearOperator) -> bool:
         return True
     if is_semidefinite(operator):
         return True
-    # `is_symmetric` first: `has_real_dtype` promotes across the operator's dtypes,
-    # which strict promotion rejects for mixed-precision structures that never needed
-    # it (e.g. an untagged operator on float32 and float64 leaves).
     if is_symmetric(operator) and has_real_dtype(operator):
         return True
     return False
@@ -668,9 +658,7 @@ def is_diagonal(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    # A 1x1 operator is diagonal whatever its value. (Nothing implied by symmetry is
-    # inferred from size alone, as that would impose matching input and output
-    # structures at construction.)
+    # A 1x1 operator is diagonal
     return diagonal_tag in _tags(operator) or (
         operator.in_size() == 1 and operator.out_size() == 1
     )
