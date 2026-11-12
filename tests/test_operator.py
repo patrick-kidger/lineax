@@ -40,6 +40,93 @@ from .helpers import (
 )
 
 
+# Custom operators (issue #248). An operator type that registers none of the property
+# checks behaves like a `FunctionLinearOperator` with the same tags; the core operators
+# exercise those defaults with tags, so these tests cover what only a third-party
+# operator does: having no `tags` attribute at all, and registering only some checks.
+# Adapted from #271.
+class _CustomMatrixOperator(lx.AbstractLinearOperator):
+    matrix: jax.Array
+
+    def mv(self, vector):
+        return self.matrix @ vector
+
+    def as_matrix(self):
+        return self.matrix
+
+    def transpose(self):
+        return _CustomMatrixOperator(self.matrix.T)
+
+    def in_structure(self):
+        return jax.ShapeDtypeStruct((self.matrix.shape[1],), self.matrix.dtype)
+
+    def out_structure(self):
+        return jax.ShapeDtypeStruct((self.matrix.shape[0],), self.matrix.dtype)
+
+
+class _PositiveSemidefiniteOperator(_CustomMatrixOperator):
+    pass
+
+
+@lx.is_positive_semidefinite.register(_PositiveSemidefiniteOperator)
+def _(_operator):
+    return True
+
+
+def test_custom_operator_unregistered():
+    matrix = jnp.array([[4.0, 1.0, 9.0], [2.0, 5.0, 1.0], [7.0, 3.0, 6.0]])
+    operator = _CustomMatrixOperator(matrix)
+    checks = (
+        lx.is_symmetric,
+        lx.is_hermitian,
+        lx.is_diagonal,
+        lx.is_tridiagonal,
+        lx.is_circulant,
+        lx.has_unit_diagonal,
+        lx.is_lower_triangular,
+        lx.is_upper_triangular,
+        lx.is_positive_semidefinite,
+        lx.is_negative_semidefinite,
+        lx.is_semidefinite,
+    )
+    for check in checks:
+        assert check(operator) is False
+    solver = lx.AutoLinearSolver(well_posed=True)
+    assert isinstance(solver.select_solver(operator), lx.LU)
+    expected = jnp.array([1.0, 2.0, 3.0])
+    assert tree_allclose(lx.linear_solve(operator, matrix @ expected).value, expected)
+    assert tree_allclose(lx.diagonal(operator), jnp.diag(matrix))
+    main, lower, upper = lx.tridiagonal(operator)
+    assert tree_allclose(main, jnp.diagonal(matrix))
+    assert tree_allclose(lower, jnp.diagonal(matrix, offset=-1))
+    assert tree_allclose(upper, jnp.diagonal(matrix, offset=1))
+
+    # As for `FunctionLinearOperator`, a 1x1 operator is diagonal (and so tridiagonal)
+    # whatever its value, which dispatches to `Diagonal` and so needs `diagonal` to
+    # fall back too. Symmetry is not inferred from size.
+    scalar = _CustomMatrixOperator(jnp.array([[4.0]]))
+    assert lx.is_diagonal(scalar) is True
+    assert lx.is_tridiagonal(scalar) is True
+    assert lx.is_symmetric(scalar) is False
+    assert isinstance(solver.select_solver(scalar), lx.Diagonal)
+    assert tree_allclose(
+        lx.linear_solve(scalar, jnp.array([2.0])).value, jnp.array([0.5])
+    )
+
+
+def test_custom_operator_registered():
+    # Registering only `is_positive_semidefinite` still implies the derived checks.
+    operator = _PositiveSemidefiniteOperator(jnp.array([[3.0, 1.0], [1.0, 2.0]]))
+    assert lx.is_positive_semidefinite(operator) is True
+    assert lx.is_semidefinite(operator) is True
+    assert lx.is_hermitian(operator) is True
+    solver = lx.AutoLinearSolver(well_posed=True)
+    assert isinstance(solver.select_solver(operator), lx.Cholesky)
+
+    with pytest.raises(ValueError, match="must have matching input and output"):
+        _PositiveSemidefiniteOperator(jnp.ones((2, 3)))
+
+
 def _square_matrix_and_tags(make_operator, getkey, dtype, size=3):
     if (
         make_operator is make_trivial_diagonal_operator
