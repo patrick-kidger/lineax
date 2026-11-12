@@ -471,9 +471,12 @@ def test_conjugated_state(
         if pseudoinverse
         else jnp.linalg.solve(matrix, rhs)
     )
-    # Scale `atol` by the size of the solution: the error of a solve is relative to
-    # that, so a small entry beside large ones cannot meet an elementwise tolerance in
-    # single precision (condition numbers up to `cond_cutoff` give errors of order
-    # `cond * eps * max|x|`).
-    atol = 1e-4 * float(jnp.max(jnp.abs(expected)))
+    if jnp.finfo(dtype).bits == 32:
+        # In single precision, scale `atol` by the size of the solution: a solve's error
+        # is relative to that (of order `cond * eps * max|x|`), so a small entry beside
+        # large ones cannot meet an elementwise tolerance. Over 10000 draws of each of
+        # float32 and complex64 the worst error was ~1.2e-5 of `max|x|`.
+        atol = 5e-5 * float(jnp.max(jnp.abs(expected)))
+    else:
+        atol = 1e-5
     assert tree_allclose(actual, expected, rtol=1e-4, atol=atol)
