@@ -290,7 +290,7 @@ class AbstractLinearOperator(eqx.Module):
 
 
 def _tags(operator: "AbstractLinearOperator") -> Iterable[object]:
-    """The tags an operator declares, or none if it has no `tags` attribute. """
+    """The tags an operator declares, or none if it has no `tags` attribute."""
     return getattr(operator, "tags", frozenset())
 
 
