@@ -108,13 +108,19 @@ class AbstractLinearOperator(eqx.Module):
                     f"structures. Got input structure {self.in_structure()} and output "
                     f"structure {self.out_structure()}."
                 )
-        # A diagonal operator may map between different structures (as a reshaping
-        # `IdentityLinearOperator` does), but must still be square.
-        if diagonal_tag in getattr(self, "tags", frozenset()):
-            if self.in_size() != self.out_size():
+        # Diagonal, tridiagonal and circulant matrices are square: `diagonal`,
+        # `tridiagonal`, `first_column` and the corresponding solvers all assume so.
+        # (A diagonal operator may still map between different structures, as a
+        # reshaping `IdentityLinearOperator` does.)
+        for check, name in (
+            (is_diagonal, "diagonal"),
+            (is_tridiagonal, "tridiagonal"),
+            (is_circulant, "circulant"),
+        ):
+            if check(self) and self.in_size() != self.out_size():
                 raise ValueError(
-                    f"An operator tagged with `{diagonal_tag}` must be square. Got "
-                    f"input size {self.in_size()} and output size {self.out_size()}."
+                    f"A {name} operator must be square. Got input size "
+                    f"{self.in_size()} and output size {self.out_size()}."
                 )
 
     @abc.abstractmethod
