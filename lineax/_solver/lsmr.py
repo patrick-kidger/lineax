@@ -145,9 +145,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
         beta = self.norm(u)
 
         def beta_nonzero(beta, u):
-            u = (
-                ω(u) / lax.select(beta == 0.0, jnp.ones_like(beta), beta).astype(dtype)
-            ).ω
+            u = (ω(u) / jnp.where(beta == 0, 1, beta).astype(dtype)).ω
             v = conj(operator).T.mv(u)
             alpha = self.norm(v)
             return u, v, alpha
@@ -158,9 +156,7 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             return u, v, alpha
 
         u, v, alpha = lax.cond(beta == 0.0, beta_zero, beta_nonzero, beta, u)
-        v = (
-            ω(v) / lax.select(alpha == 0.0, jnp.ones_like(alpha), alpha).astype(dtype)
-        ).ω
+        v = (ω(v) / jnp.where(alpha == 0, 1, alpha).astype(dtype)).ω
 
         h = v
         hbar = jtu.tree_map(jnp.zeros_like, operator.in_structure())
@@ -226,19 +222,11 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             st["beta"] = self.norm(st["u"])
 
             def beta_nonzero(alpha, beta, u, v):
-                u = (
-                    ω(u)
-                    / lax.select(beta == 0.0, jnp.ones_like(beta), beta).astype(dtype)
-                ).ω
+                u = (ω(u) / jnp.where(beta == 0, 1, beta).astype(dtype)).ω
                 v = (ω(v) * -beta.astype(dtype)).ω
                 v = (ω(v) + ω(conj(operator).T.mv(u))).ω
                 alpha = self.norm(v)
-                v = (
-                    ω(v)
-                    / lax.select(alpha == 0.0, jnp.ones_like(alpha), alpha).astype(
-                        dtype
-                    )
-                ).ω
+                v = (ω(v) / jnp.where(alpha == 0, 1, alpha).astype(dtype)).ω
                 return alpha, beta, u, v
 
             def beta_zero(alpha, beta, u, v):
@@ -405,17 +393,17 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             return jnp.zeros_like(b), jnp.sign(b), jnp.abs(b)
 
         def b_gt_a(a, b):
-            tau = a / lax.select(b == 0.0, jnp.ones_like(b), b)
+            tau = a / jnp.where(b == 0, 1, b)
             s = jnp.sign(b) / jnp.sqrt(1.0 + tau**2)
             c = s * tau
-            r = b / lax.select(s == 0.0, jnp.ones_like(s), s)
+            r = b / jnp.where(s == 0, 1, s)
             return c, s, r
 
         def a_ge_b(a, b):
-            tau = b / lax.select(a == 0.0, jnp.ones_like(a), a)
+            tau = b / jnp.where(a == 0, 1, a)
             c = jnp.sign(a) / jnp.sqrt(1.0 + tau**2)
             s = c * tau
-            r = a / lax.select(c == 0.0, jnp.ones_like(c), c)
+            r = a / jnp.where(c == 0, 1, c)
             return c, s, r
 
         def either_zero(a, b):

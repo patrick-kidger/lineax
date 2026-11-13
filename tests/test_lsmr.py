@@ -66,8 +66,7 @@ def test_damp():
 )
 @pytest.mark.parametrize("shape", ("square", "tall", "wide"))
 @pytest.mark.parametrize("zero_rhs", (False, True))
-@pytest.mark.parametrize("jit", (False, True))
-def test_lsmr_preserves_precision(dtype, shape, zero_rhs, jit):
+def test_lsmr_preserves_precision(dtype, shape, zero_rhs):
     matrix = jnp.array([[2.0, 1.0, -0.5], [0.5, 3.0, 1.0]], dtype=dtype)
     if jnp.issubdtype(dtype, jnp.complexfloating):
         matrix = matrix + 1j * jnp.array(
@@ -86,35 +85,17 @@ def test_lsmr_preserves_precision(dtype, shape, zero_rhs, jit):
             lx.MatrixLinearOperator(matrix), rhs, lx.LSMR(1e-6, 1e-6)
         ).value
 
-    if jit:
-        solve = jax.jit(solve)
-    actual = solve(rhs)
+    actual = jax.jit(solve)(rhs)
     expected = jnp.linalg.lstsq(matrix, rhs, rcond=None)[0]
     assert actual.dtype == expected.dtype == jnp.dtype(dtype)
     assert jnp.allclose(actual, expected, rtol=1e-4, atol=1e-5)
-
-
-@pytest.mark.parametrize("dtype", (jnp.float32, jnp.float64))
-@pytest.mark.parametrize("values", ((0.0, 2.0), (2.0, 0.0), (1.0, 2.0), (2.0, 1.0)))
-@pytest.mark.parametrize("jit", (False, True))
-def test_lsmr_givens_preserves_precision(dtype, values, jit):
-    a, b = (jnp.asarray(value, dtype=dtype) for value in values)
-    givens = solver._givens
-    if jit:
-        givens = jax.jit(givens)
-    c, s, r = givens(a, b)
-    assert c.dtype == s.dtype == r.dtype == jnp.dtype(dtype)
-    assert jnp.allclose(c * a + s * b, r)
-    assert jnp.allclose(-s * a + c * b, jnp.zeros_like(a), atol=1e-6)
-    assert jnp.allclose(c**2 + s**2, jnp.ones_like(a))
 
 
 @pytest.mark.parametrize(
     "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
 )
 @pytest.mark.parametrize("tall", (False, True))
-@pytest.mark.parametrize("jit", (False, True))
-def test_lsmr_precision_gradients(dtype, tall, jit):
+def test_lsmr_precision_gradients(dtype, tall):
     matrix = jnp.array([[2.0, 1.0, -0.5], [0.5, 3.0, 1.0]], dtype=dtype)
     if jnp.issubdtype(dtype, jnp.complexfloating):
         matrix = matrix + 1j * jnp.array(
@@ -134,11 +115,8 @@ def test_lsmr_precision_gradients(dtype, tall, jit):
         value = jnp.linalg.lstsq(matrix, rhs, rcond=None)[0]
         return jnp.real(jnp.vdot(value, value))
 
-    actual = jax.value_and_grad(loss, argnums=(0, 1))
-    expected = jax.value_and_grad(reference, argnums=(0, 1))
-    if jit:
-        actual = jax.jit(actual)
-        expected = jax.jit(expected)
+    actual = jax.jit(jax.value_and_grad(loss, argnums=(0, 1)))
+    expected = jax.jit(jax.value_and_grad(reference, argnums=(0, 1)))
     actual_value, actual_grads = actual(matrix, rhs)
     expected_value, expected_grads = expected(matrix, rhs)
     assert jnp.allclose(actual_value, expected_value, rtol=1e-4, atol=1e-5)

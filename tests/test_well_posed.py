@@ -24,6 +24,8 @@ from .helpers import (
     make_jacrev_operator,
     ops,
     params,
+    solve_tol,
+    solver_for_dtype,
     solvers,
     tree_allclose,
 )
@@ -31,15 +33,17 @@ from .helpers import (
 
 @pytest.mark.parametrize("make_operator,solver,tags", params(only_pseudo=False))
 @pytest.mark.parametrize("ops", ops)
-@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
 def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
-    if make_operator is make_jacrev_operator and dtype is jnp.complex128:
+    if make_operator is make_jacrev_operator and jnp.issubdtype(
+        dtype, jnp.complexfloating
+    ):
         # JacobianLinearOperator does not support complex dtypes when jac="bwd"
         return
-    if jax.config.jax_enable_x64:  # pyright: ignore
-        tol = 1e-10
-    else:
-        tol = 1e-4
+    tol = solve_tol(dtype)
+    solver = solver_for_dtype(solver, dtype)
     (matrix,) = construct_matrix(getkey, solver, tags, dtype=dtype)
     operator = make_operator(getkey, matrix, tags)
     operator, matrix = ops(operator, matrix)
@@ -54,8 +58,18 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
 
 
 @pytest.mark.parametrize("solver", solvers)
-@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
 def test_pytree_wellposed(solver, getkey, dtype):
+    if isinstance(solver, lx.BiCGStab) and jnp.finfo(dtype).bits == 32:
+        # Deliberately not tested. On random dense nonsymmetric systems this size,
+        # single-precision BiCGStab fails to converge for a few percent of draws even
+        # when well-conditioned (SciPy's fails more often): a limitation of the
+        # algorithm, not of the pytree handling tested here. That is covered for
+        # BiCGStab in double precision, and its single-precision dtype handling by
+        # `test_small_wellposed`.
+        return
     if not isinstance(
         solver,
         (
@@ -68,10 +82,8 @@ def test_pytree_wellposed(solver, getkey, dtype):
             lx.CG,
         ),
     ):
-        if jax.config.jax_enable_x64:  # pyright: ignore
-            tol = 1e-10
-        else:
-            tol = 1e-4
+        tol = solve_tol(dtype)
+        solver = solver_for_dtype(solver, dtype)
 
         true_x = [
             jr.normal(getkey(), shape=(2, 4), dtype=dtype),
@@ -93,7 +105,7 @@ def test_pytree_wellposed(solver, getkey, dtype):
                 ],
             ]
             operator = lx.PyTreeLinearOperator(pytree, out_structure)
-            if jnp.linalg.cond(operator.as_matrix()) < cond_cutoff(solver):
+            if jnp.linalg.cond(operator.as_matrix()) < cond_cutoff(solver, dtype):
                 break
         b = operator.mv(true_x)
         lx_x = lx.linear_solve(operator, b, solver, throw=False)

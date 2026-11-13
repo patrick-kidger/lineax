@@ -124,19 +124,21 @@ def _construct_matrix_impl(
     return matrix
 
 
-def cond_cutoff(solver) -> float:
+def cond_cutoff(solver, dtype=jnp.float64) -> float:
     """The largest condition number a randomly generated test matrix may have for
     `solver` to be expected to meet the suite's tight tolerances. `Normal` solvers
     work with `A^H A`, which squares the condition number, hence the square root.
+    Single precision leaves less headroom, so its cutoff is lower.
     """
+    cutoff = 1000 if jnp.finfo(dtype).bits == 64 else 100
     if isinstance(solver, lx.Normal):
-        return math.sqrt(1000)
+        return math.sqrt(cutoff)
     else:
-        return 1000
+        return cutoff
 
 
 def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
-    cutoff = cond_cutoff(solver)
+    cutoff = cond_cutoff(solver, dtype)
     return tuple(
         _construct_matrix_impl(getkey, tags, size, dtype, cutoff, i) for i in range(num)
     )
@@ -235,6 +237,24 @@ if jax.config.jax_enable_x64:  # pyright: ignore
     tol = 1e-12
 else:
     tol = 1e-6
+
+
+def solve_tol(dtype) -> float:
+    """Accuracy to expect from a well-conditioned solve in `dtype`'s precision."""
+    return 1e-10 if jnp.finfo(dtype).bits == 64 else 1e-3
+
+
+def solver_for_dtype(solver, dtype):
+    """The iterative solvers below are built with tolerance `tol`, which single
+    precision cannot reach; loosen it to the single-precision value.
+    """
+    if jnp.finfo(dtype).bits == 64:
+        return solver
+    return jtu.tree_map(
+        lambda x: 1e-5 if isinstance(x, float) and x == tol else x, solver
+    )
+
+
 solvers_tags_pseudoinverse = [
     (lx.AutoLinearSolver(well_posed=True), (), False),
     (lx.AutoLinearSolver(well_posed=False), (), True),
