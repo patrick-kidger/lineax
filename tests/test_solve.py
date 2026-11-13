@@ -217,6 +217,30 @@ def test_bicgstab_invariant_subspace_rhs(perturbation):
     assert tree_allclose(sol.value, vector / diag)
 
 
+def test_bicgstab_converged_residual_steps_are_genuine():
+    """The guards against an exactly-converged residual must not fire merely because
+    the residual is within tolerance: `r` routinely meets that a few steps before the
+    `y`-space check does, and replacing those steps' `alpha`/`omega` destroys
+    convergence (e.g. needing >2x the steps, or hitting `max_steps`).
+    """
+    n = 20
+    for seed in range(8):
+        key1, key2 = jr.split(jr.key(seed))
+        matrix = jr.normal(key1, (n, n)) + 0.3 * n * jnp.eye(n)
+        vector = jr.normal(key2, (n,))
+        sol = lx.linear_solve(
+            lx.MatrixLinearOperator(matrix),
+            vector,
+            lx.BiCGStab(rtol=1e-5, atol=0.0),
+            throw=False,
+        )
+        assert sol.result == lx.RESULTS.successful
+        assert sol.stats["num_steps"] <= n
+        true_value = jnp.linalg.solve(matrix, vector)
+        error = jnp.linalg.norm(sol.value - true_value) / jnp.linalg.norm(true_value)
+        assert error < 1e-4
+
+
 def test_solver_init_not_differentiated(getkey):
     """stop_gradient should be applied before solver.init, not after.
 
