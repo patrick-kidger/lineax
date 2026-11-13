@@ -163,7 +163,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             x = preconditioner.mv(p_new)
             v_new = operator.mv(x)
 
-            alpha_new = rho_new / tree_dot(r0, v_new)
+            alpha_new = rho_new / jnp.where(r_converged, 1, tree_dot(r0, v_new))
             s = (r**ω - alpha_new * v_new**ω).ω
 
             z = preconditioner.mv(s)
