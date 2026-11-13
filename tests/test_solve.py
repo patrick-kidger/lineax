@@ -200,6 +200,23 @@ def test_iterative_solver_max_steps_only(solver):
     lx.linear_solve(poisson_operator, rhs, solver)
 
 
+@pytest.mark.parametrize("perturbation", (0.0, 1e-9))
+def test_bicgstab_invariant_subspace_rhs(perturbation):
+    """BiCGStab should not produce `nan` when `r0` lies (nearly) in an invariant
+    subspace of the operator, so that it converges in fewer steps than the recurrence
+    expects and its `alpha`/`omega` divisions would otherwise be `0 / 0`.
+    """
+    diag = jnp.array([2.0, -3.0, 5.0, 7.0])
+    operator = lx.MatrixLinearOperator(jnp.diag(diag))
+    # An exact, or nearly exact, eigenvector of the operator.
+    vector = jnp.array([1.0, perturbation, 0.0, 0.0])
+    sol = lx.linear_solve(
+        operator, vector, lx.BiCGStab(rtol=1e-8, atol=1e-8), throw=False
+    )
+    assert sol.result == lx.RESULTS.successful
+    assert tree_allclose(sol.value, vector / diag)
+
+
 def test_solver_init_not_differentiated(getkey):
     """stop_gradient should be applied before solver.init, not after.
 
