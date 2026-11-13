@@ -163,8 +163,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             x = preconditioner.mv(p_new)
             v_new = operator.mv(x)
 
-            r0_dot_v_new = tree_dot(r0, v_new)
-            alpha_new = rho_new / jnp.where(r_converged, 1, r0_dot_v_new)
+            alpha_new = rho_new / tree_dot(r0, v_new)
             s = (r**ω - alpha_new * v_new**ω).ω
 
             z = preconditioner.mv(s)
@@ -177,8 +176,7 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             # to spuriously trigger `breakdown_occurred` -- the next iteration then
             # harmlessly hits the `r_converged` case above instead.
             s_converged = is_converged(s)
-            t2 = tree_dot(t, t)
-            omega_new = tree_dot(s, t) / jnp.where(s_converged, 1, t2)
+            omega_new = tree_dot(s, t) / jnp.where(s_converged, 1, tree_dot(t, t))
             omega_new = jnp.where(s_converged, 1, omega_new)
 
             diff = (alpha_new * x**ω + omega_new * z**ω).ω
