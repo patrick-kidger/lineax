@@ -151,7 +151,11 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             # If `r` is already converged (e.g. `r0` lies in an invariant subspace of
             # the preconditioned operator), `rho_new` below is ~0, and dividing it by
             # the equally-~0 `<r0, v_new>` to form `alpha_new` would be an unguarded
-            # `0 / 0`. Guard it as `scipy`/`jax.scipy`'s `bicgstab` do.
+            # `0 / 0`. Guard it as `scipy`/`jax.scipy`'s `bicgstab` do. Unlike
+            # `omega_new` below, `alpha_new` needs no pinning afterwards: it is then
+            # just `rho_new`, which makes the alpha-step `alpha_new * v_new`
+            # higher-order small (so `s ≈ r`), and cancels against `rho` in the next
+            # iteration's `beta`.
             r_converged = is_converged(r)
 
             rho_new = tree_dot(r0, r)
