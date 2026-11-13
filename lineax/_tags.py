@@ -29,6 +29,7 @@ class _HasRepr:
 
 
 symmetric_tag = _HasRepr("symmetric_tag")
+hermitian_tag = _HasRepr("hermitian_tag")
 diagonal_tag = _HasRepr("diagonal_tag")
 tridiagonal_tag = _HasRepr("tridiagonal_tag")
 unit_diagonal_tag = _HasRepr("unit_diagonal_tag")
@@ -36,6 +37,7 @@ lower_triangular_tag = _HasRepr("lower_triangular_tag")
 upper_triangular_tag = _HasRepr("upper_triangular_tag")
 positive_semidefinite_tag = _HasRepr("positive_semidefinite_tag")
 negative_semidefinite_tag = _HasRepr("negative_semidefinite_tag")
+semidefinite_tag = _HasRepr("semidefinite_tag")
 circulant_tag = _HasRepr("circulant_tag")
 
 
@@ -129,9 +131,11 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
         has_unit_diagonal,
         is_circulant,
         is_diagonal,
+        is_hermitian,
         is_lower_triangular,
         is_negative_semidefinite,
         is_positive_semidefinite,
+        is_semidefinite,
         is_symmetric,
         is_tridiagonal,
         is_upper_triangular,
@@ -142,11 +146,13 @@ def tags_from_checks(operator: "AbstractLinearOperator") -> frozenset[object]:
         tag
         for check, tag in [
             (is_symmetric, symmetric_tag),
+            (is_hermitian, hermitian_tag),
             (is_diagonal, diagonal_tag),
             (is_lower_triangular, lower_triangular_tag),
             (is_upper_triangular, upper_triangular_tag),
             (is_positive_semidefinite, positive_semidefinite_tag),
             (is_negative_semidefinite, negative_semidefinite_tag),
+            (is_semidefinite, semidefinite_tag),
             (has_unit_diagonal, unit_diagonal_tag),
             (is_tridiagonal, tridiagonal_tag),
             (is_circulant, circulant_tag),
@@ -166,10 +172,12 @@ transpose_tags_rules = []
 
 for tag in (
     symmetric_tag,
+    hermitian_tag,
     unit_diagonal_tag,
     diagonal_tag,
     positive_semidefinite_tag,
     negative_semidefinite_tag,
+    semidefinite_tag,
     tridiagonal_tag,
     circulant_tag,
 ):
@@ -231,11 +239,13 @@ invert_tags_rules = []
 
 for tag in (
     symmetric_tag,
+    hermitian_tag,
     diagonal_tag,
     lower_triangular_tag,
     upper_triangular_tag,
     positive_semidefinite_tag,
     negative_semidefinite_tag,
+    semidefinite_tag,
     circulant_tag,
 ):
 

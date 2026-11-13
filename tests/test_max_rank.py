@@ -222,23 +222,28 @@ def test_max_rank_invert_tags_absent_when_no_rank_tag():
 # ---------------------------------------------------------------------------
 
 
-def test_svd_truncates_state_to_max_rank():
-    # A genuinely rank-2 matrix, declared rank 2: SVD state is truncated to 2
-    # components, and the solution matches the untruncated solve.
+def test_svd_truncates_to_max_rank():
+    # A genuinely rank-2 matrix, declared rank 2: SVD truncates to 2 components, and
+    # the solution matches the untruncated solve. The state keeps the full
+    # decomposition, so the trailing components (the null space) remain recoverable.
     u = jax.random.normal(jax.random.PRNGKey(0), (10, 2))
     v = jax.random.normal(jax.random.PRNGKey(1), (10, 2))
     matrix = u @ v.T
     solver = lx.SVD()
 
     plain = lx.MatrixLinearOperator(matrix)
-    (u_full, s_full, vt_full), _ = solver.init(plain, {})
+    (u_full, s_full, vt_full), rank_bound, _ = solver.init(plain, {})
     assert s_full.shape == (10,)
+    assert rank_bound.value == 10
 
     tagged = lx.MatrixLinearOperator(matrix, lx.MaxRankTag(2))
-    (u_t, s_t, vt_t), _ = solver.init(tagged, {})
-    assert u_t.shape == (10, 2)
-    assert s_t.shape == (2,)
-    assert vt_t.shape == (2, 10)
+    (u_t, s_t, vt_t), rank_bound, _ = solver.init(tagged, {})
+    assert rank_bound.value == 2
+    assert u_t.shape == (10, 10)
+    assert s_t.shape == (10,)
+    assert vt_t.shape == (10, 10)
+    assert jnp.allclose(matrix @ vt_t[2:].T, 0, atol=1e-10)
+    assert jnp.allclose(u_t[:, 2:].T @ matrix, 0, atol=1e-10)
 
     vector = jnp.arange(10.0) + 0.5
     x_plain = lx.linear_solve(plain, vector, solver).value
@@ -256,3 +261,102 @@ def test_svd_raises_when_max_rank_too_small():
     vector = jnp.arange(10.0) + 0.5
     with pytest.raises(eqx.EquinoxRuntimeError):
         lx.linear_solve(operator, vector, lx.SVD())
+
+
+# ---------------------------------------------------------------------------
+# HEVD truncation
+# ---------------------------------------------------------------------------
+
+
+def _hermitian_with_spectrum(key, eigvals):
+    # `Q diag(eigvals) Q^T` with `Q` orthogonal: a (real-)Hermitian matrix with the
+    # given eigenvalues. Zeros placed between nonzero eigenvalues of both signs land
+    # in the interior of eigh's ascending order, exercising the fact that HEVD must
+    # truncate by *magnitude* (unlike SVD, where the small values are a contiguous
+    # tail).
+    size = len(eigvals)
+    q, _ = jnp.linalg.qr(jax.random.normal(key, (size, size)))
+    d = jnp.asarray(eigvals, dtype=q.dtype)
+    return (q * d[None, :]) @ q.T
+
+
+def test_hevd_truncates_to_max_rank():
+    # A genuinely rank-2 indefinite Hermitian matrix, declared rank 2: HEVD truncates
+    # to 2 (eigenvalue, eigenvector) pairs and the solution is unchanged.
+    matrix = _hermitian_with_spectrum(jax.random.PRNGKey(0), [3.0, -2.0, 0.0, 0.0, 0.0])
+    solver = lx.HEVD()
+
+    plain = lx.MatrixLinearOperator(matrix, lx.hermitian_tag)
+    (w_full, v_full), rank_bound, _ = solver.init(plain, {})
+    assert w_full.shape == (5,)
+    assert v_full.shape == (5, 5)
+    assert rank_bound.value == 5
+
+    tagged = lx.MatrixLinearOperator(matrix, (lx.hermitian_tag, lx.MaxRankTag(2)))
+    (w_t, v_t), rank_bound, _ = solver.init(tagged, {})
+    assert rank_bound.value == 2
+    assert w_t.shape == (5,)
+    assert v_t.shape == (5, 5)
+
+    vector = jnp.arange(5.0) + 0.5
+    x_plain = lx.linear_solve(plain, vector, solver).value
+    x_tagged = lx.linear_solve(tagged, vector, solver).value
+    assert jnp.allclose(x_plain, x_tagged)
+
+
+# PSD (eigenvalues >= 0) and NSD (<= 0) operators have their near-zero eigenvalues at
+# a contiguous *end* of eigh's ascending order, so truncation is a slice rather than a
+# reorder. `semidefinite_tag` is also a slice, but at an offset chosen at runtime from
+# the sign of the spectrum. Indefinite operators need the reordering gather. Cover all
+# four branches, and both signs of the runtime-resolved one.
+@pytest.mark.parametrize(
+    "tag, eigvals",
+    (
+        (lx.hermitian_tag, [3.0, -2.0, 0.0, 0.0, 0.0]),  # indefinite -> reorder
+        (lx.positive_semidefinite_tag, [3.0, 2.0, 0.0, 0.0, 0.0]),  # PSD -> slice tail
+        (lx.negative_semidefinite_tag, [-3.0, -2.0, 0.0, 0.0, 0.0]),  # NSD -> head
+        (lx.semidefinite_tag, [3.0, 2.0, 0.0, 0.0, 0.0]),  # +ve -> dynamic slice tail
+        (lx.semidefinite_tag, [-3.0, -2.0, 0.0, 0.0, 0.0]),  # -ve -> dynamic slice head
+    ),
+)
+def test_hevd_truncation_branches(tag, eigvals):
+    matrix = _hermitian_with_spectrum(jax.random.PRNGKey(0), eigvals)
+    solver = lx.HEVD()
+    plain = lx.MatrixLinearOperator(matrix, tag)
+    tagged = lx.MatrixLinearOperator(matrix, (tag, lx.MaxRankTag(2)))
+
+    (w_t, v_t), rank_bound, _ = solver.init(tagged, {})
+    assert rank_bound.value == 2
+    # The state keeps every eigenpair, ordered by descending magnitude: the retained
+    # pairs lead, and the trailing ones span the null space.
+    assert w_t.shape == (5,)
+    assert v_t.shape == (5, 5)
+    expected = sorted(eigvals, key=abs, reverse=True)
+    assert jnp.allclose(w_t, jnp.array(expected), atol=1e-10)
+    assert jnp.allclose(matrix @ v_t[:, 2:], 0, atol=1e-10)
+    assert jnp.allclose(matrix @ v_t[:, :2], v_t[:, :2] * w_t[None, :2], atol=1e-10)
+
+    vector = jnp.arange(5.0) + 0.5
+    x_plain = lx.linear_solve(plain, vector, solver).value
+    x_tagged = lx.linear_solve(tagged, vector, solver).value
+    assert jnp.allclose(x_plain, x_tagged)
+
+
+@pytest.mark.parametrize(
+    "tag, eigvals",
+    (
+        (lx.hermitian_tag, [3.0, -2.0, 1.5, 0.0, 0.0]),
+        (lx.positive_semidefinite_tag, [3.0, 2.0, 1.5, 0.0, 0.0]),
+        (lx.negative_semidefinite_tag, [-3.0, -2.0, -1.5, 0.0, 0.0]),
+        (lx.semidefinite_tag, [3.0, 2.0, 1.5, 0.0, 0.0]),
+        (lx.semidefinite_tag, [-3.0, -2.0, -1.5, 0.0, 0.0]),
+    ),
+)
+def test_hevd_raises_when_max_rank_too_small(tag, eigvals):
+    # A genuinely rank-3 Hermitian matrix declared rank 2: truncation would discard an
+    # eigenvalue above the rcond threshold, so the solve must raise.
+    matrix = _hermitian_with_spectrum(jax.random.PRNGKey(0), eigvals)
+    operator = lx.MatrixLinearOperator(matrix, (tag, lx.MaxRankTag(2)))
+    vector = jnp.arange(5.0) + 0.5
+    with pytest.raises(eqx.EquinoxRuntimeError):
+        lx.linear_solve(operator, vector, lx.HEVD())

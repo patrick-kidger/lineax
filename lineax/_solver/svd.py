@@ -15,6 +15,7 @@
 from typing import Any, TypeAlias
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -23,7 +24,7 @@ from jaxtyping import Array, PyTree
 from .._misc import resolve_rcond
 from .._operator import AbstractLinearOperator, max_rank
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 from .misc import (
     pack_structures,
     PackedStructures,
@@ -33,16 +34,31 @@ from .misc import (
 )
 
 
-_SVDState: TypeAlias = tuple[tuple[Array, Array, Array], PackedStructures]
+# The static integer is the number of leading singular components that `compute`
+# uses: the operator's declared rank bound. The full decomposition is kept, so that
+# the trailing components (e.g. a null space) remain recoverable.
+_SVDState: TypeAlias = tuple[
+    tuple[Array, Array, Array], eqxi.Static[int], PackedStructures
+]
 
 
-class SVD(AbstractLinearSolver[_SVDState]):
+def _retained(state: _SVDState) -> tuple[Array, Array, Array]:
+    (u, s, vt), rank_bound, _ = state
+    r = rank_bound.value
+    return u[:, :r], s[:r], vt[:r, :]
+
+
+class SVD(AbstractDirectLinearSolver[_SVDState]):
     """SVD solver for linear systems.
 
     This solver can handle any operator, even nonsquare or singular ones. In these
     cases it will return the pseudoinverse solution to the linear system.
 
     Equivalent to `scipy.linalg.lstsq`.
+
+    If the operator is Hermitian (e.g. real-symmetric, or positive/negative
+    semidefinite) then [`lineax.HEVD`][] is usually faster, as a Hermitian
+    eigendecomposition is cheaper than a general SVD.
     """
 
     rcond: float | None = None
@@ -51,8 +67,10 @@ class SVD(AbstractLinearSolver[_SVDState]):
         del options
         u, s, vt = jsp.linalg.svd(operator.as_matrix(), full_matrices=False)
         # If the operator is known to have rank at most `r`, the trailing
-        # singular values are mathematically zero, so statically truncate to the
-        # leading `r` components.
+        # singular values are mathematically zero, so `compute` statically truncates to
+        # the leading `r` components. The state itself is not truncated, as that would
+        # discard the trailing components irrecoverably; if they are never used then
+        # JAX eliminates them as dead code.
         r = max_rank(operator)
         if r < s.shape[0]:
             # `compute` masks out `s_i <= rcond * s[0]`, so dropping the tail is
@@ -74,11 +92,8 @@ class SVD(AbstractLinearSolver[_SVDState]):
                 "intend a low-rank approximation, or set `EQX_ON_ERROR=off` to skip "
                 "this check.",
             )
-            u = u[:, :r]
-            s = s[:r]
-            vt = vt[:r, :]
         packed_structures = pack_structures(operator)
-        return (u, s, vt), packed_structures
+        return (u, s, vt), eqxi.Static(r), packed_structures
 
     def compute(
         self,
@@ -87,7 +102,8 @@ class SVD(AbstractLinearSolver[_SVDState]):
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         del options
-        (u, s, vt), packed_structures = state
+        _, _, packed_structures = state
+        u, s, vt = _retained(state)
         vector = ravel_vector(vector, packed_structures)
         m, _ = u.shape
         _, n = vt.shape
@@ -107,18 +123,42 @@ class SVD(AbstractLinearSolver[_SVDState]):
 
     def transpose(self, state: _SVDState, options: dict[str, Any]):
         del options
-        (u, s, vt), packed_structures = state
+        (u, s, vt), rank_bound, packed_structures = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
-        transpose_state = (vt.T, s, u.T), transposed_packed_structures
+        transpose_state = (vt.T, s, u.T), rank_bound, transposed_packed_structures
         transpose_options = {}
         return transpose_state, transpose_options
 
     def conj(self, state: _SVDState, options: dict[str, Any]):
         del options
-        (u, s, vt), packed_structures = state
-        conj_state = (u.conj(), s, vt.conj()), packed_structures
+        (u, s, vt), rank_bound, packed_structures = state
+        conj_state = (u.conj(), s, vt.conj()), rank_bound, packed_structures
         conj_options = {}
         return conj_state, conj_options
+
+    def slogdet(self, state: _SVDState, options: dict[str, Any]) -> tuple[Array, Array]:
+        del options
+        u, s, vt = _retained(state)
+        m, _ = u.shape
+        _, n = vt.shape
+        rcond = resolve_rcond(self.rcond, n, m, s.dtype)
+        rcond_arr = jnp.array(rcond, dtype=s.dtype)
+        if s.size > 0:
+            threshold = rcond_arr * s[0]
+        else:
+            threshold = rcond_arr
+        mask = s > threshold
+        # Log-pseudodeterminant: sum of logs of non-zero singular values only.
+        # Zero singular values (below threshold) contribute 0 via log(1) = 0.
+        # For full-rank operators this equals the true logabsdet.
+        safe_s = jnp.where(mask, s, 1.0)
+        lad = jnp.sum(jnp.log(safe_s))
+        # Sign is not recoverable from SVD alone:
+        #   full-rank square: needs sign(det(U)) * sign(det(V^T)), O(n^3) extra work
+        #   full-rank rectangular: future work via QR Householder vectors
+        #   rank-deficient: needs an eigensolver for pseudodeterminant sign
+        sign = jnp.full((), jnp.nan, dtype=s.dtype)
+        return sign, lad
 
     def assume_full_rank(self):
         return False

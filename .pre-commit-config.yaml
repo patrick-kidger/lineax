@@ -36,3 +36,9 @@ repos:
         language: system
         entry: uv run -- pyright
         require_serial: true
+      - id: check-test-groups
+        name: check CI test groups cover tests/
+        files: ^(tests/test_.*\.py|\.github/workflows/run_tests\.yml)$
+        pass_filenames: false
+        language: system
+        entry: uv run -- python .github/scripts/check_test_groups.py

@@ -13,6 +13,13 @@ If you're not sure what to use, then pick [`lineax.AutoLinearSolver`][] and it w
                 - conj
                 - assume_full_rank
 
+??? abstract "`lineax.AbstractDirectLinearSolver`"
+
+    ::: lineax.AbstractDirectLinearSolver
+        options:
+            members:
+                - slogdet
+
 ::: lineax.AutoLinearSolver
     options:
         members:
@@ -38,6 +45,13 @@ These are capable of solving ill-posed linear problems.
 ---
 
 ::: lineax.SVD
+    options:
+        members:
+            - __init__
+
+---
+
+::: lineax.HEVD
     options:
         members:
             - __init__

@@ -19,15 +19,20 @@ import jax.flatten_util as jfu
 import jax.numpy as jnp
 from equinox.internal import ω
 
+from .._misc import cyclic_reverse
 from .base import (
     AbstractLinearOperator,
     conj,
     diagonal,
     first_column,
+    has_matching_structures,
+    has_real_dtype,
     has_unit_diagonal,
     is_circulant,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_symmetric,
@@ -171,9 +176,14 @@ def _(operator):
 
 @materialise.register(ComposedLinearOperator)
 def _(operator):
-    if isinstance(operator.operator1, IdentityLinearOperator):
+    # A reshaping identity must remain in the composition to preserve its structures.
+    if isinstance(operator.operator1, IdentityLinearOperator) and is_symmetric(
+        operator.operator1
+    ):
         return materialise(operator.operator2)
-    if isinstance(operator.operator2, IdentityLinearOperator):
+    if isinstance(operator.operator2, IdentityLinearOperator) and is_symmetric(
+        operator.operator2
+    ):
         return materialise(operator.operator1)
     maybe_structured_op = try_structured_materialise(operator)
     if maybe_structured_op is not operator:
@@ -183,9 +193,51 @@ def _(operator):
 
 @diagonal.register(ComposedLinearOperator)
 def _(operator):
-    if is_diagonal(operator.operator1) and is_diagonal(operator.operator2):
-        return diagonal(operator.operator1) * diagonal(operator.operator2)
+    op1, op2 = operator.operator1, operator.operator2
+    # If either operand is diagonal, or both face the same triangular direction, then
+    # `(op1 @ op2)_ii` only ever picks up a single term, `op1_ii * op2_ii`.
+    single_term = (
+        is_diagonal(op1)
+        or is_diagonal(op2)
+        or (is_lower_triangular(op1) and is_lower_triangular(op2))
+        or (is_upper_triangular(op1) and is_upper_triangular(op2))
+    )
+    if single_term:
+        return diagonal(op1) * diagonal(op2)
+    if is_circulant(op1) and is_circulant(op2):
+        # `(C1 @ C2)_ii = dot(c1, cyclic_reverse(c2))` for every `i`, with no FFT.
+        c1 = first_column(op1)
+        c2 = first_column(op2)
+        return jnp.full(operator.in_size(), jnp.dot(c1, cyclic_reverse(c2)))
+    if is_tridiagonal(op1) or is_tridiagonal(op2):
+        # If either operand is tridiagonal, then `(op1 @ op2)_ii` only picks up
+        # contributions from the shared tridiagonal band of both operators.
+        main1, lower1, upper1 = tridiagonal(op1)
+        main2, lower2, upper2 = tridiagonal(op2)
+        diag = main1 * main2
+        diag = diag.at[1:].add(lower1 * upper2)
+        diag = diag.at[:-1].add(upper1 * lower2)
+        return diag
+    if is_materialised(op1) and is_materialised(op2):
+        # Both operands' entries are already stored, so compute only the diagonal's
+        # `n` row-column dots. `operator.as_matrix()` would instead apply `op1` to
+        # every column of `op2.as_matrix()` -- for a matrix-backed `op1` that is a
+        # full matmul, computing `n**2` entries to keep `n`.
+        return jnp.einsum("ij,ji->i", op1.as_matrix(), op2.as_matrix())
+    # For a non-materialised operand, `as_matrix` costs one `mv` per column whichever
+    # way it is sliced, so `operator.as_matrix()` -- `op1.mv` applied to each column of
+    # `op2.as_matrix()` -- is already optimal-order, and applies `op1` the fewest times
+    # when the composition is rectangular.
     return jnp.diag(operator.as_matrix())
+
+
+@is_materialised.register(AddLinearOperator)
+def _(operator):
+    return is_materialised(operator.operator1) and is_materialised(operator.operator2)
+
+
+# `ComposedLinearOperator` falls through to `is_materialised`'s default `False`: its
+# matrix is computed on demand, not stored.
 
 
 @tridiagonal.register(ComposedLinearOperator)
@@ -221,6 +273,7 @@ def _(operator):
 
 for check in (
     is_symmetric,
+    is_hermitian,
     is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
@@ -267,9 +320,23 @@ for check in (
 # still land back where it started, and the result is then genuinely symmetric.
 @is_symmetric.register(ComposedLinearOperator)
 def _(operator):
-    if eqx.tree_equal(operator.in_structure(), operator.out_structure()) is not True:
+    if not has_matching_structures(operator):
         return False
     return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
+
+
+# is_hermitian: as above, diagonal matrices commute. A product of diagonals is itself
+# diagonal, which is Hermitian only when its (complex) entries are real-valued. The
+# structure check is on the composition itself, for the same reason as `is_symmetric`.
+@is_hermitian.register(ComposedLinearOperator)
+def _(operator):
+    if not has_matching_structures(operator):
+        return False
+    return (
+        is_diagonal(operator.operator1)
+        and is_diagonal(operator.operator2)
+        and has_real_dtype(operator)
+    )
 
 
 # is_tridiagonal: tridiagonal @ tridiagonal = pentadiagonal, but

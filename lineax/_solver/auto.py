@@ -20,17 +20,18 @@ from .._operator import (
     AbstractLinearOperator,
     is_circulant,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
-    is_negative_semidefinite,
-    is_positive_semidefinite,
+    is_semidefinite,
     is_tridiagonal,
     is_upper_triangular,
 )
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 from .cholesky import Cholesky
 from .circulant import Circulant
 from .diagonal import Diagonal
+from .hevd import HEVD
 from .lu import LU
 from .qr import QR
 from .svd import SVD
@@ -38,10 +39,10 @@ from .triangular import Triangular
 from .tridiagonal import Tridiagonal
 
 
-_AutoLinearSolverState: TypeAlias = tuple[AbstractLinearSolver, Any]
+_AutoLinearSolverState: TypeAlias = tuple[AbstractDirectLinearSolver, Any]
 
 
-class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
+class AutoLinearSolver(AbstractDirectLinearSolver[_AutoLinearSolverState]):
     """Automatically determines a good linear solver based on the structure of the
     operator.
 
@@ -60,6 +61,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
     - If `well_posed=False`:
         - If the operator is diagonal, then use [`lineax.Diagonal`][].
         - If the operator is circulant, then use [`lineax.Circulant`][].
+        - If the operator is Hermitian, then use [`lineax.HEVD`][].
         - Else use [`lineax.SVD`][].
 
     This is a good choice if you want to be certain that you can handle ill-posed
@@ -81,7 +83,9 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
 
     well_posed: bool | None
 
-    def _select_solver(self, operator: AbstractLinearOperator) -> AbstractLinearSolver:
+    def _select_solver(
+        self, operator: AbstractLinearOperator
+    ) -> AbstractDirectLinearSolver:
         if self.well_posed is True:
             if operator.in_size() != operator.out_size():
                 raise ValueError(
@@ -99,9 +103,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Circulant(well_posed=True)
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
-            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
-                operator
-            ):
+            elif is_semidefinite(operator):
                 solver = Cholesky()
             else:
                 solver = LU()
@@ -109,7 +111,13 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
             if is_diagonal(operator):
                 solver = Diagonal()
             elif is_circulant(operator):
+                # An FFT-based solve is cheaper than any dense decomposition, so this
+                # takes priority over the Hermitian case below.
                 solver = Circulant()
+            elif is_hermitian(operator):
+                # A Hermitian eigendecomposition is cheaper than a general SVD, and
+                # handles ill-posed Hermitian systems via the same pseudoinverse.
+                solver = HEVD()
             else:
                 # TODO: use rank-revealing QR instead.
                 solver = SVD()
@@ -124,9 +132,7 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
                 solver = Circulant()
             elif is_lower_triangular(operator) or is_upper_triangular(operator):
                 solver = Triangular()
-            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
-                operator
-            ):
+            elif is_semidefinite(operator):
                 solver = Cholesky()
             else:
                 solver = LU()
@@ -134,7 +140,9 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
             raise ValueError(f"Invalid value `well_posed={self.well_posed}`.")
         return solver
 
-    def select_solver(self, operator: AbstractLinearOperator) -> AbstractLinearSolver:
+    def select_solver(
+        self, operator: AbstractLinearOperator
+    ) -> AbstractDirectLinearSolver:
         """Check which solver that [`lineax.AutoLinearSolver`][] will dispatch to.
 
         **Arguments:**
@@ -172,6 +180,12 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         conj_state, conj_options = solver.conj(state, options)
         conj_state = (solver, conj_state)
         return conj_state, conj_options
+
+    def slogdet(
+        self, state: _AutoLinearSolverState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        solver, inner_state = state
+        return solver.slogdet(inner_state, options)
 
     def assume_full_rank(self):
         return self.well_posed is not False

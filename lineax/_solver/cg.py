@@ -28,8 +28,8 @@ from .._norm import max_norm, tree_dot
 from .._operator import (
     AbstractLinearOperator,
     conj,
-    is_negative_semidefinite,
     is_positive_semidefinite,
+    is_semidefinite,
     linearise,
 )
 from .._solution import RESULTS
@@ -38,7 +38,7 @@ from .misc import preconditioner_and_y0
 from .normal import Normal
 
 
-_CGState: TypeAlias = tuple[AbstractLinearOperator, eqxi.Static]
+_CGState: TypeAlias = AbstractLinearOperator
 
 
 # TODO(kidger): this is pretty slow to compile.
@@ -86,20 +86,22 @@ class CG(AbstractLinearSolver[_CGState]):
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
-        is_nsd = is_negative_semidefinite(operator)
         if not structure_equal(operator.in_structure(), operator.out_structure()):
             raise ValueError(
                 "`CG()` may only be used for linear solves with square matrices."
             )
-        if not (is_positive_semidefinite(operator) | is_nsd):
+        if not is_semidefinite(operator):
             raise ValueError(
-                "`CG()` may only be used for positive "
-                "or negative definite linear operators"
+                "`CG()` may only be used for (semi)definite linear operators"
             )
-        if is_nsd:
-            operator = -operator
-        operator = linearise(operator)
-        return operator, eqxi.Static(is_nsd)
+        # Note that we do not need to know *which* sign the operator has: the CG
+        # recurrence in `compute` is invariant under `(A, b) -> (-A, -b)`. Substituting
+        # `r -> -r`, `p -> -p`, `z -> -z` leaves `gamma`, `beta`, `diff` and every norm
+        # in the termination check unchanged, and flips `alpha` and `inner_prod`
+        # together, so the iterates -- and hence the solution -- are identical either
+        # way. (This is why a negative semidefinite operator needs neither negating here
+        # nor a compensating negation of the solution.)
+        return linearise(operator)
 
     # This differs from jax.scipy.sparse.linalg.cg in:
     # 1. Every few steps we calculate the residual directly, rather than by cheaply
@@ -113,8 +115,7 @@ class CG(AbstractLinearSolver[_CGState]):
     def compute(
         self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        operator, is_nsd = state
-        is_nsd = is_nsd.value
+        operator = state
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         if not is_positive_semidefinite(preconditioner):
             raise ValueError("The preconditioner must be positive definite.")
@@ -225,8 +226,6 @@ class CG(AbstractLinearSolver[_CGState]):
         else:
             result = RESULTS.successful
 
-        if is_nsd:
-            solution = -(solution**ω).ω
         stats = {"num_steps": num_steps, "max_steps": self.max_steps}
         return solution, result, stats
 
@@ -236,9 +235,7 @@ class CG(AbstractLinearSolver[_CGState]):
         transpose_options = {}
         if "preconditioner" in options:
             transpose_options["preconditioner"] = options["preconditioner"].transpose()
-        psd_op, is_nsd = state
-        transpose_state = psd_op.transpose(), is_nsd
-        return transpose_state, transpose_options
+        return state.transpose(), transpose_options
 
     def conj(
         self, state: _CGState, options: dict[str, Any]
@@ -246,9 +243,7 @@ class CG(AbstractLinearSolver[_CGState]):
         conj_options = {}
         if "preconditioner" in options:
             conj_options["preconditioner"] = conj(options["preconditioner"])
-        psd_op, is_nsd = state
-        conj_state = conj(psd_op), is_nsd
-        return conj_state, conj_options
+        return conj(state), conj_options
 
     def assume_full_rank(self):
         return True

@@ -32,7 +32,6 @@ from jaxtyping import (
 from .._custom_types import sentinel
 from .._misc import (
     cyclic_reverse,
-    default_floating_dtype,
     inexact_asarray,
     strip_weak_dtype,
 )
@@ -42,11 +41,16 @@ from .base import (
     diagonal,
     first_column,
     FlatPyTree,
+    has_matching_structures,
+    has_real_dtype,
     has_unit_diagonal,
+    in_dtype,
     inexact_structure,
     is_circulant,
     is_diagonal,
+    is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_symmetric,
@@ -56,32 +60,6 @@ from .base import (
     materialise,
     tridiagonal,
 )
-
-
-def _has_real_dtype(operator) -> bool:
-    """Check if all dtypes in an operator's structure are real (not complex)."""
-    leaves = jtu.tree_leaves((operator.in_structure(), operator.out_structure()))
-    dtype = jnp.result_type(*leaves)
-    if jnp.issubdtype(dtype, jnp.complexfloating):
-        return False
-    elif jnp.issubdtype(dtype, jnp.floating):
-        return True
-    else:
-        assert False, (
-            "Only `jnp.floating` and `jnp.complexfloating` dtypes are understood."
-        )
-
-
-def _identity_dtype(operator) -> jnp.dtype:
-    """The dtype of an `IdentityLinearOperator`'s entries, as promoted across its
-    input structure.
-    """
-    leaves = jtu.tree_leaves(operator.in_structure())
-    with jax.numpy_dtype_promotion("standard"):
-        if len(leaves) == 0:
-            return default_floating_dtype()
-        else:
-            return jnp.result_type(*leaves)
 
 
 # `structure` must be static as with `JacobianLinearOperator`
@@ -150,7 +128,7 @@ class IdentityLinearOperator(AbstractLinearOperator):
             return jtu.tree_unflatten(treedef, shaped)
 
     def as_matrix(self):
-        return jnp.eye(self.in_size(), dtype=_identity_dtype(self))
+        return jnp.eye(self.in_size(), dtype=in_dtype(self))
 
     def transpose(self):
         return IdentityLinearOperator(self.out_structure(), self.in_structure())
@@ -322,9 +300,18 @@ for transform in (linearise, materialise):
         return operator
 
 
+@is_materialised.register(IdentityLinearOperator)
+@is_materialised.register(DiagonalLinearOperator)
+@is_materialised.register(TridiagonalLinearOperator)
+@is_materialised.register(CirculantLinearOperator)
+def _(operator):
+    # Building the dense matrix from the stored entries costs no `mv`s.
+    return True
+
+
 @diagonal.register(IdentityLinearOperator)
 def _(operator):
-    return jnp.ones(operator.in_size(), dtype=_identity_dtype(operator))
+    return jnp.ones(operator.in_size(), dtype=in_dtype(operator))
 
 
 @diagonal.register(DiagonalLinearOperator)
@@ -346,7 +333,7 @@ def _(operator):
 @tridiagonal.register(IdentityLinearOperator)
 def _(operator):
     size = operator.in_size()
-    dtype = _identity_dtype(operator)
+    dtype = in_dtype(operator)
     main_diagonal = jnp.ones(size, dtype=dtype)
     off_diagonal = jnp.zeros(size - 1, dtype=dtype)
     return main_diagonal, off_diagonal, off_diagonal
@@ -383,8 +370,9 @@ def _(operator):
 
 
 @is_symmetric.register(IdentityLinearOperator)
+@is_hermitian.register(IdentityLinearOperator)
 def _(operator):
-    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
+    return has_matching_structures(operator)
 
 
 @is_symmetric.register(DiagonalLinearOperator)
@@ -392,8 +380,15 @@ def _(operator):
     return True
 
 
+@is_hermitian.register(DiagonalLinearOperator)
+def _(operator):
+    return has_real_dtype(operator)
+
+
 @is_symmetric.register(TridiagonalLinearOperator)
+@is_hermitian.register(TridiagonalLinearOperator)
 @is_symmetric.register(CirculantLinearOperator)
+@is_hermitian.register(CirculantLinearOperator)
 def _(operator):
     return False
 
@@ -461,7 +456,7 @@ def _(operator):
 
 @is_positive_semidefinite.register(IdentityLinearOperator)
 def _(operator):
-    return eqx.tree_equal(operator.in_structure(), operator.out_structure()) is True
+    return has_matching_structures(operator)
 
 
 @is_negative_semidefinite.register(IdentityLinearOperator)

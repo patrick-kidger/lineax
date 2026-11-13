@@ -14,8 +14,8 @@
 
 from typing import Any, TypeAlias
 
-import equinox.internal as eqxi
 import jax.flatten_util as jfu
+import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, PyTree
 
@@ -23,27 +23,31 @@ from .._operator import (
     AbstractLinearOperator,
     is_negative_semidefinite,
     is_positive_semidefinite,
+    is_semidefinite,
 )
 from .._solution import RESULTS
-from .base import AbstractLinearSolver
+from .base import AbstractDirectLinearSolver
 
 
-_CholeskyState: TypeAlias = tuple[Array, eqxi.Static]
+_CholeskyState: TypeAlias = tuple[Array, Array]
 
 
-class Cholesky(AbstractLinearSolver[_CholeskyState]):
+class Cholesky(AbstractDirectLinearSolver[_CholeskyState]):
     """Cholesky solver for linear systems. This is generally the preferred solver for
     positive or negative definite systems.
 
     Equivalent to `scipy.linalg.solve(..., assume_a="pos")`.
 
     The operator must be square, nonsingular, and either positive or negative definite.
+    For Hermitian operators that are indefinite or singular (where Cholesky does not
+    apply), use [`lineax.HEVD`][] instead.
     """
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
+        is_psd = is_positive_semidefinite(operator)
         is_nsd = is_negative_semidefinite(operator)
-        if not (is_positive_semidefinite(operator) | is_nsd):
+        if not is_semidefinite(operator):
             raise ValueError(
                 "`Cholesky(..., normal=False)` may only be used for positive "
                 "or negative definite linear operators"
@@ -55,25 +59,30 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
                 "`Cholesky(..., normal=False)` may only be used for linear solves "
                 "with square matrices"
             )
-        if is_nsd:
-            matrix = -matrix
+        if is_psd or is_nsd:
+            is_nsd_flag = is_nsd
+        else:
+            diag = jnp.diagonal(matrix)
+            probe_index = jnp.argmax(jnp.abs(diag))
+            # Hermitian operators have a real-valued diagonal (up to floating point
+            # error), but `diag` may still carry a complex dtype.
+            is_nsd_flag = diag[probe_index].real < 0
+        matrix = jnp.where(is_nsd_flag, -matrix, matrix)
         factor, lower = jsp.linalg.cho_factor(matrix)
         # Fix upper triangular for simplicity.
         assert lower is False
-        return factor, eqxi.Static(is_nsd)
+        return factor, jnp.asarray(is_nsd_flag)
 
     def compute(
         self, state: _CholeskyState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         factor, is_nsd = state
-        is_nsd = is_nsd.value
         del options
         # Cholesky => PSD => symmetric => (in_structure == out_structure) =>
         # we don't need to use packed structures.
         vector, unflatten = jfu.ravel_pytree(vector)
         solution = jsp.linalg.cho_solve((factor, False), vector)
-        if is_nsd:
-            solution = -solution
+        solution = jnp.where(is_nsd, -solution, solution)
         solution = unflatten(solution)
         return solution, RESULTS.successful, {}
 
@@ -90,6 +99,25 @@ class Cholesky(AbstractLinearSolver[_CholeskyState]):
         # Matrix is self-adjoint
         factor, is_nsd = state
         return (factor.conj(), is_nsd), options
+
+    def slogdet(
+        self, state: _CholeskyState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        del options
+        factor, is_nsd = state
+        n = factor.shape[0]
+        # `is_nsd` is a runtime value -- under `semidefinite_tag`, `init` probes the
+        # diagonal -- so the sign is computed with `where`, not Python control flow.
+        # det(A) = (-1)^n det(-A), so only an odd dimension flips the sign.
+        if n % 2 == 1:
+            sign = jnp.where(is_nsd, -1.0, 1.0)
+        else:
+            sign = jnp.ones(())
+        # `sign` is always real (+/-1), but takes the operator's dtype so a complex
+        # (Hermitian) operator yields a complex `sign`, matching `numpy.linalg.slogdet`.
+        sign = sign.astype(factor.dtype)
+        lad = 2.0 * jnp.sum(jnp.log(jnp.abs(jnp.diag(factor))))
+        return sign, lad
 
     def assume_full_rank(self):
         return True

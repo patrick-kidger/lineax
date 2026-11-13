@@ -18,6 +18,10 @@ These do not change the mathematical meaning of the operator; they simply change
 
 ---
 
+::: lineax.trace
+
+---
+
 ::: lineax.tridiagonal
 
 ---
@@ -60,7 +64,15 @@ Note that these do *not* inspect the values of the operator -- instead, they use
 
 ---
 
+::: lineax.is_semidefinite
+
+---
+
 ::: lineax.is_symmetric
+
+---
+
+::: lineax.is_hermitian
 
 ---
 

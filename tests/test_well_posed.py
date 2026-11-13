@@ -19,6 +19,7 @@ import lineax as lx
 import pytest
 
 from .helpers import (
+    cond_cutoff,
     construct_matrix,
     make_jacrev_operator,
     ops,
@@ -57,7 +58,15 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
 def test_pytree_wellposed(solver, getkey, dtype):
     if not isinstance(
         solver,
-        (lx.Diagonal, lx.Triangular, lx.Tridiagonal, lx.Circulant, lx.Cholesky, lx.CG),
+        (
+            lx.Diagonal,
+            lx.Triangular,
+            lx.Tridiagonal,
+            lx.Circulant,
+            lx.Cholesky,
+            lx.HEVD,
+            lx.CG,
+        ),
     ):
         if jax.config.jax_enable_x64:  # pyright: ignore
             tol = 1e-10
@@ -68,19 +77,24 @@ def test_pytree_wellposed(solver, getkey, dtype):
             jr.normal(getkey(), shape=(2, 4), dtype=dtype),
             jr.normal(getkey(), (3,), dtype=dtype),
         ]
-        pytree = [
-            [
-                jr.normal(getkey(), shape=(2, 4, 2, 4), dtype=dtype),
-                jr.normal(getkey(), shape=(2, 4, 3), dtype=dtype),
-            ],
-            [
-                jr.normal(getkey(), shape=(3, 2, 4), dtype=dtype),
-                jr.normal(getkey(), shape=(3, 3), dtype=dtype),
-            ],
-        ]
         out_structure = jax.eval_shape(lambda: true_x)
-
-        operator = lx.PyTreeLinearOperator(pytree, out_structure)
+        # Regenerate until well-conditioned, as `construct_matrix` does: an unlucky
+        # draw is otherwise too ill-conditioned to meet `tol`, particularly for
+        # `Normal` solvers, which square the condition number.
+        while True:
+            pytree = [
+                [
+                    jr.normal(getkey(), shape=(2, 4, 2, 4), dtype=dtype),
+                    jr.normal(getkey(), shape=(2, 4, 3), dtype=dtype),
+                ],
+                [
+                    jr.normal(getkey(), shape=(3, 2, 4), dtype=dtype),
+                    jr.normal(getkey(), shape=(3, 3), dtype=dtype),
+                ],
+            ]
+            operator = lx.PyTreeLinearOperator(pytree, out_structure)
+            if jnp.linalg.cond(operator.as_matrix()) < cond_cutoff(solver):
+                break
         b = operator.mv(true_x)
         lx_x = lx.linear_solve(operator, b, solver, throw=False)
         assert tree_allclose(lx_x.value, true_x, atol=tol, rtol=tol)

@@ -127,6 +127,11 @@ def test_vmap_vmap(
                 in_axes=vmap2_op,
                 out_axes=None if vmap2_op is None else 0,
             )(operator)
+            # `as_matrix` only reproduces the drawn matrix up to floating-point
+            # noise, which is enough to tip `lstsq`'s rank decision on a singular
+            # draw. So check the reconstruction here, but solve the reference against
+            # the raw matrices.
+            assert tree_allclose(as_matrix_vmapped, matrix, rtol=1e-8, atol=1e-8)
 
             vmap1_axes = (vmap1_op, vmap1_vec)
             vmap2_axes = (vmap2_op, vmap2_vec)
@@ -137,7 +142,7 @@ def test_vmap_vmap(
 
             solve_with = lambda x: eqx.filter_vmap(
                 eqx.filter_vmap(x, in_axes=vmap1_axes), in_axes=vmap2_axes
-            )(as_matrix_vmapped, vec)
+            )(matrix, vec)
 
             if make_matrix is construct_singular_matrix:
                 true_result, _, _, _ = solve_with(jnp.linalg.lstsq)  # pyright: ignore

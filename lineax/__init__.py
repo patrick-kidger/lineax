@@ -15,6 +15,10 @@
 import importlib.metadata
 
 from . import internal as internal
+from ._determinant import (
+    determinant as determinant,
+    slogdet as slogdet,
+)
 from ._operator import (
     AbstractLinearOperator as AbstractLinearOperator,
     AddLinearOperator as AddLinearOperator,
@@ -30,9 +34,11 @@ from ._operator import (
     IdentityLinearOperator as IdentityLinearOperator,
     is_circulant as is_circulant,
     is_diagonal as is_diagonal,
+    is_hermitian as is_hermitian,
     is_lower_triangular as is_lower_triangular,
     is_negative_semidefinite as is_negative_semidefinite,
     is_positive_semidefinite as is_positive_semidefinite,
+    is_semidefinite as is_semidefinite,
     is_symmetric as is_symmetric,
     is_tridiagonal as is_tridiagonal,
     is_upper_triangular as is_upper_triangular,
@@ -46,11 +52,13 @@ from ._operator import (
     PyTreeLinearOperator as PyTreeLinearOperator,
     TaggedLinearOperator as TaggedLinearOperator,
     TangentLinearOperator as TangentLinearOperator,
+    trace as trace,
     tridiagonal as tridiagonal,
     TridiagonalLinearOperator as TridiagonalLinearOperator,
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solve import (
+    AbstractDirectLinearSolver as AbstractDirectLinearSolver,
     AbstractLinearSolver as AbstractLinearSolver,
     invert as invert,
     linear_solve as linear_solve,
@@ -63,6 +71,7 @@ from ._solver import (
     Circulant as Circulant,
     Diagonal as Diagonal,
     GMRES as GMRES,
+    HEVD as HEVD,
     LSMR as LSMR,
     LU as LU,
     Normal as Normal,
@@ -75,12 +84,14 @@ from ._solver import (
 from ._tags import (
     circulant_tag as circulant_tag,
     diagonal_tag as diagonal_tag,
+    hermitian_tag as hermitian_tag,
     invert_tags as invert_tags,
     invert_tags_rules as invert_tags_rules,
     lower_triangular_tag as lower_triangular_tag,
     MaxRankTag as MaxRankTag,
     negative_semidefinite_tag as negative_semidefinite_tag,
     positive_semidefinite_tag as positive_semidefinite_tag,
+    semidefinite_tag as semidefinite_tag,
     symmetric_tag as symmetric_tag,
     tags_from_checks as tags_from_checks,
     transpose_tags as transpose_tags,
