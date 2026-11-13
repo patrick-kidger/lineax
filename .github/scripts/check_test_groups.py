@@ -20,72 +20,102 @@ TESTS = ROOT / "tests"
 DEFAULT_GROUP = "core"
 
 
-def expand(matrix: dict) -> list[dict]:
+def expand(matrix: dict) -> tuple[list[dict], list[str]]:
     """Expand a GitHub Actions matrix, following the documented `include` rules.
 
     An `include` entry is merged into every combination it can be merged into
-    without overwriting, and only becomes a combination of its own if it fits
-    nowhere. Expanding properly (rather than just reading the `include` list) is
-    what lets this script notice a matrix that has collapsed into fewer jobs than
-    intended.
+    without overwriting an original matrix value, and only becomes a combination of
+    its own if it fits nowhere. Values added by an earlier `include` entry *can* be
+    overwritten by a later one, which silently collapses jobs into one another; such
+    overwrites are returned as errors. Expanding properly (rather than just reading
+    the `include` list) is what lets this script notice a matrix that has collapsed
+    into fewer jobs than intended.
     """
     keys = [k for k in matrix if k != "include"]
     combinations = [
         dict(zip(keys, values))
         for values in itertools.product(*(matrix[k] for k in keys))
     ]
+    errors = []
     for entry in matrix.get("include", []):
         merged = False
         for combination in combinations:
             if all(combination.get(k) == v for k, v in entry.items() if k in keys):
+                for k, v in entry.items():
+                    if k not in keys and k in combination and combination[k] != v:
+                        errors.append(
+                            f"`include` entry {entry} overwrites {k}={combination[k]!r}"
+                            " set by an earlier `include` entry; make the key that "
+                            "distinguishes them a matrix dimension"
+                        )
                 combination.update({k: v for k, v in entry.items() if k not in keys})
                 merged = True
         if not merged:
             combinations.append(dict(entry))
-    return combinations
+    return combinations, errors
 
 
 def main() -> int:
     workflow = yaml.safe_load(WORKFLOW.read_text())
-    combinations = expand(workflow["jobs"]["test"]["strategy"]["matrix"])
+    combinations, errors = expand(workflow["jobs"]["test"]["strategy"]["matrix"])
     relative = WORKFLOW.relative_to(ROOT)
-    errors = []
 
-    groups = [combination.get("group", "<unnamed>") for combination in combinations]
-    if len(set(groups)) != len(groups):
-        errors.append(
-            f"test groups are not distinct ({', '.join(map(str, groups))}); an "
-            "`include` entry is probably being merged into the wrong combination"
+    # The test matrix is the cross product of the groups with any other dimensions
+    # (e.g. the oldest/newest dependency variants). Each such variant must run every
+    # test file exactly once, so check each variant on its own.
+    variants: dict[str, list[dict]] = {}
+    for combination in combinations:
+        variant = ", ".join(
+            f"{k}={v}"
+            for k, v in sorted(combination.items())
+            if k not in ("group", "files")
         )
-
-    assigned: dict[str, str] = {}
-    for combination, group in zip(combinations, groups):
-        files = str(combination.get("files", "")).split()
-        if len(files) == 0:
-            errors.append(f"group '{group}' runs no test files")
-        for name in files:
-            if name in assigned:
-                errors.append(f"{name} is in both '{assigned[name]}' and '{group}'")
-            assigned[name] = group
+        variants.setdefault(variant, []).append(combination)
 
     on_disk = {path.name for path in TESTS.glob("test_*.py")}
-    for name in sorted(on_disk - set(assigned)):
-        errors.append(
-            f"tests/{name} is not in any CI test group, so it would never run. Add "
-            f"it to the '{DEFAULT_GROUP}' group in {relative}, or give it a group of "
-            "its own if it is slow enough to bound the whole run."
-        )
-    for name in sorted(set(assigned) - on_disk):
-        errors.append(
-            f"tests/{name} is in group '{assigned[name]}' in {relative} but does not "
-            "exist"
-        )
+    for variant, members in variants.items():
+        where = f" [{variant}]" if len(variants) > 1 else ""
+        groups = [member.get("group", "<unnamed>") for member in members]
+        if len(set(groups)) != len(groups):
+            errors.append(
+                f"test groups{where} are not distinct ({', '.join(map(str, groups))}); "
+                "an `include` entry is probably being merged into the wrong combination"
+            )
 
+        assigned: dict[str, str] = {}
+        for member, group in zip(members, groups):
+            files = str(member.get("files", "")).split()
+            if len(files) == 0:
+                errors.append(f"group '{group}'{where} runs no test files")
+            for name in files:
+                if name in assigned:
+                    errors.append(
+                        f"{name} is in both '{assigned[name]}' and '{group}'{where}"
+                    )
+                assigned[name] = group
+
+        for name in sorted(on_disk - set(assigned)):
+            errors.append(
+                f"tests/{name} is not in any CI test group{where}, so it would never "
+                f"run. Add it to the '{DEFAULT_GROUP}' group in {relative}, or give it "
+                "a group of its own if it is slow enough to bound the whole run."
+            )
+        for name in sorted(set(assigned) - on_disk):
+            errors.append(
+                f"tests/{name} is in group '{assigned[name]}'{where} in {relative} but "
+                "does not exist"
+            )
+
+    errors = list(dict.fromkeys(errors))  # The same overwrite hits every group.
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if len(errors) > 0:
         print(
-            f"\n{len(combinations)} test job(s) defined: {', '.join(map(str, groups))}",
+            f"\n{len(combinations)} test job(s) defined: "
+            + "; ".join(
+                f"[{variant}] {', '.join(str(m.get('group')) for m in members)}"
+                for variant, members in variants.items()
+            ),
             file=sys.stderr,
         )
         return 1

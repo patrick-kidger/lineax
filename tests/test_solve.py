@@ -18,7 +18,13 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from .helpers import construct_poisson_matrix, tree_allclose
+from .helpers import (
+    construct_matrix,
+    construct_poisson_matrix,
+    construct_singular_matrix,
+    solvers_tags_pseudoinverse,
+    tree_allclose,
+)
 
 
 def test_gmres_large_dense(getkey):
@@ -192,6 +198,67 @@ def test_iterative_solver_max_steps_only(solver):
     rhs = jax.random.normal(jax.random.key(0), (SIZE,))
 
     lx.linear_solve(poisson_operator, rhs, solver)
+
+
+@pytest.mark.parametrize("perturbation", (0.0, 1e-9))
+def test_bicgstab_invariant_subspace_rhs(perturbation):
+    """BiCGStab should not produce `nan` when `r0` lies (nearly) in an invariant
+    subspace of the operator, so that it converges in fewer steps than the recurrence
+    expects and its `alpha`/`omega` divisions would otherwise be `0 / 0`.
+    """
+    diag = jnp.array([2.0, -3.0, 5.0, 7.0])
+    operator = lx.MatrixLinearOperator(jnp.diag(diag))
+    # An exact, or nearly exact, eigenvector of the operator.
+    vector = jnp.array([1.0, perturbation, 0.0, 0.0])
+    sol = lx.linear_solve(
+        operator, vector, lx.BiCGStab(rtol=1e-8, atol=1e-8), throw=False
+    )
+    assert sol.result == lx.RESULTS.successful
+    assert tree_allclose(sol.value, vector / diag)
+
+
+@pytest.mark.parametrize("scale", (1.0, 1e-8, 1e6))
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.complex64))
+def test_bicgstab_breakdown_check_x32(dtype, scale):
+    """BiCGStab's breakdown checks must not mistake a negative (or complex) `alpha`,
+    `omega` or `rho` for a zero one, nor a small-scale `b` for a breakdown. Both are
+    routine on indefinite and complex operators, and in single precision.
+    """
+    with jax.enable_x64(False):
+        diag = jnp.array([2, -3, 5, 7], dtype=dtype)
+        if jnp.issubdtype(dtype, jnp.complexfloating):
+            diag = diag.at[1].set(3j)
+        operator = lx.MatrixLinearOperator(jnp.diag(diag))
+        vector = scale * jnp.array([1, 1, 0, 0], dtype=dtype)
+        sol = lx.linear_solve(
+            operator, vector, lx.BiCGStab(rtol=1e-5, atol=0.0), throw=False
+        )
+        assert sol.result == lx.RESULTS.successful
+        assert tree_allclose(sol.value, vector / diag, rtol=1e-5, atol=0.0)
+
+
+def test_bicgstab_converged_residual_steps_are_genuine():
+    """The guards against an exactly-converged residual must not fire merely because
+    the residual is within tolerance: `r` routinely meets that a few steps before the
+    `y`-space check does, and replacing those steps' `alpha`/`omega` destroys
+    convergence (e.g. needing >2x the steps, or hitting `max_steps`).
+    """
+    n = 20
+    for seed in range(8):
+        key1, key2 = jr.split(jr.key(seed))
+        matrix = jr.normal(key1, (n, n)) + 0.3 * n * jnp.eye(n)
+        vector = jr.normal(key2, (n,))
+        sol = lx.linear_solve(
+            lx.MatrixLinearOperator(matrix),
+            vector,
+            lx.BiCGStab(rtol=1e-5, atol=0.0),
+            throw=False,
+        )
+        assert sol.result == lx.RESULTS.successful
+        assert sol.stats["num_steps"] <= n
+        true_value = jnp.linalg.solve(matrix, vector)
+        error = jnp.linalg.norm(sol.value - true_value) / jnp.linalg.norm(true_value)
+        assert error < 1e-4
 
 
 def test_solver_init_not_differentiated(getkey):
@@ -416,3 +483,61 @@ def test_gmres_wide_dynamic_range_rhs():
     sol = lx.linear_solve(operator, b, lx.GMRES(rtol=1e-12, atol=1e-12), throw=False)
     assert sol.result == lx.RESULTS.successful
     assert tree_allclose(sol.value, jnp.linalg.solve(A, b))
+
+
+@pytest.mark.parametrize(
+    "operations",
+    (
+        (),
+        ("conj",),
+        ("transpose",),
+        ("transpose", "conj"),
+        ("conj", "transpose"),
+        ("conj", "conj"),
+    ),
+)
+@pytest.mark.parametrize("jit", (False, True))
+@pytest.mark.parametrize(
+    "solver,tags,pseudoinverse,singular,dtype",
+    [
+        (solver, tags, pseudo, singular, dtype)
+        for solver, tags, pseudo in solvers_tags_pseudoinverse
+        for singular in ((False, True) if pseudo else (False,))
+        for dtype in (jnp.float64, jnp.complex128)
+    ]
+    + [(lx.LU(), (), False, False, dtype) for dtype in (jnp.float32, jnp.complex64)],
+)
+def test_conjugated_state(
+    getkey, dtype, operations, jit, solver, tags, pseudoinverse, singular
+):
+    make_matrix = construct_singular_matrix if singular else construct_matrix
+    (matrix,) = make_matrix(getkey, solver, tags, dtype=dtype)
+    operator = lx.MatrixLinearOperator(matrix, tags)
+    options = {}
+    state = solver.init(operator, options)
+    for operation in operations:
+        if operation == "conj":
+            state, options = solver.conj(state, options)
+            matrix = matrix.conj()
+        else:
+            state, options = solver.transpose(state, options)
+            matrix = matrix.T
+    rhs = jnp.arange(1, matrix.shape[0] + 1).astype(dtype)
+    compute = lambda rhs: solver.compute(state, rhs, options)[0]
+    if jit:
+        compute = jax.jit(compute)
+    actual = compute(rhs)
+    expected = (
+        (jnp.linalg.pinv(matrix) @ rhs)
+        if pseudoinverse
+        else jnp.linalg.solve(matrix, rhs)
+    )
+    if jnp.finfo(dtype).bits == 32:
+        # In single precision, scale `atol` by the size of the solution: a solve's error
+        # is relative to that (of order `cond * eps * max|x|`), so a small entry beside
+        # large ones cannot meet an elementwise tolerance. Over 10000 draws of each of
+        # float32 and complex64 the worst error was ~1.2e-5 of `max|x|`.
+        atol = 5e-5 * float(jnp.max(jnp.abs(expected)))
+    else:
+        atol = 1e-5
+    assert tree_allclose(actual, expected, rtol=1e-4, atol=atol)

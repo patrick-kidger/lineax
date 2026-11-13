@@ -163,3 +163,32 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
         Either `True` or `False`.
         """
+
+
+class AbstractDirectLinearSolver(AbstractLinearSolver[_SolverState]):
+    """Abstract base class for direct linear solvers.
+
+    Direct solvers materialise the operator (as a matrix or factorisation) and
+    can therefore expose the (log absolute) determinant from their factored state
+    without any additional linear solves.
+    """
+
+    @abc.abstractmethod
+    def slogdet(
+        self, state: _SolverState, options: dict[str, Any]
+    ) -> tuple[Array, Array]:
+        """Compute `(sign, log|det(operator)|)` from the factored state.
+
+        Follows the same convention as `numpy.linalg.slogdet`.
+
+        **Arguments:**
+
+        - `state`: as returned from [`lineax.AbstractLinearSolver.init`][].
+        - `options`: any extra options that were passed to `solver.init`.
+
+        **Returns:**
+
+        A 2-tuple of `(sign, logabsdet)`.  `sign` is `nan` when it cannot be
+        recovered from the factorisation (e.g. gram-matrix solvers such as
+        [`lineax.Normal`][], or [`lineax.SVD`][]).
+        """

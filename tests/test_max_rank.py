@@ -222,23 +222,28 @@ def test_max_rank_invert_tags_absent_when_no_rank_tag():
 # ---------------------------------------------------------------------------
 
 
-def test_svd_truncates_state_to_max_rank():
-    # A genuinely rank-2 matrix, declared rank 2: SVD state is truncated to 2
-    # components, and the solution matches the untruncated solve.
+def test_svd_truncates_to_max_rank():
+    # A genuinely rank-2 matrix, declared rank 2: SVD truncates to 2 components, and
+    # the solution matches the untruncated solve. The state keeps the full
+    # decomposition, so the trailing components (the null space) remain recoverable.
     u = jax.random.normal(jax.random.PRNGKey(0), (10, 2))
     v = jax.random.normal(jax.random.PRNGKey(1), (10, 2))
     matrix = u @ v.T
     solver = lx.SVD()
 
     plain = lx.MatrixLinearOperator(matrix)
-    (u_full, s_full, vt_full), _ = solver.init(plain, {})
+    (u_full, s_full, vt_full), rank_bound, _ = solver.init(plain, {})
     assert s_full.shape == (10,)
+    assert rank_bound.value == 10
 
     tagged = lx.MatrixLinearOperator(matrix, lx.MaxRankTag(2))
-    (u_t, s_t, vt_t), _ = solver.init(tagged, {})
-    assert u_t.shape == (10, 2)
-    assert s_t.shape == (2,)
-    assert vt_t.shape == (2, 10)
+    (u_t, s_t, vt_t), rank_bound, _ = solver.init(tagged, {})
+    assert rank_bound.value == 2
+    assert u_t.shape == (10, 10)
+    assert s_t.shape == (10,)
+    assert vt_t.shape == (10, 10)
+    assert jnp.allclose(matrix @ vt_t[2:].T, 0, atol=1e-10)
+    assert jnp.allclose(u_t[:, 2:].T @ matrix, 0, atol=1e-10)
 
     vector = jnp.arange(10.0) + 0.5
     x_plain = lx.linear_solve(plain, vector, solver).value
@@ -275,21 +280,23 @@ def _hermitian_with_spectrum(key, eigvals):
     return (q * d[None, :]) @ q.T
 
 
-def test_hevd_truncates_state_to_max_rank():
-    # A genuinely rank-2 indefinite Hermitian matrix, declared rank 2: HEVD's state is
-    # truncated to 2 (eigenvalue, eigenvector) pairs and the solution is unchanged.
+def test_hevd_truncates_to_max_rank():
+    # A genuinely rank-2 indefinite Hermitian matrix, declared rank 2: HEVD truncates
+    # to 2 (eigenvalue, eigenvector) pairs and the solution is unchanged.
     matrix = _hermitian_with_spectrum(jax.random.PRNGKey(0), [3.0, -2.0, 0.0, 0.0, 0.0])
     solver = lx.HEVD()
 
     plain = lx.MatrixLinearOperator(matrix, lx.hermitian_tag)
-    (w_full, v_full), _ = solver.init(plain, {})
+    (w_full, v_full), rank_bound, _ = solver.init(plain, {})
     assert w_full.shape == (5,)
     assert v_full.shape == (5, 5)
+    assert rank_bound.value == 5
 
     tagged = lx.MatrixLinearOperator(matrix, (lx.hermitian_tag, lx.MaxRankTag(2)))
-    (w_t, v_t), _ = solver.init(tagged, {})
-    assert w_t.shape == (2,)
-    assert v_t.shape == (5, 2)
+    (w_t, v_t), rank_bound, _ = solver.init(tagged, {})
+    assert rank_bound.value == 2
+    assert w_t.shape == (5,)
+    assert v_t.shape == (5, 5)
 
     vector = jnp.arange(5.0) + 0.5
     x_plain = lx.linear_solve(plain, vector, solver).value
@@ -318,9 +325,16 @@ def test_hevd_truncation_branches(tag, eigvals):
     plain = lx.MatrixLinearOperator(matrix, tag)
     tagged = lx.MatrixLinearOperator(matrix, (tag, lx.MaxRankTag(2)))
 
-    (w_t, v_t), _ = solver.init(tagged, {})
-    assert w_t.shape == (2,)
-    assert v_t.shape == (5, 2)
+    (w_t, v_t), rank_bound, _ = solver.init(tagged, {})
+    assert rank_bound.value == 2
+    # The state keeps every eigenpair, ordered by descending magnitude: the retained
+    # pairs lead, and the trailing ones span the null space.
+    assert w_t.shape == (5,)
+    assert v_t.shape == (5, 5)
+    expected = sorted(eigvals, key=abs, reverse=True)
+    assert jnp.allclose(w_t, jnp.array(expected), atol=1e-10)
+    assert jnp.allclose(matrix @ v_t[:, 2:], 0, atol=1e-10)
+    assert jnp.allclose(matrix @ v_t[:, :2], v_t[:, :2] * w_t[None, :2], atol=1e-10)
 
     vector = jnp.arange(5.0) + 0.5
     x_plain = lx.linear_solve(plain, vector, solver).value

@@ -16,6 +16,7 @@ from copy import copy
 from typing import Any, TypeVar
 
 import equinox.internal as eqxi
+import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
 from .._operator import (
@@ -27,9 +28,7 @@ from .._operator import (
 )
 from .._solution import RESULTS
 from .._tags import positive_semidefinite_tag
-from .base import AbstractLinearSolver
-from .cholesky import Cholesky
-from .hevd import HEVD
+from .base import AbstractDirectLinearSolver, AbstractLinearSolver
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")
@@ -111,11 +110,14 @@ class Normal(
 
     def init(self, operator, options):
         tall = operator.out_size() >= operator.in_size()
-        # Cholesky materialises op twice when computing (op^H @ op).as_matrix()
-        # Cheaper to materialise first and then conjugate-transpose.
+        # Direct solvers materialise the operator; materialise first to avoid
+        # computing (op^H @ op).as_matrix() twice via the two branches.
         # For iterative solvers we only linearise to avoid eager materialisation.
-        is_direct = isinstance(self.inner_solver, Cholesky | HEVD)
-        lin_op = materialise(operator) if is_direct else linearise(operator)
+        lin_op = (
+            materialise(operator)
+            if _is_direct(self.inner_solver)
+            else linearise(operator)
+        )
         if tall:
             inner_operator = conj(lin_op.transpose()) @ lin_op
         else:
@@ -187,9 +189,47 @@ class Normal(
     def assume_full_rank(self):
         return self.inner_solver.assume_full_rank()
 
+    def slogdet(
+        self,
+        state: tuple[
+            _InnerSolverState, eqxi.Static, AbstractLinearOperator, dict[str, Any]
+        ],
+        options: dict[str, Any],
+    ) -> tuple[Array, Array]:
+        if not _is_direct(self.inner_solver):
+            raise TypeError(
+                f"`Normal.slogdet` requires a direct inner solver, "
+                f"got {type(self.inner_solver).__name__}. "
+                f"Use a direct solver such as `lx.Cholesky()`."
+            )
+        inner_state, _, _, inner_options = state
+        # log|det(A^H A)| = 2 * log|det(A)| for tall A (m >= n)
+        # log|det(A A^H)| = 2 * log|det(A)| for wide A (m < n)
+        # so log|det(A)| = 0.5 * log|det(normal_operator)|
+        # The gram matrix construction destroys sign information, so sign is nan.
+        _, inner_lad = self.inner_solver.slogdet(inner_state, inner_options)  # pyright: ignore[reportAttributeAccessIssue]
+        lad = 0.5 * inner_lad
+        sign = jnp.full((), jnp.nan, dtype=lad.dtype)
+        return sign, lad
+
 
 Normal.__init__.__doc__ = """**Arguments:**
 
 - `inner_solver`: The solver to wrap. It should support solving positive
   definite systems or positive semidefinite systems
 """
+
+
+def _is_direct(solver: AbstractLinearSolver) -> bool:
+    """Returns `True` if `solver` is a direct solver that supports `slogdet`.
+
+    Direct solvers (e.g. [`lineax.LU`][], [`lineax.Cholesky`][],
+    [`lineax.SVD`][], [`lineax.Triangular`][], [`lineax.Diagonal`][],
+    [`lineax.Tridiagonal`][]) materialise the operator and can compute
+    determinants from their factored state.
+
+    [`lineax.Normal`][] with a direct inner solver also satisfies this check.
+    """
+    if isinstance(solver, Normal):
+        return _is_direct(solver.inner_solver)
+    return isinstance(solver, AbstractDirectLinearSolver)

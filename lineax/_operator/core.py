@@ -55,15 +55,19 @@ from .base import (
     as_frozenset,
     conj,
     diagonal,
+    diagonal_via_mv,
     first_column,
     FlatPyTree,
+    has_matching_structures,
     has_real_dtype,
     has_unit_diagonal,
+    in_dtype,
     inexact_structure,
     is_circulant,
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_semidefinite,
@@ -73,6 +77,7 @@ from .base import (
     linearise,
     materialise,
     tridiagonal,
+    tridiagonal_via_coloring,
 )
 from .structured import (
     CirculantLinearOperator,
@@ -528,6 +533,17 @@ class FunctionLinearOperator(AbstractLinearOperator):
         )
 
 
+@is_materialised.register(MatrixLinearOperator)
+@is_materialised.register(PyTreeLinearOperator)
+def _(operator):
+    return True
+
+
+# `FunctionLinearOperator` and `JacobianLinearOperator` are defined only through
+# their matrix-vector product, so they fall through to `is_materialised`'s
+# default `False`.
+
+
 def try_structured_materialise(
     operator: AbstractLinearOperator,
 ) -> AbstractLinearOperator:
@@ -539,6 +555,8 @@ def try_structured_materialise(
     otherwise returns the original operator unchanged. The resulting operator
     preserves the input/output structure of the original operator.
     """
+    if not has_matching_structures(operator):
+        return operator
     if is_diagonal(operator):
         diag_flat = diagonal(operator)
         _, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
@@ -655,7 +673,9 @@ def _(operator):
 
 @diagonal.register(PyTreeLinearOperator)
 def _(operator):
-    if is_diagonal(operator):
+    # The block-diagonal fast path pairs each output leaf with the input leaf at the
+    # same position, so needs matching structures (a diagonal operator may reshape).
+    if is_diagonal(operator) and has_matching_structures(operator):
 
         def extract_diag(keypath, struct, subpytree):
             block = _leaf_from_keypath(subpytree, keypath)
@@ -672,14 +692,10 @@ def _(operator):
 @diagonal.register(JacobianLinearOperator)
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
+    if has_unit_diagonal(operator):
+        return jnp.ones(operator.in_size(), dtype=in_dtype(operator))
     if is_diagonal(operator):
-        with jax.ensure_compile_time_eval():
-            basis = jtu.tree_map(
-                lambda s: jnp.ones(s.shape, s.dtype), operator.in_structure()
-            )
-        diag_as_pytree = operator.mv(basis)
-        diag, _ = jfu.ravel_pytree(diag_as_pytree)
-        return diag
+        return diagonal_via_mv(operator)
     return diagonal(materialise(operator))
 
 
@@ -701,38 +717,7 @@ def _(operator):
 @tridiagonal.register(FunctionLinearOperator)
 def _(operator):
     if is_tridiagonal(operator):
-        with jax.ensure_compile_time_eval():
-            flat, unravel = strip_weak_dtype(
-                eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
-            )
-
-            basis = jnp.zeros((3, flat.size), dtype=flat.dtype)
-            for i in range(3):
-                basis = basis.at[i, i::3].set(1.0)
-
-            basis = jax.vmap(unravel)(basis)
-
-            coloring = jnp.arange(flat.size) % 3
-
-        compressed_as_pytree = jax.vmap(operator.mv)(basis)
-        compressed_flat = jax.vmap(lambda x: jfu.ravel_pytree(x)[0])(
-            compressed_as_pytree
-        )
-
-        # unique_indices propagates through linear_transpose to set unique_indices=True
-        # on the scatter, allowing assignment rather than accumulation.
-        rows = jnp.arange(flat.size)
-        diag = compressed_flat.at[coloring, rows].get(
-            wrap_negative_indices=False, unique_indices=True
-        )
-        lower_diag = compressed_flat.at[coloring[:-1], rows[1:]].get(
-            wrap_negative_indices=False, unique_indices=True
-        )
-        upper_diag = compressed_flat.at[coloring[1:], rows[:-1]].get(
-            wrap_negative_indices=False, unique_indices=True
-        )
-
-        return diag, lower_diag, upper_diag
+        return tridiagonal_via_coloring(operator)
     matrix = operator.as_matrix()
     assert matrix.ndim == 2
     main_diagonal = jnp.diagonal(matrix, offset=0)
@@ -758,8 +743,12 @@ def _(operator):
 @is_symmetric.register(JacobianLinearOperator)
 @is_symmetric.register(FunctionLinearOperator)
 def _(operator):
-    # Symmetric (A = A^T) if explicitly tagged symmetric or diagonal
-    if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
+    # Symmetric (A = A^T) if explicitly tagged symmetric, or tagged diagonal with
+    # matching input and output structures (a diagonal operator may also reshape, as
+    # `IdentityLinearOperator` can, in which case it differs from its transpose).
+    if symmetric_tag in operator.tags:
+        return True
+    if diagonal_tag in operator.tags and has_matching_structures(operator):
         return True
     # semidefinite/Hermitian imply A = A^T only for real dtypes
     if (
@@ -784,7 +773,9 @@ def _(operator):
         or semidefinite_tag in operator.tags
     ):
         return True
-    if symmetric_tag in operator.tags or diagonal_tag in operator.tags:
+    if symmetric_tag in operator.tags:
+        return has_real_dtype(operator)
+    if diagonal_tag in operator.tags and has_matching_structures(operator):
         return has_real_dtype(operator)
     return False
 
