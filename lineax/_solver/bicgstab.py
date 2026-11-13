@@ -15,14 +15,14 @@
 from collections.abc import Callable
 from typing import Any, TypeAlias
 
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
-from .._norm import max_norm, tree_dot
+from .._misc import tree_where
+from .._norm import max_norm, tree_dot, two_norm
 from .._operator import AbstractLinearOperator, conj, linearise
 from .._solution import RESULTS
 from .base import AbstractLinearSolver
@@ -103,14 +103,8 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
         # preconditioner in this case is K2^(-1) (i.e., right preconditioning)
 
         r0 = (vector**ω - operator.mv(y0) ** ω).ω
-
-        def breakdown_occurred(omega, alpha, rho):
-            # Empirically, the tolerance checks for breakdown are very tight.
-            # These specific tolerances are heuristic.
-            if jax.config.jax_enable_x64:  # pyright: ignore
-                return (omega == 0.0) | (alpha == 0.0) | (rho == 0.0)
-            else:
-                return (omega < 1e-16) | (alpha < 1e-16) | (rho < 1e-16)
+        r0_norm = two_norm(r0)
+        eps = jnp.finfo(jnp.result_type(*leaves)).eps
 
         def not_converged(r, diff, y):
             # The primary tolerance check.
@@ -130,35 +124,38 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             else:
                 return True
 
-        def is_converged(r):
-            # Whether `r`, used as a residual in its own right, already satisfies the
-            # `b`-space tolerance.
-            if has_scale:
-                return self.norm(r) <= b_scale  # pyright: ignore
-            else:
-                return tree_dot(r, r) == 0
+        def is_negligible(r):
+            # Whether the residual `r` is zero to working precision, so that `y` solves
+            # the system exactly (e.g. because `r0` lies in an invariant subspace of
+            # the preconditioned operator) and BiCGStab can make no further progress.
+            # Deliberately not the (much looser) solver tolerance: `r` routinely meets
+            # that a few steps before `diff` does, and those steps must still be taken.
+            return two_norm(r) <= eps * r0_norm
+
+        def numerically_orthogonal(dot, x_norm, y_norm):
+            # Whether `dot = <x, y>` is indistinguishable from zero: below the rounding
+            # error of computing it, which is at least `eps * ‖x‖ ‖y‖`. Comparing
+            # against the norms, rather than against an absolute threshold, makes this
+            # invariant to the scale of `b` (and of the operator), and taking `abs`
+            # handles negative and complex dot products.
+            return jnp.abs(dot) <= eps * x_norm * y_norm
 
         def cond_fun(carry):
-            y, r, alpha, omega, rho, _, _, diff, step = carry
-            out = jnp.invert(breakdown_occurred(omega, alpha, rho))
+            y, r, _, _, _, _, _, diff, step, breakdown = carry
+            out = jnp.invert(breakdown) & jnp.invert(is_negligible(r))
             out = out & not_converged(r, diff, y)
             out = out & (step < max_steps)
             return out
 
         def body_fun(carry):
-            y, r, alpha, omega, rho, p, v, diff, step = carry
+            y, r, alpha, omega, rho, p, v, diff, step, _ = carry
 
-            # If `r` is already converged (e.g. `r0` lies in an invariant subspace of
-            # the preconditioned operator), `rho_new` below is ~0, and dividing it by
-            # the equally-~0 `<r0, v_new>` to form `alpha_new` would be an unguarded
-            # `0 / 0`. Guard it as `scipy`/`jax.scipy`'s `bicgstab` do. Unlike
-            # `omega_new` below, `alpha_new` needs no pinning afterwards: it is then
-            # just `rho_new`, which makes the alpha-step `alpha_new * v_new`
-            # higher-order small (so `s ≈ r`), and cancels against `rho` in the next
-            # iteration's `beta`.
-            r_converged = is_converged(r)
-
+            # `r` is not negligible here (`cond_fun` stops if it is), so `rho_new` is
+            # zero only on a genuine breakdown, as are the `<r0, v_new>` and `<s, t>`
+            # below. Each is checked, and on a breakdown we stop and return the last
+            # iterate, rather than divide by a value that is zero up to rounding.
             rho_new = tree_dot(r0, r)
+            rho_breakdown = numerically_orthogonal(rho_new, r0_norm, two_norm(r))
             beta = (rho_new / rho) * (alpha / omega)
             p_new = (r**ω + beta * (p**ω - omega * v**ω)).ω
 
@@ -167,25 +164,34 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             x = preconditioner.mv(p_new)
             v_new = operator.mv(x)
 
-            alpha_new = rho_new / jnp.where(r_converged, 1, tree_dot(r0, v_new))
+            r0_v_new = tree_dot(r0, v_new)
+            alpha_breakdown = numerically_orthogonal(r0_v_new, r0_norm, two_norm(v_new))
+            alpha_new = rho_new / jnp.where(alpha_breakdown, 1, r0_v_new)
             s = (r**ω - alpha_new * v_new**ω).ω
 
+            # If the alpha-step alone zeroes the residual (so `t = A(M(s))` is also
+            # ~0), skip the stabilising omega-step, as `scipy`/`jax.scipy`'s `bicgstab`
+            # do: `omega_new = <s, t> / <t, t>` would be `0 / 0`. `cond_fun` then
+            # stops, as the new residual is `s`.
+            s_negligible = is_negligible(s)
             z = preconditioner.mv(s)
             t = operator.mv(z)
+            s_t = tree_dot(s, t)
+            omega_breakdown = jnp.invert(s_negligible) & numerically_orthogonal(
+                s_t, two_norm(s), two_norm(t)
+            )
+            omega_new = s_t / jnp.where(
+                s_negligible | omega_breakdown, 1, tree_dot(t, t)
+            )
+            omega_new = jnp.where(s_negligible, 0, omega_new)
 
-            # Likewise, if the alpha-step alone already converges (so `t = A(M(s))`
-            # is also ~0), `omega_new = <s, t> / <t, t>` would be an unguarded `0 / 0`,
-            # producing `nan` that poisons `y` and `r` and evades `breakdown_occurred`
-            # (`nan == 0.0` is `False`). We report `omega_new = 1`, not `0`, so as not
-            # to spuriously trigger `breakdown_occurred` -- the next iteration then
-            # harmlessly hits the `r_converged` case above instead.
-            s_converged = is_converged(s)
-            omega_new = tree_dot(s, t) / jnp.where(s_converged, 1, tree_dot(t, t))
-            omega_new = jnp.where(s_converged, 1, omega_new)
-
-            diff = (alpha_new * x**ω + omega_new * z**ω).ω
-            y_new = (y**ω + diff**ω).ω
+            breakdown = rho_breakdown | alpha_breakdown | omega_breakdown
+            diff_new = (alpha_new * x**ω + omega_new * z**ω).ω
+            y_new = (y**ω + diff_new**ω).ω
             r_new = (s**ω - omega_new * t**ω).ω
+            y_new, r_new, diff_new = tree_where(
+                breakdown, (y, r, diff), (y_new, r_new, diff_new)
+            )
             return (
                 y_new,
                 r_new,
@@ -194,8 +200,9 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
                 rho_new,
                 p_new,
                 v_new,
-                diff,
+                diff_new,
                 step + 1,
+                breakdown,
             )
 
         p0 = v0 = jtu.tree_map(jnp.zeros_like, vector)
@@ -211,8 +218,9 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             v0,
             ω(y0).call(lambda x: jnp.full_like(x, jnp.inf)).ω,
             0,
+            jnp.array(False),
         )
-        solution, residual, alpha, omega, rho, _, _, diff, num_steps = lax.while_loop(
+        solution, residual, _, _, _, _, _, diff, num_steps, breakdown = lax.while_loop(
             cond_fun, body_fun, init_carry
         )
 
@@ -226,10 +234,12 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             )
         else:
             result = RESULTS.successful
-        # breakdown is only an issue if we did not converge
-        breakdown = breakdown_occurred(omega, alpha, rho) & not_converged(
-            residual, diff, solution
-        )
+        # Breakdown is only an issue if we did not converge. As no further steps can
+        # be taken, judge this by the residual alone: the `y`-space check would
+        # otherwise fail on a "lucky" breakdown, in which the Krylov space is exhausted
+        # and the last step -- however large -- solved the system to rounding error.
+        if has_scale:
+            breakdown = breakdown & (self.norm(residual) > b_scale)  # pyright: ignore
         result = RESULTS.where(breakdown, RESULTS.breakdown, result)
 
         stats = {"num_steps": num_steps, "max_steps": self.max_steps}

@@ -217,6 +217,50 @@ def test_bicgstab_invariant_subspace_rhs(perturbation):
     assert tree_allclose(sol.value, vector / diag)
 
 
+@pytest.mark.parametrize("scale", (1.0, 1e-8, 1e6))
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.complex64))
+def test_bicgstab_breakdown_check_x32(dtype, scale):
+    """BiCGStab's breakdown checks must not mistake a negative (or complex) `alpha`,
+    `omega` or `rho` for a zero one, nor a small-scale `b` for a breakdown. Both are
+    routine on indefinite and complex operators, and in single precision.
+    """
+    with jax.enable_x64(False):
+        diag = jnp.array([2, -3, 5, 7], dtype=dtype)
+        if jnp.issubdtype(dtype, jnp.complexfloating):
+            diag = diag.at[1].set(3j)
+        operator = lx.MatrixLinearOperator(jnp.diag(diag))
+        vector = scale * jnp.array([1, 1, 0, 0], dtype=dtype)
+        sol = lx.linear_solve(
+            operator, vector, lx.BiCGStab(rtol=1e-5, atol=0.0), throw=False
+        )
+        assert sol.result == lx.RESULTS.successful
+        assert tree_allclose(sol.value, vector / diag, rtol=1e-5, atol=0.0)
+
+
+def test_bicgstab_converged_residual_steps_are_genuine():
+    """The guards against an exactly-converged residual must not fire merely because
+    the residual is within tolerance: `r` routinely meets that a few steps before the
+    `y`-space check does, and replacing those steps' `alpha`/`omega` destroys
+    convergence (e.g. needing >2x the steps, or hitting `max_steps`).
+    """
+    n = 20
+    for seed in range(8):
+        key1, key2 = jr.split(jr.key(seed))
+        matrix = jr.normal(key1, (n, n)) + 0.3 * n * jnp.eye(n)
+        vector = jr.normal(key2, (n,))
+        sol = lx.linear_solve(
+            lx.MatrixLinearOperator(matrix),
+            vector,
+            lx.BiCGStab(rtol=1e-5, atol=0.0),
+            throw=False,
+        )
+        assert sol.result == lx.RESULTS.successful
+        assert sol.stats["num_steps"] <= n
+        true_value = jnp.linalg.solve(matrix, vector)
+        error = jnp.linalg.norm(sol.value - true_value) / jnp.linalg.norm(true_value)
+        assert error < 1e-4
+
+
 def test_solver_init_not_differentiated(getkey):
     """stop_gradient should be applied before solver.init, not after.
 
