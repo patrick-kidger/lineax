@@ -83,15 +83,19 @@ def test_jvp(
             (operator, vec),
             (t_operator, t_vec),
         )
-        # As in `test_vmap_jvp`: `lstsq` is only the right reference for solvers that
-        # return a pseudoinverse solution. Elsewhere the matrix is square and
-        # nonsingular, and `solve` agrees on the primal while being better conditioned
-        # on the tangent -- `lstsq` is SVD-based, so its derivative is ill-defined when
-        # singular values coincide, as they always do for a real circulant matrix.
-        if pseudoinverse:
+        # As in `test_vmap_jvp`: `lstsq` is only needed where the pseudoinverse
+        # differs from the inverse -- singular or non-square draws, both of which come
+        # from `construct_singular_matrix`. On square full-rank matrices `solve`
+        # agrees on the primal while being better conditioned on the tangent --
+        # `lstsq` is SVD-based, so its derivative is ill-defined when singular values
+        # coincide, as they always do for a real circulant matrix. Singular circulants
+        # force the finite-difference fallback for the same reason.
+        if pseudoinverse and make_matrix is construct_singular_matrix:
             reference = jnp.linalg.lstsq
+            force_fd = has_tag(tags, lx.circulant_tag)
         else:
             reference = lambda a, b: (jnp.linalg.solve(a, b),)
+            force_fd = False
 
         (expected_op_out, *_), (t_expected_op_out, *_) = eqx.filter_jvp(
             lambda op: reference(op, vec),  # pyright: ignore
@@ -104,14 +108,14 @@ def test_jvp(
             (t_matrix, t_vec),  # pyright: ignore
         )
 
-        # Work around JAX issue #14868.
-        if jnp.any(jnp.isnan(t_expected_op_out)):
+        # Work around JAX issue #14868 (and coincident circulant singular values).
+        if force_fd or jnp.any(jnp.isnan(t_expected_op_out)):
             _, (t_expected_op_out, *_) = finite_difference_jvp(
                 lambda op: reference(op, vec),  # pyright: ignore
                 (matrix,),
                 (t_matrix,),
             )
-        if jnp.any(jnp.isnan(t_expected_op_vec_out)):
+        if force_fd or jnp.any(jnp.isnan(t_expected_op_vec_out)):
             _, (t_expected_op_vec_out, *_) = finite_difference_jvp(
                 reference,
                 (matrix, vec),

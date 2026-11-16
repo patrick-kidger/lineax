@@ -18,6 +18,10 @@ These do not change the mathematical meaning of the operator; they simply change
 
 ---
 
+::: lineax.trace
+
+---
+
 ::: lineax.tridiagonal
 
 ---

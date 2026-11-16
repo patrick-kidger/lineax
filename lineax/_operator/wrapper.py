@@ -46,13 +46,17 @@ from .base import (
     as_frozenset,
     conj,
     diagonal,
+    diagonal_via_mv,
     first_column,
+    has_matching_structures,
     has_real_dtype,
     has_unit_diagonal,
+    in_dtype,
     is_circulant,
     is_diagonal,
     is_hermitian,
     is_lower_triangular,
+    is_materialised,
     is_negative_semidefinite,
     is_positive_semidefinite,
     is_semidefinite,
@@ -63,6 +67,7 @@ from .base import (
     materialise,
     max_rank,
     tridiagonal,
+    tridiagonal_via_coloring,
 )
 
 
@@ -271,17 +276,38 @@ def _(operator):
 
 @diagonal.register(TaggedLinearOperator)
 def _(operator):
+    if has_unit_diagonal(operator):
+        return jnp.ones(operator.in_size(), dtype=in_dtype(operator))
+    if is_diagonal(operator) and not is_materialised(operator.operator):
+        return diagonal_via_mv(operator)
     return diagonal(operator.operator)
 
 
 @tridiagonal.register(TaggedLinearOperator)
 def _(operator):
+    if is_tridiagonal(operator) and not is_materialised(operator.operator):
+        return tridiagonal_via_coloring(operator)
     return tridiagonal(operator.operator)
 
 
 @first_column.register(TaggedLinearOperator)
 def _(operator):
     return first_column(operator.operator)
+
+
+@is_materialised.register(TaggedLinearOperator)
+@is_materialised.register(MulLinearOperator)
+@is_materialised.register(NegLinearOperator)
+@is_materialised.register(DivLinearOperator)
+def _(operator):
+    return is_materialised(operator.operator)
+
+
+@is_materialised.register(TangentLinearOperator)
+def _(operator):
+    # `as_matrix` is the jvp of the primal's `as_matrix`, so it costs what the
+    # primal's costs.
+    return is_materialised(operator.primal)
 
 
 for transform in (linearise, materialise, diagonal):
@@ -315,22 +341,17 @@ def _(operator):
     return TangentLinearOperator(primal_out, tangent_out)
 
 
-@diagonal.register(TangentLinearOperator)
-def _(operator):
-    # Should be unreachable: TangentLinearOperator is used for a narrow set of
-    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
-    raise NotImplementedError(
-        "Please open a GitHub issue: https://github.com/google/lineax"
-    )
+# As with `TangentLinearOperator.as_matrix`, extraction applies to the *tangent*:
+# differentiating the primal's own registration hands us the tangent's entries at the
+# fast path's cost, whatever that fast path is -- stored entries, probing via
+# `diagonal_via_mv`/`tridiagonal_via_coloring` (probing is linear, so its jvp is the
+# same probe of the tangent), or a constant (whose jvp is structurally zero).
+for extract in (diagonal, tridiagonal, first_column):
 
-
-@tridiagonal.register(TangentLinearOperator)
-def _(operator):
-    # Should be unreachable: TangentLinearOperator is used for a narrow set of
-    # operations only (mv; transpose) inside the JVP rule linear_solve_p.
-    raise NotImplementedError(
-        "Please open a GitHub issue: https://github.com/google/lineax"
-    )
+    @extract.register(TangentLinearOperator)  # pyright: ignore
+    def _(operator, extract=extract):
+        out, t_out = eqx.filter_jvp(extract, (operator.primal,), (operator.tangent,))
+        return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
 
 
 @tridiagonal.register(MulLinearOperator)
@@ -351,24 +372,45 @@ def _(operator):
     return (diag / operator.scalar, lower / operator.scalar, upper / operator.scalar)
 
 
+# Structure that constrains the *family* of operators constrains its tangents too: the
+# tangent of a curve of, say, tridiagonal operators is tridiagonal. Definiteness and a
+# unit diagonal do not transfer: the tangent of a unit-diagonal family has a *zero*
+# diagonal, and the tangent of a positive semidefinite family need not be semidefinite
+# of either sign.
 for check in (
     is_symmetric,
     is_hermitian,
     is_diagonal,
-    has_unit_diagonal,
     is_lower_triangular,
     is_upper_triangular,
     is_tridiagonal,
     is_circulant,
-    is_positive_semidefinite,
-    is_negative_semidefinite,
-    is_semidefinite,
-    max_rank,
 ):
 
     @check.register(TangentLinearOperator)  # pyright: ignore
     def _(operator, check=check):
         return check(operator.primal)
+
+
+@max_rank.register(TangentLinearOperator)
+def _(operator):
+    # A rank bound doubles rather than transfers: writing the family as
+    # `A(t) = U(t) V(t)^T` with rank <= k, the tangent is `dU V^T + U dV^T`, of rank
+    # up to `2k` -- equivalently, a limit of differences of two rank-<=k matrices.
+    dim_bound = min(operator.out_size(), operator.in_size())
+    return min(dim_bound, 2 * max_rank(operator.primal))
+
+
+for check in (
+    has_unit_diagonal,
+    is_positive_semidefinite,
+    is_negative_semidefinite,
+    is_semidefinite,
+):
+
+    @check.register(TangentLinearOperator)  # pyright: ignore
+    def _(operator, check=check):
+        return False
 
 
 # Scaling/negating preserves these structural properties
@@ -434,9 +476,9 @@ def _(operator):
 @has_unit_diagonal.register(DivLinearOperator)
 def _(operator):
     scalar = operator.scalar
-    if not isinstance(scalar, (int, float, np.ndarray, np.generic)):
+    if not isinstance(scalar, (int, float, complex, np.ndarray, np.generic)):
         return False
-    return float(scalar) == 1.0 and has_unit_diagonal(operator.operator)
+    return bool(scalar == 1.0) and has_unit_diagonal(operator.operator)
 
 
 class _ScalarSign(enum.Enum):
@@ -449,6 +491,8 @@ class _ScalarSign(enum.Enum):
 def _scalar_sign(scalar) -> _ScalarSign:
     """Returns the sign of a scalar, or unknown for JAX tracers."""
     if isinstance(scalar, (int, float, np.ndarray, np.generic)):
+        if np.iscomplexobj(scalar):
+            return _ScalarSign.unknown
         scalar = float(scalar)
         if scalar > 0:
             return _ScalarSign.positive
@@ -535,7 +579,6 @@ def _(operator):
 
 
 for check, tag in (
-    (is_symmetric, symmetric_tag),
     (is_diagonal, diagonal_tag),
     (has_unit_diagonal, unit_diagonal_tag),
     (is_lower_triangular, lower_triangular_tag),
@@ -582,7 +625,29 @@ def _(operator):
         or semidefinite_tag in tags
     ):
         return True
-    if symmetric_tag in tags or diagonal_tag in tags:
+    if symmetric_tag in tags:
+        return has_real_dtype(operator)
+    if diagonal_tag in tags and has_matching_structures(operator):
+        return has_real_dtype(operator)
+    return False
+
+
+# `is_symmetric` is special-cased for the same reason, mirroring the rule for the core
+# operators: a diagonal tag implies symmetry only with matching input and output
+# structures, and semidefinite/Hermitian tags imply it only for real dtypes.
+@is_symmetric.register(TaggedLinearOperator)
+def _(operator):
+    tags = operator.tags
+    if is_symmetric(operator.operator) or symmetric_tag in tags:
+        return True
+    if diagonal_tag in tags and has_matching_structures(operator):
+        return True
+    if (
+        hermitian_tag in tags
+        or positive_semidefinite_tag in tags
+        or negative_semidefinite_tag in tags
+        or semidefinite_tag in tags
+    ):
         return has_real_dtype(operator)
     return False
 
