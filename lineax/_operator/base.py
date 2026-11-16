@@ -604,13 +604,11 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
     # A reshaping diagonal operator differs from its transpose
     if diagonal_tag in tags and has_matching_structures(operator):
         return True
-    # Semidefinite/Hermitian imply A = A^T only for real dtypes.
-    if (
-        positive_semidefinite_tag in tags
-        or negative_semidefinite_tag in tags
-        or semidefinite_tag in tags
-        or hermitian_tag in tags
-    ):
+    # Semidefinite/Hermitian imply A = A^T only for real dtypes. Semidefiniteness goes
+    # via `is_semidefinite` so that a registered sign check (not just a tag) counts.
+    # This keeps the defaults acyclic: `is_hermitian` -> `is_symmetric` ->
+    # `is_semidefinite` -> `is_{positive,negative}_semidefinite`, never back up.
+    if hermitian_tag in tags or is_semidefinite(operator):
         return has_real_dtype(operator)
     return False
 

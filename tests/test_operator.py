@@ -120,6 +120,8 @@ def test_custom_operator_registered():
     assert lx.is_positive_semidefinite(operator) is True
     assert lx.is_semidefinite(operator) is True
     assert lx.is_hermitian(operator) is True
+    # Real and Hermitian, so symmetric too.
+    assert lx.is_symmetric(operator) is True
     solver = lx.AutoLinearSolver(well_posed=True)
     assert isinstance(solver.select_solver(operator), lx.Cholesky)
 
