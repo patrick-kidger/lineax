@@ -187,10 +187,11 @@ def _gram_partner(
     solver: _MaybeHasGramPartner,
     gram_operator: AbstractLinearOperator,
     state: Any,
-) -> tuple[AbstractLinearSolver, Any]:
-    """Return a `(gram_solver, gram_state)` pair such that
-    `linear_solve_p(gram_operator, gram_state, v, gram_solver)` computes `(AᴴA)⁺ v`
-    (where `gram_operator` is `AᴴA`). Requires `_has_gram_partner(solver, state)`.
+    state_adjoint: Any,
+) -> tuple[AbstractLinearSolver, Any, dict[str, Any]]:
+    """Return the solver, state, and options for solving `(AᴴA)⁺ v`.
+
+    Requires `_has_gram_partner(solver, state)` and `gram_operator = AᴴA`.
 
     Each candidate solver's gram partner -- a solver representing the (pseudo)inverse of
     the gram matrix `AᴴA` -- is obtained from the existing factorisation with no further
@@ -209,14 +210,16 @@ def _gram_partner(
     pseudoinverse-aware adjoint rather than differentiating through the factorisation.
     """
     if isinstance(solver, Normal):
-        inner_state, tall, _, _ = state
+        _, tall, _, _ = state
         if not tall.value:
             # Wide: the inner solver factorises `AAᴴ`, not `AᴴA`. `_has_gram_partner`
             # excludes this, so reaching here is a caller bug.
             raise ValueError("`Normal` has a gram partner only for tall operators")
-        # Tall: the inner solver already factorises `AᴴA`, so its state *is* the gram
-        # state. This holds for any inner solver (Cholesky, CG, HEVD, ...).
-        return solver.inner_solver, inner_state
+        # For tall A, both Normal(A) and Normal(Aᴴ) use AᴴA internally. Reuse
+        # the adjoint's inner state and options so an option like CG's primal
+        # starting guess is handled just as it is in the unfused adjoint solve.
+        inner_state, _, _, inner_options = state_adjoint
+        return solver.inner_solver, inner_state, inner_options
     if isinstance(solver, QR):
         if not solver.assume_full_rank():
             # The shortcut below relies on a full-rank, *non-pivoted* factorisation.
@@ -237,7 +240,7 @@ def _gram_partner(
             raise ValueError("`QR` has a gram partner only for tall operators")
         # Tall `A = QR` => `AᴴA = RᴴR`: the QR factor `R` is the upper Cholesky factor.
         r = a[: a.shape[1]]
-        return Cholesky(), (r, jnp.asarray(False))
+        return Cholesky(), (r, jnp.asarray(False)), {}
     packed = pack_structures(gram_operator)
     if isinstance(solver, Circulant):
         (eigenvalues, is_complex), _ = state
@@ -251,7 +254,7 @@ def _gram_partner(
         # `Circulant.init` would have produced. (The imaginary part is exactly zero.)
         gram_eigenvalues = eigenvalues.conj() * eigenvalues
         gram_solver = Circulant(well_posed=solver.well_posed, rcond=rcond)
-        return gram_solver, ((gram_eigenvalues, is_complex), packed)
+        return gram_solver, ((gram_eigenvalues, is_complex), packed), {}
     if isinstance(solver, SVD):
         (u, s, vt), rank_bound, _ = state
         # `(AᴴA)⁺ = V Σ⁻² Vᴴ`.
@@ -265,7 +268,7 @@ def _gram_partner(
         rcond = _squared_rcond(solver.rcond, m, m, w.dtype)
     # Both states hold their retained components as a leading slice ordered by
     # descending magnitude, which squaring preserves, so the rank bound carries over.
-    return HEVD(rcond=rcond), ((eigenvalues, eigenvectors), rank_bound, packed)
+    return HEVD(rcond=rcond), ((eigenvalues, eigenvectors), rank_bound, packed), {}
 
 
 @eqxi.filter_primitive_jvp
@@ -359,13 +362,18 @@ def _linear_solve_jvp(primals, tangents):
                 gram_operator = TaggedLinearOperator(
                     operator.H @ operator, positive_semidefinite_tag
                 )
-                gram_solver, gram_state = _gram_partner(solver, gram_operator, state)
+                gram_solver, gram_state, gram_options = _gram_partner(
+                    solver,
+                    gram_operator,
+                    state,
+                    state_conj_transpose,  # pyright: ignore
+                )
                 gram_inv, _, _ = eqxi.filter_primitive_bind(
                     linear_solve_p,
                     gram_operator,
                     gram_state,
                     tmp,
-                    {},
+                    gram_options,
                     gram_solver,
                     True,
                 )
