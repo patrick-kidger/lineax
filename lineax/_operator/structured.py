@@ -441,7 +441,6 @@ def _(operator):
 # Not registered, so `False` via the defaults: symmetry, Hermitian-ness, triangularity,
 # unit diagonal and (semi)definiteness of Tridiagonal and Circulant operators, and unit
 # diagonal and (semi)definiteness of Diagonal operators.
-# TODO: refine these (e.g. from the stored values, where known at trace time).
 
 
 @conj.register(IdentityLinearOperator)
