@@ -412,10 +412,11 @@ def diagonal_via_mv(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
     Valid whenever `is_diagonal(operator)`.
     """
-    with jax.ensure_compile_time_eval():
-        basis = jtu.tree_map(
-            lambda s: jnp.ones(s.shape, s.dtype), operator.in_structure()
-        )
+    # Built in the trace, not under `ensure_compile_time_eval`: a concrete array above
+    # `jax_embedded_constants_max_bytes` becomes a runtime argument, and XLA can then
+    # no longer see that it is all ones (to fold e.g. `linear_solve`'s finiteness
+    # check on it). As a traced broadcast it is free.
+    basis = jtu.tree_map(lambda s: jnp.ones(s.shape, s.dtype), operator.in_structure())
     diag_as_pytree = operator.mv(basis)
     diag, _ = jfu.ravel_pytree(diag_as_pytree)
     return diag
@@ -579,7 +580,9 @@ def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
         flat, unravel = strip_weak_dtype(
             eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
         )
-        basis = unravel(jnp.zeros(flat.size, flat.dtype).at[0].set(1))
+    # Built in the trace, as in `diagonal_via_mv`: a concrete basis vector would be
+    # passed in as a runtime argument rather than generated in place.
+    basis = unravel(jnp.zeros(flat.size, flat.dtype).at[0].set(1))
     return jfu.ravel_pytree(operator.mv(basis))[0]
 
 
