@@ -288,9 +288,8 @@ for check in (
         return check(operator.operator1) and check(operator.operator2)
 
 
-@has_unit_diagonal.register(AddLinearOperator)
-def _(operator):
-    return False
+# `has_unit_diagonal` is not registered (so `False` via the default): it is not
+# preserved by addition.
 
 
 @max_rank.register(AddLinearOperator)
@@ -350,11 +349,8 @@ def _(operator):
     return False
 
 
-# PSD/NSD: not preserved under composition in general.
-@is_positive_semidefinite.register(ComposedLinearOperator)
-@is_negative_semidefinite.register(ComposedLinearOperator)
-def _(operator):
-    return False
+# PSD/NSD are not preserved under composition in general, so are not registered
+# (and are `False` via the defaults).
 
 
 @has_unit_diagonal.register(ComposedLinearOperator)
