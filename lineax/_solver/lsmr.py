@@ -56,7 +56,8 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
     """LSMR solver for linear systems.
 
     This solver can handle any operator, even nonsquare or singular ones. In these
-    cases it will return the pseudoinverse solution to the linear system.
+    cases it will return the pseudoinverse solution to the linear system (when started
+    from zero; see `y0` below).
 
     Similar to `scipy.sparse.linalg.lsmr`.
 
@@ -64,7 +65,9 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
     `lx.linear_solve(..., options=...)`).
 
     - `y0`: The initial estimate of the solution to the linear system. Defaults to all
-        zeros.
+        zeros. The iterations leave the component of `y0` in the operator's null space
+        unchanged, which means that for a singular operator the solution differs from
+        the pseudoinverse solution by that component.
     """
 
     rtol: float
