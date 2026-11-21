@@ -108,8 +108,7 @@ class AbstractLinearOperator(eqx.Module):
                     f"structures. Got input structure {self.in_structure()} and output "
                     f"structure {self.out_structure()}."
                 )
-        # Diagonal, tridiagonal and circulant matrices are square: `diagonal`,
-        # `tridiagonal`, `first_column` and the corresponding solvers all assume so.
+        # Diagonal, tridiagonal and circulant matrices are square.
         # (A diagonal operator may still map between different structures, as a
         # reshaping `IdentityLinearOperator` does.)
         for check, name in (
