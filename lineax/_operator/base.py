@@ -36,7 +36,20 @@ from .._misc import (
     default_floating_dtype,
     strip_weak_dtype,
 )
-from .._tags import diagonal_tag, MaxRankTag
+from .._tags import (
+    circulant_tag,
+    diagonal_tag,
+    hermitian_tag,
+    lower_triangular_tag,
+    MaxRankTag,
+    negative_semidefinite_tag,
+    positive_semidefinite_tag,
+    semidefinite_tag,
+    symmetric_tag,
+    tridiagonal_tag,
+    unit_diagonal_tag,
+    upper_triangular_tag,
+)
 
 
 def as_frozenset(x: object | Iterable[object]) -> frozenset[object]:
@@ -95,13 +108,18 @@ class AbstractLinearOperator(eqx.Module):
                     f"structures. Got input structure {self.in_structure()} and output "
                     f"structure {self.out_structure()}."
                 )
-        # A diagonal operator may map between different structures (as a reshaping
-        # `IdentityLinearOperator` does), but must still be square.
-        if diagonal_tag in getattr(self, "tags", frozenset()):
-            if self.in_size() != self.out_size():
+        # Diagonal, tridiagonal and circulant matrices are square.
+        # (A diagonal operator may still map between different structures, as a
+        # reshaping `IdentityLinearOperator` does.)
+        for check, name in (
+            (is_diagonal, "diagonal"),
+            (is_tridiagonal, "tridiagonal"),
+            (is_circulant, "circulant"),
+        ):
+            if check(self) and self.in_size() != self.out_size():
                 raise ValueError(
-                    f"An operator tagged with `{diagonal_tag}` must be square. Got "
-                    f"input size {self.in_size()} and output size {self.out_size()}."
+                    f"A {name} operator must be square. Got input size "
+                    f"{self.in_size()} and output size {self.out_size()}."
                 )
 
     @abc.abstractmethod
@@ -276,6 +294,11 @@ class AbstractLinearOperator(eqx.Module):
 #
 
 
+def _tags(operator: "AbstractLinearOperator") -> Iterable[object]:
+    """The tags an operator declares, or none if it has no `tags` attribute."""
+    return getattr(operator, "tags", frozenset())
+
+
 def _default_not_implemented(name: str, operator: AbstractLinearOperator) -> NoReturn:
     msg = f"`lineax.{name}` has not been implemented for {type(operator)}"
     if type(operator).__module__.startswith("lineax"):
@@ -394,10 +417,11 @@ def diagonal_via_mv(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
 
     Valid whenever `is_diagonal(operator)`.
     """
-    with jax.ensure_compile_time_eval():
-        basis = jtu.tree_map(
-            lambda s: jnp.ones(s.shape, s.dtype), operator.in_structure()
-        )
+    # Built in the trace, not under `ensure_compile_time_eval`: a concrete array above
+    # `jax_embedded_constants_max_bytes` becomes a runtime argument, and XLA can then
+    # no longer see that it is all ones (to fold e.g. `linear_solve`'s finiteness
+    # check on it). As a traced broadcast it is free.
+    basis = jtu.tree_map(lambda s: jnp.ones(s.shape, s.dtype), operator.in_structure())
     diag_as_pytree = operator.mv(basis)
     diag, _ = jfu.ravel_pytree(diag_as_pytree)
     return diag
@@ -457,7 +481,11 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     implementations. If you don't know what kind of operator you might have, then this
     function ensures that you always get the most efficient implementation.
     """
-    _default_not_implemented("diagonal", operator)
+    if has_unit_diagonal(operator):
+        return jnp.ones(operator.in_size(), dtype=in_dtype(operator))
+    if is_diagonal(operator):
+        return diagonal_via_mv(operator)
+    return jnp.diag(operator.as_matrix())
 
 
 def trace(operator: AbstractLinearOperator) -> Scalar:
@@ -499,7 +527,14 @@ def tridiagonal(
     If you don't know what kind of operator you might have, then this function ensures
     that you always get the most efficient implementation.
     """
-    _default_not_implemented("tridiagonal", operator)
+    if is_tridiagonal(operator):
+        return tridiagonal_via_coloring(operator)
+    matrix = operator.as_matrix()
+    assert matrix.ndim == 2
+    main_diagonal = jnp.diagonal(matrix, offset=0)
+    upper_diagonal = jnp.diagonal(matrix, offset=1)
+    lower_diagonal = jnp.diagonal(matrix, offset=-1)
+    return main_diagonal, lower_diagonal, upper_diagonal
 
 
 def has_matching_structures(operator) -> bool:
@@ -544,13 +579,15 @@ def first_column(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     efficient implementations. If you don't know what kind of operator you might have,
     then this function ensures that you always get the most efficient implementation.
     """
-    # Unlike the `is_*` functions, this does not raise for unregistered types: the
-    # matvec is a correct answer for any operator.
+    # The default for unregistered types: the matvec is a correct answer for any
+    # operator.
     with jax.ensure_compile_time_eval():
         flat, unravel = strip_weak_dtype(
             eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
         )
-        basis = unravel(jnp.zeros(flat.size, flat.dtype).at[0].set(1))
+    # Built in the trace, as in `diagonal_via_mv`: a concrete basis vector would be
+    # passed in as a runtime argument rather than generated in place.
+    basis = unravel(jnp.zeros(flat.size, flat.dtype).at[0].set(1))
     return jfu.ravel_pytree(operator.mv(basis))[0]
 
 
@@ -569,7 +606,19 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_symmetric", operator)
+    tags = _tags(operator)
+    if symmetric_tag in tags:
+        return True
+    # A reshaping diagonal operator differs from its transpose
+    if diagonal_tag in tags and has_matching_structures(operator):
+        return True
+    # Semidefinite/Hermitian imply A = A^T only for real dtypes. Semidefiniteness goes
+    # via `is_semidefinite` so that a registered sign check (not just a tag) counts.
+    # This keeps the defaults acyclic: `is_hermitian` -> `is_symmetric` ->
+    # `is_semidefinite` -> `is_{positive,negative}_semidefinite`, never back up.
+    if hermitian_tag in tags or is_semidefinite(operator):
+        return has_real_dtype(operator)
+    return False
 
 
 @ft.singledispatch
@@ -587,14 +636,15 @@ def is_hermitian(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    # Default for operators that don't register `is_hermitian` explicitly (e.g. custom
-    # `AbstractLinearOperator`s written before it existed): derive it from the other
-    # property checks, the same way the built-in operators do minus the
-    # `hermitian_tag` check, which needs operator-specific `.tags`.
+    # Default for operators that don't register `is_hermitian` explicitly: an explicit
+    # tag, or else derived from the other property checks (which a custom operator may
+    # register even if it predates `is_hermitian`).
     # (`is_semidefinite` subsumes `is_positive_semidefinite`/`is_negative_semidefinite`)
+    if hermitian_tag in _tags(operator):
+        return True
     if is_semidefinite(operator):
         return True
-    if has_real_dtype(operator) and is_symmetric(operator):
+    if is_symmetric(operator) and has_real_dtype(operator):
         return True
     return False
 
@@ -614,7 +664,10 @@ def is_diagonal(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_diagonal", operator)
+    # A 1x1 operator is diagonal
+    return diagonal_tag in _tags(operator) or (
+        operator.in_size() == 1 and operator.out_size() == 1
+    )
 
 
 @ft.singledispatch
@@ -632,7 +685,7 @@ def is_tridiagonal(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_tridiagonal", operator)
+    return tridiagonal_tag in _tags(operator) or is_diagonal(operator)
 
 
 @ft.singledispatch
@@ -650,7 +703,7 @@ def has_unit_diagonal(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("has_unit_diagonal", operator)
+    return unit_diagonal_tag in _tags(operator)
 
 
 @ft.singledispatch
@@ -668,7 +721,7 @@ def is_lower_triangular(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_lower_triangular", operator)
+    return lower_triangular_tag in _tags(operator)
 
 
 @ft.singledispatch
@@ -686,7 +739,7 @@ def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_upper_triangular", operator)
+    return upper_triangular_tag in _tags(operator)
 
 
 @ft.singledispatch
@@ -704,7 +757,7 @@ def is_circulant(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_circulant", operator)
+    return circulant_tag in _tags(operator)
 
 
 @ft.singledispatch
@@ -722,7 +775,7 @@ def is_positive_semidefinite(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_positive_semidefinite", operator)
+    return positive_semidefinite_tag in _tags(operator)
 
 
 @ft.singledispatch
@@ -740,7 +793,7 @@ def is_negative_semidefinite(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    _default_not_implemented("is_negative_semidefinite", operator)
+    return negative_semidefinite_tag in _tags(operator)
 
 
 @ft.singledispatch
@@ -759,9 +812,11 @@ def is_semidefinite(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    # Default for operators that don't register `is_semidefinite` explicitly (e.g.
-    # custom `AbstractLinearOperator`s written before it existed): a known sign
-    # always implies the weaker, sign-agnostic property.
+    # Default for operators that don't register `is_semidefinite` explicitly: an
+    # explicit tag, or else a known sign, which always implies the weaker,
+    # sign-agnostic property.
+    if semidefinite_tag in _tags(operator):
+        return True
     return is_positive_semidefinite(operator) or is_negative_semidefinite(operator)
 
 
