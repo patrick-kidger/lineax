@@ -15,7 +15,7 @@
 """Tests for the private gram-partner optimisation used in `_linear_solve_jvp`.
 
 Every non-well-posed solver whose factorisation cheaply yields `(AᴴA)⁺` has a
-"gram partner": a `(gram_solver, gram_state)` pair, reusing the existing
+"gram partner": a solver, state, and options, reusing the existing
 factorisation, such that solving `AᴴA` with it computes `(AᴴA)⁺`. The JVP uses
 this to collapse a nested pair of adjoint solves into a single gram solve.
 
@@ -28,6 +28,7 @@ predicate the JVP uses, so any newly added solver that opts into the fast path i
 covered here automatically -- no separate registration to remember.
 """
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -50,9 +51,17 @@ def _assert_gram_partner(operator, solver, getkey, dtype):
     gram_operator = lx.TaggedLinearOperator(
         operator.H @ operator, lx.positive_semidefinite_tag
     )
-    gram_solver, gram_state = _gram_partner(solver, gram_operator, state)
+    state_adjoint = state
+    if isinstance(solver, lx.Normal):
+        state_conj, options_conj = solver.conj(state, {})
+        state_adjoint, _ = solver.transpose(state_conj, options_conj)
+    gram_solver, gram_state, gram_options = _gram_partner(
+        solver, gram_operator, state, state_adjoint
+    )
     v = jr.normal(getkey(), (operator.in_size(),), dtype=dtype)
-    got = lx.linear_solve(gram_operator, v, gram_solver, state=gram_state).value
+    got = lx.linear_solve(
+        gram_operator, v, gram_solver, state=gram_state, options=gram_options
+    ).value
     matrix = operator.as_matrix()
     expected = jnp.linalg.pinv(matrix.conj().T @ matrix) @ v  # pyright: ignore
     assert tree_allclose(got, expected, atol=1e-4, rtol=1e-4)
@@ -79,3 +88,28 @@ def test_gram_partner_tall(solver, getkey, dtype):
     operator = lx.MatrixLinearOperator(matrix)
     used = _assert_gram_partner(operator, solver, getkey, dtype)
     assert used  # both QR and SVD must expose a gram partner when tall
+
+
+def test_normal_gram_jvp_reuses_preconditioner():
+    scales = jnp.array([1.0, 4.0, 16.0])
+    matrix = jnp.pad(jnp.diag(scales), ((0, 1), (0, 0)))
+    preconditioner = lx.MatrixLinearOperator(
+        jnp.pad(jnp.diag(1 / scales), ((0, 0), (0, 1)))
+    )
+    rhs = jnp.array([1.0, 4.0, 16.0, 1.0])
+    solver = lx.Normal(lx.CG(rtol=1e-6, atol=1e-6, max_steps=2))
+
+    def solve(a):
+        return lx.linear_solve(
+            lx.MatrixLinearOperator(a),
+            rhs,
+            solver,
+            options={"preconditioner": preconditioner},
+        ).value
+
+    # Changing just the zero row leaves the Gram matrix stationary and changes
+    # Aᴴb by ones. Without preconditioning, the Gram solve runs out of steps.
+    direction = jnp.zeros_like(matrix).at[-1].set(1)
+    value, tangent = jax.jvp(solve, (matrix,), (direction,))
+    assert tree_allclose(value, jnp.ones_like(scales))
+    assert tree_allclose(tangent, 1 / scales**2)
