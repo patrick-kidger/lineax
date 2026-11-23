@@ -45,6 +45,7 @@ from ._solver import (
     Cholesky,
     Circulant,
     HEVD,
+    LSMR,
     Normal,
     QR,
     SVD,
@@ -53,7 +54,7 @@ from ._solver.base import (
     AbstractDirectLinearSolver as AbstractDirectLinearSolver,
     AbstractLinearSolver as AbstractLinearSolver,
 )
-from ._solver.misc import pack_structures
+from ._solver.misc import pack_structures, without_y0
 from ._tags import (
     invert_tags,
     positive_semidefinite_tag,
@@ -187,7 +188,6 @@ def _gram_partner(
     solver: _MaybeHasGramPartner,
     gram_operator: AbstractLinearOperator,
     state: Any,
-    state_adjoint: Any,
 ) -> tuple[AbstractLinearSolver, Any, dict[str, Any]]:
     """Return the solver, state, and options for solving `(AᴴA)⁺ v`.
 
@@ -210,15 +210,13 @@ def _gram_partner(
     pseudoinverse-aware adjoint rather than differentiating through the factorisation.
     """
     if isinstance(solver, Normal):
-        _, tall, _, _ = state
+        inner_state, tall, _, inner_options = state
         if not tall.value:
             # Wide: the inner solver factorises `AAᴴ`, not `AᴴA`. `_has_gram_partner`
             # excludes this, so reaching here is a caller bug.
             raise ValueError("`Normal` has a gram partner only for tall operators")
-        # For tall A, both Normal(A) and Normal(Aᴴ) use AᴴA internally. Reuse
-        # the adjoint's inner state and options so an option like CG's primal
-        # starting guess is handled just as it is in the unfused adjoint solve.
-        inner_state, _, _, inner_options = state_adjoint
+        # For tall A, the cached inner solver already acts on AᴴA. The
+        # primal starting guess is supplied per solve and is absent from the state.
         return solver.inner_solver, inner_state, inner_options
     if isinstance(solver, QR):
         if not solver.assume_full_rank():
@@ -284,6 +282,13 @@ def _linear_solve_jvp(primals, tangents):
     solution, result, stats = eqxi.filter_primitive_bind(
         linear_solve_p, operator, state, vector, options, solver, throw
     )
+    # Every solve below is a tangent solve, so drop the initial guess `y0`: it guesses
+    # the primal solution, which says nothing about these solves' right-hand sides.
+    # Dropping it is safe, as without a null space a converged solve is independent of
+    # where it starts. It is also necessary: with one, an iterative solver keeps the
+    # null-space component of its start, which would add a constant to the tangent.
+    y0 = options.get("y0")
+    options = without_y0(options)
 
     #
     # Consider the primal problem of linearly solving for x in Ax=b.
@@ -319,6 +324,18 @@ def _linear_solve_jvp(primals, tangents):
     # if A has linearly independent rows and columns, then A is nonsingular and
     #
     # x' = A^(-A'x + b')
+    #
+    # Lastly, an LSMR solve started from an initial guess y0 keeps the component of y0
+    # in the null space, and so returns x = A^b + P_⊥ y0, where P_⊥ = I - A^A projects
+    # onto the null space. We require y0 to be constant (`linear_solve` wraps `options`
+    # in `eqxi.nondifferentiable`), so
+    #
+    # x' = A^'b + A^b' + P_⊥' y0,  where  P_⊥' = -(A^A)' = -A^A'P_⊥ - P_⊥Aᵀ'A^ᵀ.
+    #
+    # The -A^A'P_⊥ y0 part is already accounted for, as the -A'x term above uses this x,
+    # which includes P_⊥ y0. The -P_⊥Aᵀ'A^ᵀ y0 part merges with the y term, which
+    # becomes y = Aᵀ'A^ᵀ(x - y0). (Using this x in y rather than A^b is harmless, as
+    # A^ᵀP_⊥ = 0.)
 
     vecs = []
     sols = []
@@ -363,10 +380,7 @@ def _linear_solve_jvp(primals, tangents):
                     operator.H @ operator, positive_semidefinite_tag
                 )
                 gram_solver, gram_state, gram_options = _gram_partner(
-                    solver,
-                    gram_operator,
-                    state,
-                    state_conj_transpose,  # pyright: ignore
+                    solver, gram_operator, state
                 )
                 gram_inv, _, _ = eqxi.filter_primitive_bind(
                     linear_solve_p,
@@ -393,11 +407,23 @@ def _linear_solve_jvp(primals, tangents):
                 vecs.append(tmp)
 
         if not assume_independent_columns:
+            # Of the solvers that admit a null space, only LSMR keeps the null-space
+            # component of `y0` (directly, or as a tall `Normal`'s inner solver): direct
+            # solvers ignore `y0`, and a wide `Normal` returns `Aᴴy`, in the row space.
+            keeps_y0 = isinstance(solver, LSMR) or (
+                isinstance(solver, Normal)
+                and state[1].value  # is tall
+                and isinstance(solver.inner_solver, LSMR)
+            )
+            if y0 is not None and keeps_y0:
+                x_minus_y0 = (solution**ω - y0**ω).ω
+            else:
+                x_minus_y0 = solution
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
                 operator_conj_transpose,  # pyright: ignore
                 state_conj_transpose,  # pyright:ignore
-                solution,
+                x_minus_y0,
                 options_conj_transpose,  # pyright: ignore
                 solver,
                 True,
@@ -454,7 +480,7 @@ def _linear_solve_transpose(inputs, cts_out):
         cts_solution,
     )
     operator_transpose = operator.transpose()
-    state_transpose, options_transpose = solver.transpose(state, options)
+    state_transpose, options_transpose = solver.transpose(state, without_y0(options))
     cts_vector, _, _ = eqxi.filter_primitive_bind(
         linear_solve_p,
         operator_transpose,

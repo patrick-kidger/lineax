@@ -300,9 +300,18 @@ def _(operator):
     )
 
 
+# is_diagonal: preserved under composition. The operands of a 1x1 composition need not
+# themselves be 1x1 (e.g. a row vector times a column vector), so check its size
+# directly, as the default rule does.
+@is_diagonal.register(ComposedLinearOperator)
+def _(operator):
+    if operator.in_size() == 1 and operator.out_size() == 1:
+        return True
+    return is_diagonal(operator.operator1) and is_diagonal(operator.operator2)
+
+
 # These properties ARE preserved under composition.
 for check in (
-    is_diagonal,
     is_lower_triangular,
     is_upper_triangular,
     is_circulant,

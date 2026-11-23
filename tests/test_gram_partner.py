@@ -51,13 +51,7 @@ def _assert_gram_partner(operator, solver, getkey, dtype):
     gram_operator = lx.TaggedLinearOperator(
         operator.H @ operator, lx.positive_semidefinite_tag
     )
-    state_adjoint = state
-    if isinstance(solver, lx.Normal):
-        state_conj, options_conj = solver.conj(state, {})
-        state_adjoint, _ = solver.transpose(state_conj, options_conj)
-    gram_solver, gram_state, gram_options = _gram_partner(
-        solver, gram_operator, state, state_adjoint
-    )
+    gram_solver, gram_state, gram_options = _gram_partner(solver, gram_operator, state)
     v = jr.normal(getkey(), (operator.in_size(),), dtype=dtype)
     got = lx.linear_solve(
         gram_operator, v, gram_solver, state=gram_state, options=gram_options
@@ -90,13 +84,20 @@ def test_gram_partner_tall(solver, getkey, dtype):
     assert used  # both QR and SVD must expose a gram partner when tall
 
 
-def test_normal_gram_jvp_reuses_preconditioner():
-    scales = jnp.array([1.0, 4.0, 16.0])
-    matrix = jnp.pad(jnp.diag(scales), ((0, 1), (0, 0)))
+@pytest.mark.parametrize("complex_matrix", (False, True), ids=("real", "complex"))
+def test_normal_gram_jvp_reuses_preconditioner(complex_matrix):
+    if complex_matrix:
+        # The rotation gives non-real Gram entries using exactly representable values.
+        rotation = jnp.array([[1 + 1j, 1 - 1j, 0], [1 - 1j, 1 + 1j, 0], [0, 0, 2]]) / 2
+    else:
+        rotation = jnp.eye(3)
+    scales = jnp.array([1.0, 4.0, 16.0], dtype=rotation.dtype)
+    rotation_h = rotation.conj().T
+    matrix = jnp.pad(jnp.diag(scales) @ rotation, ((0, 1), (0, 0)))
     preconditioner = lx.MatrixLinearOperator(
-        jnp.pad(jnp.diag(1 / scales), ((0, 0), (0, 1)))
+        jnp.pad(rotation_h @ jnp.diag(1 / scales), ((0, 0), (0, 1)))
     )
-    rhs = jnp.array([1.0, 4.0, 16.0, 1.0])
+    rhs = jnp.array([1.0, 4.0, 16.0, 1.0], dtype=matrix.dtype)
     solver = lx.Normal(lx.CG(rtol=1e-6, atol=1e-6, max_steps=2))
 
     def solve(a):
@@ -108,8 +109,28 @@ def test_normal_gram_jvp_reuses_preconditioner():
         ).value
 
     # Changing just the zero row leaves the Gram matrix stationary and changes
-    # Aᴴb by ones. Without preconditioning, the Gram solve runs out of steps.
-    direction = jnp.zeros_like(matrix).at[-1].set(1)
+    # Aᴴb by the adjoint of the rotated row. Without preconditioning, the Gram
+    # solve runs out of steps.
+    direction = jnp.zeros_like(matrix).at[-1].set(jnp.sum(rotation, axis=0))
     value, tangent = jax.jvp(solve, (matrix,), (direction,))
-    assert tree_allclose(value, jnp.ones_like(scales))
-    assert tree_allclose(tangent, 1 / scales**2)
+    assert tree_allclose(value, rotation_h @ jnp.ones_like(scales))
+    assert tree_allclose(tangent, rotation_h @ (1 / scales**2))
+
+
+def test_normal_gram_jvp_ignores_primal_initial_guess():
+    matrix = jnp.pad(jnp.diag(jnp.array([1.0, 4.0, 16.0])), ((0, 1), (0, 0)))
+    rhs = jnp.array([1.0, 0.0, 0.0, 1.0])
+    y0 = jnp.array([1.0, 0.0, 0.0])
+    solver = lx.Normal(lx.CG(rtol=1e-6, atol=1e-6, max_steps=2))
+
+    def solve(a):
+        return lx.linear_solve(
+            lx.MatrixLinearOperator(a), rhs, solver, options={"y0": y0}
+        ).value
+
+    # y0 solves the primal system. The Gram solve converges within the step
+    # limit from zero, but hits the limit if it inherits y0.
+    direction = jnp.zeros_like(matrix).at[3, 1].set(1.0)
+    value, tangent = jax.jvp(solve, (matrix,), (direction,))
+    assert tree_allclose(value, y0)
+    assert tree_allclose(tangent, jnp.array([0.0, 1 / 16, 0.0]))

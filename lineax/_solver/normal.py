@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from copy import copy
 from typing import Any, TypeVar
 
 import equinox.internal as eqxi
@@ -29,16 +28,16 @@ from .._operator import (
 from .._solution import RESULTS
 from .._tags import positive_semidefinite_tag
 from .base import AbstractDirectLinearSolver, AbstractLinearSolver
+from .misc import without_y0
 
 
 _InnerSolverState = TypeVar("_InnerSolverState")
 
 
-def normal_preconditioner_and_y0(options: dict[str, Any], tall: bool):
+def _normal_preconditioner(options: dict[str, Any], tall: bool) -> dict[str, Any]:
+    """The inner solver's options, but for `y0`: see `_normal_y0`."""
     preconditioner = options.get("preconditioner")
-    y0 = options.get("y0")
-    inner_options = copy(options)
-    del options
+    inner_options = without_y0(options)
     if preconditioner is not None:
         preconditioner = linearise(preconditioner)
         if tall:
@@ -51,9 +50,23 @@ def normal_preconditioner_and_y0(options: dict[str, Any], tall: bool):
                 conj(preconditioner.transpose()) @ preconditioner,
                 positive_semidefinite_tag,
             )
-            if y0 is not None:
-                inner_options["y0"] = conj(preconditioner.transpose()).mv(y0)
     return inner_options
+
+
+def _normal_y0(options: dict[str, Any], tall: bool) -> dict[str, Any]:
+    """The inner solver's `y0`, if any, as a dictionary of options.
+
+    This is kept apart from `_normal_preconditioner` because it is not part of the
+    solver state: an initial guess belongs to a single solve (see `linear_solve`).
+    """
+    if "y0" not in options:
+        return {}
+    y0 = options["y0"]
+    preconditioner = options.get("preconditioner")
+    if preconditioner is not None and not tall:
+        # A single application, so not worth linearising for.
+        y0 = conj(preconditioner.transpose()).mv(y0)
+    return {"y0": y0}
 
 
 class Normal(
@@ -123,7 +136,7 @@ class Normal(
         else:
             inner_operator = lin_op @ conj(lin_op.transpose())
         inner_operator = TaggedLinearOperator(inner_operator, positive_semidefinite_tag)
-        inner_options = normal_preconditioner_and_y0(options, tall)
+        inner_options = _normal_preconditioner(options, tall)
         inner_state = self.inner_solver.init(inner_operator, inner_options)
         operator_conj_transpose = conj(lin_op.transpose())
         return inner_state, eqxi.Static(tall), operator_conj_transpose, inner_options
@@ -138,7 +151,8 @@ class Normal(
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         inner_state, tall, operator_conj_transpose, inner_options = state
         tall = tall.value
-        del state, options
+        del state
+        inner_options = inner_options | _normal_y0(options, tall)
         if tall:
             vector = operator_conj_transpose.mv(vector)
         solution, result, extra_stats = self.inner_solver.compute(
@@ -165,7 +179,8 @@ class Normal(
             operator_conj_transpose.transpose(),
             inner_options,
         )
-        return state_transpose, options
+        # `y0` is a guess at the solution of this problem, not its transpose.
+        return state_transpose, without_y0(options)
 
     def conj(
         self,
@@ -184,7 +199,7 @@ class Normal(
             conj(operator_conj_transpose),
             inner_options,
         )
-        return state_conj, options
+        return state_conj, without_y0(options)
 
     def assume_full_rank(self):
         return self.inner_solver.assume_full_rank()

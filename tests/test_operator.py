@@ -697,6 +697,21 @@ def test_is_diagonal_scalar(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_is_diagonal_scalar_composed(dtype, getkey):
+    # A 1x1 composition whose operands are not themselves 1x1.
+    row = lx.MatrixLinearOperator(jr.normal(getkey(), (1, 3), dtype=dtype))
+    column = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 1), dtype=dtype))
+    operator = row @ column
+    assert lx.is_diagonal(operator)
+    assert jnp.allclose(lx.diagonal(operator), jnp.diag(operator.as_matrix()))
+    solver = lx.AutoLinearSolver(well_posed=True).select_solver(operator)
+    assert isinstance(solver, lx.Diagonal)
+    vector = jr.normal(getkey(), (1,), dtype=dtype)
+    solution = lx.linear_solve(operator, vector).value
+    assert jnp.allclose(operator.mv(solution), vector)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_diagonal_tridiagonal(dtype, getkey):
     diag1 = jr.normal(getkey(), (1,), dtype=dtype)
     diag2 = jnp.zeros((0,), dtype=dtype)
