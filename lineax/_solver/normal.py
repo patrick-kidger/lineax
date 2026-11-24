@@ -62,11 +62,17 @@ def _normal_y0(options: dict[str, Any], tall: bool) -> dict[str, Any]:
     if "y0" not in options:
         return {}
     y0 = options["y0"]
+    if tall:
+        return {"y0": y0}
+    # When wide, the inner problem is for `y`, where `x = Aᴴy`, so a guess at `x` has to
+    # be mapped into it. A preconditioner `M ≈ A⁺` gives the cheap approximation
+    # `Mᴴ y0 ≈ (A⁺)ᴴ y0`. Without one there is no cheap map (it would take another
+    # solve), so the inner solve starts from zero. This changes only where the
+    # iterations start, as the solution `Aᴴy` has the minimum norm whatever the start.
     preconditioner = options.get("preconditioner")
-    if preconditioner is not None and not tall:
-        # A single application, so not worth linearising for.
-        y0 = conj(preconditioner.transpose()).mv(y0)
-    return {"y0": y0}
+    if preconditioner is None:
+        return {}
+    return {"y0": conj(preconditioner.transpose()).mv(y0)}
 
 
 class Normal(
@@ -110,7 +116,7 @@ class Normal(
     - `y0`: An initial estimate of the solution of the linear system $Ax = b$.
         Defaults to all zeros. In the second version of the normal equations,
         $y_0$ is replaced with $M^* y_0$, where $M$ is the given outer
-        preconditioner.
+        preconditioner. Without a preconditioner, $y_0$ is ignored in that case.
 
     !!! Info
 

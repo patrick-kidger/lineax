@@ -220,3 +220,26 @@ def test_wide_normal_preconditioned_y0(getkey):
     without_y0 = derivatives({"preconditioner": preconditioner})
     assert tree_allclose(with_y0[0], jnp.linalg.pinv(matrix) @ vector, rtol=1e-8)
     assert tree_allclose(with_y0, without_y0, rtol=1e-8)
+
+
+def test_wide_normal_unpreconditioned_y0(getkey):
+    # Without a preconditioner, a wide `Normal` has no cheap way to map `y0` into its
+    # inner problem, and starts that from zero instead.
+    matrix = jr.normal(getkey(), (4, 6))
+    vector = jr.normal(getkey(), (4,))
+    t_matrix = jr.normal(getkey(), (4, 6))
+    y0 = jr.normal(getkey(), (6,))
+    solver = lx.Normal(lx.CG(rtol=_tol, atol=_tol))
+
+    def derivatives(options):
+        def solve(matrix):
+            operator = lx.MatrixLinearOperator(matrix)
+            return lx.linear_solve(operator, vector, solver, options=options).value
+
+        out, t_out = jax.jvp(solve, (matrix,), (t_matrix,))
+        grad = jax.grad(lambda m: jnp.sum(solve(m) ** 2))(matrix)
+        return out, t_out, grad
+
+    with_y0 = derivatives({"y0": y0})
+    assert tree_allclose(with_y0[0], jnp.linalg.pinv(matrix) @ vector, rtol=1e-8)
+    assert tree_allclose(with_y0, derivatives({}), rtol=1e-8)
