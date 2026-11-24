@@ -617,7 +617,7 @@ def test_iterative_final_step_exact_residual(solver_cls):
     assert tree_allclose(solution.value, jnp.array([1.0, 2.0]))
 
 
-@pytest.mark.parametrize("solver_cls", (lx.CG, lx.BiCGStab, lx.GMRES))
+@pytest.mark.parametrize("solver_cls", (lx.CG, lx.BiCGStab, lx.GMRES, lx.LSMR))
 @pytest.mark.parametrize(
     "dtype, tol, scale",
     [
