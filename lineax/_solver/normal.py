@@ -72,7 +72,6 @@ def _normal_y0(options: dict[str, Any], tall: bool) -> dict[str, Any]:
     preconditioner = options.get("preconditioner")
     if preconditioner is None:
         return {}
-    # A single application, so not worth linearising for.
     return {"y0": conj(preconditioner.transpose()).mv(y0)}
 
 
