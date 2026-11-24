@@ -1,4 +1,5 @@
 import equinox as ex
+import jax
 import jax.numpy as jnp
 import lineax as lx
 import pytest
@@ -58,3 +59,67 @@ def test_damp():
     assert jnp.allclose(
         solution_damped.value, jnp.array([2e-6, 4e-6, 5e-6, 8e-6, 10.0e-6])
     )
+
+
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
+@pytest.mark.parametrize("shape", ("square", "tall", "wide"))
+@pytest.mark.parametrize("zero_rhs", (False, True))
+def test_lsmr_preserves_precision(dtype, shape, zero_rhs):
+    matrix = jnp.array([[2.0, 1.0, -0.5], [0.5, 3.0, 1.0]], dtype=dtype)
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        matrix = matrix + 1j * jnp.array(
+            [[0.5, 1.0, 0.0], [-0.5, 0.0, 1.0]], dtype=dtype
+        )
+    if shape == "square":
+        matrix = matrix[:, :2]
+    elif shape == "tall":
+        matrix = matrix.T
+    rhs = jnp.arange(1, matrix.shape[0] + 1).astype(dtype)
+    if zero_rhs:
+        rhs = jnp.zeros_like(rhs)
+
+    def solve(rhs):
+        return lx.linear_solve(
+            lx.MatrixLinearOperator(matrix), rhs, lx.LSMR(1e-6, 1e-6)
+        ).value
+
+    actual = jax.jit(solve)(rhs)
+    expected = jnp.linalg.lstsq(matrix, rhs, rcond=None)[0]
+    assert actual.dtype == expected.dtype == jnp.dtype(dtype)
+    assert jnp.allclose(actual, expected, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
+@pytest.mark.parametrize("tall", (False, True))
+def test_lsmr_precision_gradients(dtype, tall):
+    matrix = jnp.array([[2.0, 1.0, -0.5], [0.5, 3.0, 1.0]], dtype=dtype)
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        matrix = matrix + 1j * jnp.array(
+            [[0.5, 1.0, 0.0], [-0.5, 0.0, 1.0]], dtype=dtype
+        )
+    if tall:
+        matrix = matrix.T
+    rhs = jnp.arange(1, matrix.shape[0] + 1).astype(dtype)
+
+    def loss(matrix, rhs):
+        value = lx.linear_solve(
+            lx.MatrixLinearOperator(matrix), rhs, lx.LSMR(1e-6, 1e-6)
+        ).value
+        return jnp.real(jnp.vdot(value, value))
+
+    def reference(matrix, rhs):
+        value = jnp.linalg.lstsq(matrix, rhs, rcond=None)[0]
+        return jnp.real(jnp.vdot(value, value))
+
+    actual = jax.jit(jax.value_and_grad(loss, argnums=(0, 1)))
+    expected = jax.jit(jax.value_and_grad(reference, argnums=(0, 1)))
+    actual_value, actual_grads = actual(matrix, rhs)
+    expected_value, expected_grads = expected(matrix, rhs)
+    assert jnp.allclose(actual_value, expected_value, rtol=1e-4, atol=1e-5)
+    for actual_grad, expected_grad in zip(actual_grads, expected_grads):
+        assert actual_grad.dtype == expected_grad.dtype == jnp.dtype(dtype)
+        assert jnp.allclose(actual_grad, expected_grad, rtol=1e-4, atol=1e-5)
