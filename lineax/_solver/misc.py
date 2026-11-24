@@ -60,6 +60,11 @@ def preconditioner_and_y0(
     return preconditioner, y0
 
 
+def without_y0(options: dict[str, Any]) -> dict[str, Any]:
+    """`options` minus the initial guess `y0`, which belongs to a single solve."""
+    return {key: value for key, value in options.items() if key != "y0"}
+
+
 # This seems to introduce some spurious failure at docgen time.
 if hasattr(typing, "GENERATING_DOCUMENTATION") and not TYPE_CHECKING:
     PackedStructures = lambda x: x
