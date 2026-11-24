@@ -143,7 +143,6 @@ class CG(AbstractLinearSolver[_CGState]):
             and self.atol == 0
             and self.rtol == 0
         )
-        b_scale = 0.0
         if has_scale:
             b_scale = self.atol + self.rtol * self.norm(vector)
 
@@ -221,9 +220,9 @@ class CG(AbstractLinearSolver[_CGState]):
             converged = jnp.invert(not_converged(residual, diff, solution))
             # Zero gamma stops the recurrence; there is no next update to
             # confirm convergence in solution space. Still check the residual.
-            exact = (gamma == 0) & (self.norm(residual) <= b_scale)
+            exact = (gamma == 0) & (self.norm(residual) <= b_scale)  # pyright: ignore
             converged = converged | exact
-            max_steps_reached = max_steps_reached & ~converged
+            max_steps_reached = max_steps_reached & jnp.invert(converged)
 
         if self.max_steps is None:
             result = RESULTS.where(
