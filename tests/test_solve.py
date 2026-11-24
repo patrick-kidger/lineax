@@ -541,3 +541,49 @@ def test_conjugated_state(
     else:
         atol = 1e-5
     assert tree_allclose(actual, expected, rtol=1e-4, atol=atol)
+
+
+@pytest.mark.parametrize("solver_cls", (lx.CG, lx.BiCGStab, lx.GMRES))
+@pytest.mark.parametrize("preconditioned", (False, True))
+def test_iterative_final_step_convergence(solver_cls, preconditioned):
+    # Converging on the last allowed step is a success; one step fewer is not.
+    matrix = jnp.array([[4.0, 1.0, 0.25], [1.0, 3.0, 0.5], [0.25, 0.5, 2.0]])
+    rhs = jnp.array([0.5, -0.8, 1.3])
+    operator = lx.MatrixLinearOperator(matrix, tags=lx.positive_semidefinite_tag)
+    options = {}
+    if preconditioned:
+        options["preconditioner"] = lx.MatrixLinearOperator(
+            jnp.diag(1 / jnp.diag(matrix)), tags=lx.positive_semidefinite_tag
+        )
+    tol = 1e-10
+
+    def solve(max_steps):
+        solver = solver_cls(rtol=tol, atol=tol, max_steps=max_steps)
+        return lx.linear_solve(operator, rhs, solver, options=options, throw=False)
+
+    generous = solve(32)
+    assert generous.result == lx.RESULTS.successful
+    steps = int(generous.stats["num_steps"])
+    assert steps > 1
+
+    exact_budget = solve(steps)
+    assert exact_budget.stats["num_steps"] == steps
+    assert exact_budget.result == lx.RESULTS.successful
+    assert tree_allclose(exact_budget.value, jnp.linalg.solve(matrix, rhs))
+
+    short_budget = solve(steps - 1)
+    assert short_budget.result == lx.RESULTS.max_steps_reached
+
+
+@pytest.mark.parametrize("solver_cls", (lx.CG, lx.BiCGStab))
+def test_iterative_final_step_exact_residual(solver_cls):
+    # A single large step that zeroes the residual stops the recurrence before the
+    # increment can be confirmed small; this must still count as convergence.
+    matrix = 2 * jnp.eye(2)
+    rhs = jnp.array([2.0, 4.0])
+    operator = lx.MatrixLinearOperator(matrix, tags=lx.positive_semidefinite_tag)
+    solver = solver_cls(rtol=1e-6, atol=1e-6, max_steps=1)
+    solution = lx.linear_solve(operator, rhs, solver, throw=False)
+    assert solution.stats["num_steps"] == 1
+    assert solution.result == lx.RESULTS.successful
+    assert tree_allclose(solution.value, jnp.array([1.0, 2.0]))
