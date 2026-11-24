@@ -615,3 +615,50 @@ def test_iterative_final_step_exact_residual(solver_cls):
     assert solution.stats["num_steps"] == 1
     assert solution.result == lx.RESULTS.successful
     assert tree_allclose(solution.value, jnp.array([1.0, 2.0]))
+
+
+@pytest.mark.parametrize("solver_cls", (lx.CG, lx.BiCGStab, lx.GMRES))
+@pytest.mark.parametrize(
+    "dtype, tol, scale",
+    [
+        (jnp.float32, 1e-4, 1e-8),
+        (jnp.float32, 1e-4, 1e8),
+        (jnp.float64, 1e-10, 1e-20),
+        (jnp.float64, 1e-10, 1e20),
+    ],
+)
+def test_iterative_operator_scale_invariance(solver_cls, dtype, tol, scale):
+    # Rescaling a well-conditioned operator must not change the outcome: no breakdown
+    # or condition-number check may compare quantities of different units, and no
+    # tolerance may be met trivially because the operator is small.
+    n = 10
+    matrix = 4 * jnp.eye(n) - jnp.eye(n, k=1) - jnp.eye(n, k=-1)
+    rhs = jnp.linspace(1.0, 2.0, n)
+    expected = jnp.linalg.solve(matrix, rhs) / scale
+    operator = lx.MatrixLinearOperator(
+        (scale * matrix).astype(dtype), lx.positive_semidefinite_tag
+    )
+    solver = solver_cls(rtol=tol, atol=tol)
+    solution = lx.linear_solve(operator, rhs.astype(dtype), solver, throw=False)
+    assert solution.result == lx.RESULTS.successful
+    value = solution.value.astype(jnp.float64)
+    rel_err = jnp.linalg.norm(value - expected) / jnp.linalg.norm(expected)
+    assert rel_err < 1e3 * tol
+
+
+def test_cg_large_single_precision():
+    # CG's breakdown guard must not scale with the problem size: it used to compare
+    # `<p, Ap>` against `100 * rcond * <r, z>` with `rcond ∝ eps * size`, which rejects
+    # the very first step of a 100x100 float32 Poisson problem as a breakdown.
+    n = 100
+
+    def mv(u):
+        up = jnp.pad(u, 1)
+        return 4 * u - up[:-2, 1:-1] - up[2:, 1:-1] - up[1:-1, :-2] - up[1:-1, 2:]
+
+    structure = jax.ShapeDtypeStruct((n, n), jnp.float32)
+    operator = lx.FunctionLinearOperator(mv, structure, lx.positive_semidefinite_tag)
+    rhs = jnp.ones((n, n), jnp.float32)
+    solution = lx.linear_solve(operator, rhs, lx.CG(rtol=1e-2, atol=0.0), throw=False)
+    assert solution.result == lx.RESULTS.successful
+    assert jnp.max(jnp.abs(rhs - mv(solution.value))) < 2e-2

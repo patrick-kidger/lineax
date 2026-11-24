@@ -23,8 +23,8 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from .._misc import resolve_rcond, structure_equal, tree_where
-from .._norm import max_norm, tree_dot
+from .._misc import structure_equal, tree_where
+from .._norm import max_norm, tree_dot, two_norm
 from .._operator import (
     AbstractLinearOperator,
     conj,
@@ -128,7 +128,7 @@ class CG(AbstractLinearSolver[_CGState]):
         r0 = (vector**ω - operator.mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = tree_dot(p0, r0)
-        rcond = resolve_rcond(None, size, size, jnp.result_type(*leaves))
+        eps = jnp.finfo(jnp.result_type(*leaves)).eps
         initial_value = (
             ω(y0).call(lambda x: jnp.full_like(x, jnp.inf)).ω,
             y0,
@@ -176,8 +176,14 @@ class CG(AbstractLinearSolver[_CGState]):
             mat_p = operator.mv(p)
             inner_prod = tree_dot(mat_p, p)
             alpha = gamma / inner_prod
+            # A vanishing `<p, Ap>` means the operator is singular or indefinite along
+            # `p`, and the step is meaningless. Judge "vanishing" against the rounding
+            # error of the dot product, `~ eps ‖p‖ ‖Ap‖` (as `BiCGStab` does), so that
+            # the check is invariant both to rescaling the operator and to the problem
+            # size. For a definite operator `|<p, Ap>| / (‖p‖ ‖Ap‖) >= 2 √cond /
+            # (1 + cond)`, so this only fires on a genuine breakdown.
             alpha = tree_where(
-                jnp.abs(inner_prod) > 100 * rcond * jnp.abs(gamma),  # pyright: ignore
+                jnp.abs(inner_prod) > eps * two_norm(p) * two_norm(mat_p),
                 alpha,
                 jnp.nan,  # pyright: ignore
             )
