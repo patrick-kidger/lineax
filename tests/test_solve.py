@@ -645,3 +645,31 @@ def test_cg_final_step_normal_least_squares(dtype):
         matrix.T @ (matrix @ solution.value - rhs), jnp.zeros(2, dtype=dtype)
     )
     assert solution.result == lx.RESULTS.successful
+
+
+@pytest.mark.parametrize("solver_cls", (lx.GMRES, lx.BiCGStab))
+def test_nonsymmetric_solver_final_step_convergence(solver_cls):
+    matrix = jnp.array([[4.0, 1.0], [-1.0, 2.0]])
+    rhs = jnp.array([2.0, 3.0])
+    operator = lx.MatrixLinearOperator(matrix)
+    tol = 1e-9
+
+    def solve(max_steps):
+        solver = solver_cls(rtol=tol, atol=tol, max_steps=max_steps)
+        return lx.linear_solve(operator, rhs, solver, throw=False)
+
+    generous = solve(10)
+    assert generous.result == lx.RESULTS.successful
+    steps = int(generous.stats["num_steps"])
+    solution = solve(steps)
+    assert solution.stats["num_steps"] == steps
+    assert solution.result == lx.RESULTS.successful
+    assert tree_allclose(solution.value, jnp.linalg.solve(matrix, rhs))
+    assert jnp.max(jnp.abs(matrix @ solution.value - rhs)) <= tol * (
+        1 + jnp.max(jnp.abs(rhs))
+    )
+
+    limited = solve(1)
+    assert limited.stats["num_steps"] == 1
+    assert limited.result == lx.RESULTS.max_steps_reached
+    assert jnp.max(jnp.abs(matrix @ limited.value - rhs)) > 1e-3

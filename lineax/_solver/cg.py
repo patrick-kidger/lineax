@@ -218,12 +218,11 @@ class CG(AbstractLinearSolver[_CGState]):
 
         max_steps_reached = num_steps == max_steps
         if has_scale:
-            # The final allowed update may itself satisfy the stopping condition.
-            # An exact residual also stops the recurrence, even for a large update.
-            b_converged = self.norm(residual) <= b_scale
-            y_scale = self.atol + self.rtol * self.norm(solution)
-            y_converged = self.norm(diff) <= y_scale
-            converged = b_converged & (y_converged | (gamma == 0))
+            converged = jnp.invert(not_converged(residual, diff, solution))
+            # Zero gamma stops the recurrence; there is no next update to
+            # confirm convergence in solution space. Still check the residual.
+            exact = (gamma == 0) & (self.norm(residual) <= b_scale)
+            converged = converged | exact
             max_steps_reached = max_steps_reached & ~converged
 
         if self.max_steps is None:

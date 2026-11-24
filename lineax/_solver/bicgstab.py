@@ -224,13 +224,22 @@ class BiCGStab(AbstractLinearSolver[_BiCGStabState]):
             cond_fun, body_fun, init_carry
         )
 
+        max_steps_reached = num_steps == max_steps
+        if has_scale:
+            converged = jnp.invert(not_converged(residual, diff, solution))
+            # A negligible residual stops the recurrence even after a large
+            # update. Keep the requested residual tolerance for that case.
+            exact = is_negligible(residual) & (self.norm(residual) <= b_scale)  # pyright: ignore
+            converged = converged | exact
+            max_steps_reached = max_steps_reached & jnp.invert(converged)
+
         if self.max_steps is None:
             result = RESULTS.where(
-                num_steps == max_steps, RESULTS.singular, RESULTS.successful
+                max_steps_reached, RESULTS.singular, RESULTS.successful
             )
         elif has_scale:
             result = RESULTS.where(
-                num_steps == max_steps, RESULTS.max_steps_reached, RESULTS.successful
+                max_steps_reached, RESULTS.max_steps_reached, RESULTS.successful
             )
         else:
             result = RESULTS.successful
