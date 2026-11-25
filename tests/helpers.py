@@ -129,8 +129,19 @@ def cond_cutoff(solver, dtype=jnp.float64) -> float:
     `solver` to be expected to meet the suite's tight tolerances. `Normal` solvers
     work with `A^H A`, which squares the condition number, hence the square root.
     Single precision leaves less headroom, so its cutoff is lower.
+
+    `LSMR` stops on the backward error, `‖r‖ ≲ rtol (‖A‖ ‖x‖ + ‖b‖)`, so its forward
+    error is up to `cond` times larger. In single precision, with `rtol = 1e-5`
+    against an expected accuracy of `1e-3`, a cutoff of 100 misses that for several
+    percent of draws, so `LSMR` gets 30 (no failures in 300 draws of each of float32
+    and complex64 in `test_pytree_wellposed`).
     """
-    cutoff = 1000 if jnp.finfo(dtype).bits == 64 else 100
+    if jnp.finfo(dtype).bits == 64:
+        cutoff = 1000
+    elif isinstance(solver, lx.LSMR):
+        cutoff = 30
+    else:
+        cutoff = 100
     if isinstance(solver, lx.Normal):
         return math.sqrt(cutoff)
     else:

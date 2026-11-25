@@ -64,9 +64,10 @@ def test_small_wellposed(make_operator, solver, tags, ops, getkey, dtype):
 def test_pytree_wellposed(solver, getkey, dtype):
     if isinstance(solver, lx.BiCGStab) and jnp.finfo(dtype).bits == 32:
         # Deliberately not tested. On random dense nonsymmetric systems this size,
-        # single-precision BiCGStab fails to converge for a few percent of draws even
-        # when well-conditioned (SciPy's fails more often): a limitation of the
-        # algorithm, not of the pytree handling tested here. That is covered for
+        # BiCGStab breaks down for roughly a quarter of float32 draws even when
+        # well-conditioned (`cond < 30`), and SciPy's for about a sixth; complex64
+        # fails much more rarely, but still for some draws. This is a limitation of
+        # the algorithm, not of the pytree handling tested here. That is covered for
         # BiCGStab in double precision, and its single-precision dtype handling by
         # `test_small_wellposed`.
         return
