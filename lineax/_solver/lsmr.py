@@ -313,8 +313,15 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             normA = jnp.sqrt(st["normA2"])
             st["normA2"] = st["normA2"] + st["alpha"] ** 2
 
-            # Estimate cond(A).
-            st["maxrbar"] = jnp.maximum(st["maxrbar"], rhobarold)
+            # Estimate cond(A). On the first iteration `rhobarold` is the initial
+            # `rhobar = 1`, a dimensionless constant rather than an estimate of a
+            # singular value, so it must be excluded from *both* extremes. (SciPy and
+            # the reference implementation exclude it only from the minimum, which
+            # makes the estimate scale as `1 / ‖A‖` for small `A`: a well-conditioned
+            # operator scaled by `1e-9` would then trip the default `conlim = 1e8`.)
+            st["maxrbar"] = lax.select(
+                st["itn"] > 1, jnp.maximum(st["maxrbar"], rhobarold), st["maxrbar"]
+            )
             st["minrbar"] = lax.select(
                 st["itn"] > 1, jnp.minimum(st["minrbar"], rhobarold), st["minrbar"]
             )
@@ -327,7 +334,10 @@ class LSMR(AbstractLinearSolver[_LSMRState]):
             normx = self.norm(st["x"])
 
             well_posed_tol = self.atol + self.rtol * (normA * normx + normb)
-            least_squares_tol = self.atol + self.rtol * (normA * st["normr"])
+            # `‖Aᴴr‖` carries the units of `‖A‖ ‖b‖`, so `atol` (in the units of `b`,
+            # as in `well_posed_tol`) must be scaled by `‖A‖` too. Otherwise a small
+            # operator meets the absolute tolerance trivially and reports success.
+            least_squares_tol = normA * (self.atol + self.rtol * st["normr"])
             # maxiter exceeded
             st["istop"] = lax.select(st["itn"] >= max_steps, 4, st["istop"])
             # cond(A) seems to be greater than conlim
