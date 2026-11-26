@@ -157,7 +157,10 @@ class SVD(AbstractDirectLinearSolver[_SVDState]):
         #   full-rank square: needs sign(det(U)) * sign(det(V^T)), O(n^3) extra work
         #   full-rank rectangular: future work via QR Householder vectors
         #   rank-deficient: needs an eigensolver for pseudodeterminant sign
-        sign = jnp.full((), jnp.nan, dtype=s.dtype)
+        # In the operator's dtype (not the singular values', which are always real), as
+        # for every other solver: the `slogdet` JVP combines `sign` with the complex
+        # trace for complex operators.
+        sign = jnp.full((), jnp.nan, dtype=u.dtype)
         return sign, lad
 
     def assume_full_rank(self):
