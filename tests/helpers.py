@@ -623,24 +623,28 @@ def jvp_jvp_impl(
         linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
         jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
 
+        # The jnp reference always takes every input, with a zero tangent for those a
+        # mode holds fixed, so it is traced and compiled once rather than per mode.
+        jnp_primals = (matrix, vec, t_matrix, t_vec)
+
         def _make_primal_tangents(mode):
-            lx_args = ([], [], operator, t_operator, tt_operator, tt_t_operator)
-            jnp_args = ([], [], matrix, t_matrix, tt_matrix, tt_t_matrix)
-            for primals, ttangents, op, t_op, tt_op, tt_t_op in (lx_args, jnp_args):
-                if "op" in mode:
-                    primals.append(op)
-                    ttangents.append(tt_op)
-                if "vec" in mode:
-                    primals.append(vec)
-                    ttangents.append(tt_vec)
-                if "t_op" in mode:
-                    primals.append(t_op)
-                    ttangents.append(tt_t_op)
-                if "t_vec" in mode:
-                    primals.append(t_vec)
-                    ttangents.append(tt_t_vec)
-            lx_out = tuple(lx_args[0]), tuple(lx_args[1])
-            jnp_out = tuple(jnp_args[0]), tuple(jnp_args[1])
+            lx_primals = []
+            lx_tangents = []
+            jnp_tangents = []
+            for name, primal, lx_tangent, jnp_tangent in (
+                ("op", operator, tt_operator, tt_matrix),
+                ("vec", vec, tt_vec, tt_vec),
+                ("t_op", t_operator, tt_t_operator, tt_t_matrix),
+                ("t_vec", t_vec, tt_t_vec, tt_t_vec),
+            ):
+                if name in mode:
+                    lx_primals.append(primal)
+                    lx_tangents.append(lx_tangent)
+                    jnp_tangents.append(jnp_tangent)
+                else:
+                    jnp_tangents.append(jnp.zeros_like(jnp_tangent))
+            lx_out = tuple(lx_primals), tuple(lx_tangents)
+            jnp_out = jnp_primals, tuple(jnp_tangents)
             return lx_out, jnp_out
 
         modes = (
@@ -658,82 +662,69 @@ def jvp_jvp_impl(
             {"vec", "t_op", "t_vec"},
             {"op", "vec", "t_op", "t_vec"},
         )
+
+        def jnp_solve_all(mat, v, t_mat, t_v):
+            return jnp_solve2((mat, v), (t_mat, t_v))
+
+        jnp_solve3 = eqx.filter_jit(ft.partial(eqx.filter_jvp, jnp_solve_all))
         for mode in modes:
             if mode == {"op"}:
                 linear_solve3 = lambda op: linear_solve2((op, vec), (t_operator, t_vec))
-                jnp_solve3 = lambda mat: jnp_solve2((mat, vec), (t_matrix, t_vec))
             elif mode == {"vec"}:
                 linear_solve3 = lambda v: linear_solve2(
                     (operator, v), (t_operator, t_vec)
                 )
-                jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
             elif mode == {"op", "vec"}:
                 linear_solve3 = lambda op, v: linear_solve2(
                     (op, v), (t_operator, t_vec)
                 )
-                jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
             elif mode == {"t_op"}:
                 linear_solve3 = lambda t_op: linear_solve2(
                     (operator, vec), (t_op, t_vec)
                 )
-                jnp_solve3 = lambda t_mat: jnp_solve2((matrix, vec), (t_mat, t_vec))
             elif mode == {"t_vec"}:
                 linear_solve3 = lambda t_v: linear_solve2(
                     (operator, vec), (t_operator, t_v)
                 )
-                jnp_solve3 = lambda t_v: jnp_solve2((matrix, vec), (t_matrix, t_v))
             elif mode == {"op", "vec"}:
                 linear_solve3 = lambda op, v: linear_solve2(
                     (op, v), (t_operator, t_vec)
                 )
-                jnp_solve3 = lambda mat, v: jnp_solve2((mat, v), (t_matrix, t_vec))
             elif mode == {"op", "t_op"}:
                 linear_solve3 = lambda op, t_op: linear_solve2((op, vec), (t_op, t_vec))
-                jnp_solve3 = lambda mat, t_mat: jnp_solve2((mat, vec), (t_mat, t_vec))
             elif mode == {"op", "t_vec"}:
                 linear_solve3 = lambda op, t_v: linear_solve2(
                     (op, vec), (t_operator, t_v)
                 )
-                jnp_solve3 = lambda mat, t_v: jnp_solve2((mat, vec), (t_matrix, t_v))
             elif mode == {"vec", "t_op"}:
                 linear_solve3 = lambda v, t_op: linear_solve2(
                     (operator, v), (t_op, t_vec)
                 )
-                jnp_solve3 = lambda v, t_mat: jnp_solve2((matrix, v), (t_mat, t_vec))
             elif mode == {"vec", "t_vec"}:
                 linear_solve3 = lambda v, t_v: linear_solve2(
                     (operator, v), (t_operator, t_v)
                 )
-                jnp_solve3 = lambda v, t_v: jnp_solve2((matrix, v), (t_matrix, t_v))
             elif mode == {"op", "vec", "t_op"}:
                 linear_solve3 = lambda op, v, t_op: linear_solve2(
                     (op, v), (t_op, t_vec)
                 )
-                jnp_solve3 = lambda mat, v, t_mat: jnp_solve2((mat, v), (t_mat, t_vec))
             elif mode == {"op", "vec", "t_vec"}:
                 linear_solve3 = lambda op, v, t_v: linear_solve2(
                     (op, v), (t_operator, t_v)
                 )
-                jnp_solve3 = lambda mat, v, t_v: jnp_solve2((mat, v), (t_matrix, t_v))
             elif mode == {"vec", "t_op", "t_vec"}:
                 linear_solve3 = lambda v, t_op, t_v: linear_solve2(
                     (operator, v), (t_op, t_v)
                 )
-                jnp_solve3 = lambda v, t_mat, t_v: jnp_solve2((matrix, v), (t_mat, t_v))
             elif mode == {"op", "vec", "t_op", "t_vec"}:
                 linear_solve3 = lambda op, v, t_op, t_v: linear_solve2(
                     (op, v), (t_op, t_v)
-                )
-                jnp_solve3 = lambda mat, v, t_mat, t_v: jnp_solve2(
-                    (mat, v), (t_mat, t_v)
                 )
             else:
                 assert False
 
             linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
             linear_solve3 = eqx.filter_jit(linear_solve3)
-            jnp_solve3 = ft.partial(eqx.filter_jvp, jnp_solve3)
-            jnp_solve3 = eqx.filter_jit(jnp_solve3)
 
             (primal, tangent), (jnp_primal, jnp_tangent) = _make_primal_tangents(mode)
             (out, t_out), (minus_out, tt_out) = linear_solve3(primal, tangent)
@@ -741,6 +732,14 @@ def jvp_jvp_impl(
                 jnp_primal, jnp_tangent
             )
 
+            # Lineax returns a symbolic zero (`None`) for a tangent the mode holds
+            # fixed, where the reference materialises zeros.
+            out, t_out, tt_out, minus_out = jtu.tree_map(
+                lambda x, y: jnp.zeros_like(y) if x is None else x,
+                (out, t_out, tt_out, minus_out),
+                (true_out, true_t_out, true_tt_out, minus_true_out),
+                is_leaf=lambda x: x is None,
+            )
             assert tree_allclose(out, true_out, atol=1e-4)
             assert tree_allclose(t_out, true_t_out, atol=1e-4)
             assert tree_allclose(tt_out, true_tt_out, atol=1e-4)
