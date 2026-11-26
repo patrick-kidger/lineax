@@ -721,7 +721,8 @@ def is_lower_triangular(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    return lower_triangular_tag in _tags(operator)
+    # A diagonal operator is both lower and upper triangular.
+    return lower_triangular_tag in _tags(operator) or is_diagonal(operator)
 
 
 @ft.singledispatch
@@ -739,7 +740,8 @@ def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
 
     Either `True` or `False.`
     """
-    return upper_triangular_tag in _tags(operator)
+    # A diagonal operator is both lower and upper triangular.
+    return upper_triangular_tag in _tags(operator) or is_diagonal(operator)
 
 
 @ft.singledispatch

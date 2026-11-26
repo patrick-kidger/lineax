@@ -768,6 +768,67 @@ def test_is_upper_triangular(dtype, getkey):
 
 
 @pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_diagonal_is_triangular(dtype, getkey):
+    # A diagonal operator is lower triangular, upper triangular and tridiagonal, however
+    # it comes to be diagonal.
+    matrix = jnp.diag(jr.normal(getkey(), (3,), dtype=dtype))
+    operators = [
+        *_setup(getkey, matrix, lx.diagonal_tag),
+        # Diagonal only through the wrapper's own tags.
+        lx.TaggedLinearOperator(lx.MatrixLinearOperator(matrix), lx.diagonal_tag),
+        # Diagonal only through its size.
+        lx.MatrixLinearOperator(jnp.ones((1, 1), dtype=dtype)),
+        lx.MatrixLinearOperator(jnp.ones((1, 3), dtype=dtype))
+        @ lx.MatrixLinearOperator(jnp.ones((3, 1), dtype=dtype)),
+    ]
+    for operator in operators:
+        assert lx.is_diagonal(operator)
+        assert lx.is_lower_triangular(operator)
+        assert lx.is_upper_triangular(operator)
+        assert lx.is_tridiagonal(operator)
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
+def test_diagonal_composed_with_triangular_uses_triangular(dtype, getkey):
+    # Composing with a diagonal operator keeps triangularity, so these solve in O(n^2)
+    # with `Triangular` rather than O(n^3) with `LU`.
+    size = 4
+    diag_matrix = jnp.diag(jr.normal(getkey(), (size,), dtype=dtype) + 3)
+    diag = lx.MatrixLinearOperator(diag_matrix, lx.diagonal_tag)
+    vector = jr.normal(getkey(), (size,), dtype=dtype)
+    for triangularise, tag, check, other_check in (
+        (
+            jnp.tril,
+            lx.lower_triangular_tag,
+            lx.is_lower_triangular,
+            lx.is_upper_triangular,
+        ),
+        (
+            jnp.triu,
+            lx.upper_triangular_tag,
+            lx.is_upper_triangular,
+            lx.is_lower_triangular,
+        ),
+    ):
+        matrix = triangularise(jr.normal(getkey(), (size, size), dtype=dtype))
+        matrix = matrix + 3 * jnp.eye(size, dtype=dtype)
+        triangular = lx.MatrixLinearOperator(matrix, tag)
+        for operator, dense in (
+            (diag @ triangular, diag_matrix @ matrix),
+            (triangular @ diag, matrix @ diag_matrix),
+        ):
+            assert check(operator)
+            assert not other_check(operator)
+            solver = lx.AutoLinearSolver(well_posed=True).select_solver(operator)
+            assert isinstance(solver, lx.Triangular)
+            solution = lx.linear_solve(operator, vector).value
+            assert tree_allclose(solution, jnp.linalg.solve(dense, vector))
+    # `Triangular` accepts a diagonal operator too.
+    solution = lx.linear_solve(diag, vector, lx.Triangular()).value
+    assert tree_allclose(solution, vector / jnp.diag(diag_matrix))
+
+
+@pytest.mark.parametrize("dtype", (jnp.float64, jnp.complex128))
 def test_is_positive_semidefinite(dtype, getkey):
     matrix = jr.normal(getkey(), (3, 3), dtype=dtype)
     not_positive_semidefinite = _setup(getkey, matrix)

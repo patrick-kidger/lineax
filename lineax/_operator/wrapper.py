@@ -571,17 +571,29 @@ def _(operator):
 for check, tag in (
     (is_diagonal, diagonal_tag),
     (has_unit_diagonal, unit_diagonal_tag),
-    (is_lower_triangular, lower_triangular_tag),
-    (is_upper_triangular, upper_triangular_tag),
     (is_positive_semidefinite, positive_semidefinite_tag),
     (is_negative_semidefinite, negative_semidefinite_tag),
-    (is_tridiagonal, tridiagonal_tag),
     (is_circulant, circulant_tag),
 ):
 
     @check.register(TaggedLinearOperator)
     def _(operator, check=check, tag=tag):
         return (tag in operator.tags) or check(operator.operator)
+
+
+# As for the defaults, a diagonal operator is also triangular and tridiagonal -- here
+# including when only this wrapper's own tags make it diagonal.
+for check, tag in (
+    (is_lower_triangular, lower_triangular_tag),
+    (is_upper_triangular, upper_triangular_tag),
+    (is_tridiagonal, tridiagonal_tag),
+):
+
+    @check.register(TaggedLinearOperator)
+    def _(operator, check=check, tag=tag):
+        return (
+            (tag in operator.tags) or check(operator.operator) or is_diagonal(operator)
+        )
 
 
 # `is_semidefinite` is special-cased rather than handled by the loop above: PSD/NSD
