@@ -59,7 +59,7 @@ def test_jvp(
             # For all the other tags, A + εB with A, B \in {matrices satisfying the tag}
             # still satisfies the tag itself.
             # This is the exception.
-            t_matrix.at[jnp.arange(3), jnp.arange(3)].set(0)
+            t_matrix = t_matrix.at[jnp.arange(3), jnp.arange(3)].set(0)
 
         make_op = ft.partial(make_operator, getkey)
         operator, t_operator = eqx.filter_jvp(
