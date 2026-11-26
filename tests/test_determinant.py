@@ -707,6 +707,33 @@ def test_slogdet_grad_singular_pseudodet(getkey):
     assert jnp.all(jnp.isfinite(grad)), grad
 
 
+@pytest.mark.parametrize(
+    "solver",
+    (
+        lx.SVD(),
+        lx.Normal(lx.Cholesky()),
+        lx.Normal(lx.HEVD()),
+        lx.AutoLinearSolver(well_posed=False),
+    ),
+)
+def test_slogdet_jvp_complex_nan_sign(solver, getkey):
+    # These solvers cannot recover the sign, so return `nan` -- which must still be in
+    # the operator's (complex) dtype, as `jnp.linalg.slogdet`'s is, or the JVP fails to
+    # combine it with the complex trace.
+    matrix = jr.normal(getkey(), (3, 3), dtype=jnp.complex128)
+    t_matrix = jr.normal(getkey(), (3, 3), dtype=jnp.complex128)
+
+    def slogdet_lx(mat):
+        return lx.slogdet(lx.MatrixLinearOperator(mat), solver)
+
+    (s_lx, l_lx), (sd_lx, ld_lx) = jax.jvp(slogdet_lx, (matrix,), (t_matrix,))
+    (_, l_jax), (_, ld_jax) = jax.jvp(jnp.linalg.slogdet, (matrix,), (t_matrix,))
+    assert s_lx.dtype == sd_lx.dtype == jnp.complex128
+    assert jnp.isnan(s_lx)
+    assert jnp.allclose(l_lx, l_jax, atol=1e-8), f"lad {l_lx} vs {l_jax}"
+    assert jnp.allclose(ld_lx, ld_jax, atol=1e-8), f"lad_dot {ld_lx} vs {ld_jax}"
+
+
 # ----------------------------------------------------------------------------
 # Second-order AD: JVP of JVP, compared against jnp.linalg.slogdet
 # ----------------------------------------------------------------------------

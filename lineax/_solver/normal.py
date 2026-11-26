@@ -228,9 +228,11 @@ class Normal(
         # log|det(A A^H)| = 2 * log|det(A)| for wide A (m < n)
         # so log|det(A)| = 0.5 * log|det(normal_operator)|
         # The gram matrix construction destroys sign information, so sign is nan.
-        _, inner_lad = self.inner_solver.slogdet(inner_state, inner_options)  # pyright: ignore[reportAttributeAccessIssue]
+        inner_sign, inner_lad = self.inner_solver.slogdet(inner_state, inner_options)  # pyright: ignore[reportAttributeAccessIssue]
         lad = 0.5 * inner_lad
-        sign = jnp.full((), jnp.nan, dtype=lad.dtype)
+        # The gram operator has the operator's dtype, and so does its `sign`: complex
+        # for a complex operator, unlike the always-real `lad`.
+        sign = jnp.full((), jnp.nan, dtype=inner_sign.dtype)
         return sign, lad
 
 
