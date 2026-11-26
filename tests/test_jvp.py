@@ -55,12 +55,6 @@ def test_jvp(
         vec = jr.normal(getkey(), (out_size,), dtype=dtype)
         t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
-        if has_tag(tags, lx.unit_diagonal_tag):
-            # For all the other tags, A + εB with A, B \in {matrices satisfying the tag}
-            # still satisfies the tag itself.
-            # This is the exception.
-            t_matrix = t_matrix.at[jnp.arange(3), jnp.arange(3)].set(0)
-
         make_op = ft.partial(make_operator, getkey)
         operator, t_operator = eqx.filter_jvp(
             make_op, (matrix, tags), (t_matrix, t_tags)

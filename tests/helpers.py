@@ -27,29 +27,62 @@ import numpy as np
 from equinox.internal import ω
 
 
-def _zero_circulant_modes(column, zero_mask=None):
-    """Zero the eigenvalues (FFT modes) of a circulant selected by `zero_mask`,
-    defaulting to the smallest-magnitude one. Real columns stay real via
-    `rfft`/`irfft`, whose modes other than the zero frequency and Nyquist each stand
-    for a conjugate *pair* of eigenvalues, zeroed together."""
+def _zero_circulant_modes(column):
+    """Zero the smallest-magnitude eigenvalue (FFT mode) of a circulant. Real columns
+    stay real via `rfft`/`irfft`, whose modes other than the zero frequency and
+    Nyquist each stand for a conjugate *pair* of eigenvalues, zeroed together."""
     n = column.shape[0]
     if jnp.iscomplexobj(column):
         eig = jnp.fft.fft(column)
-        if zero_mask is None:
-            zero_mask = jnp.arange(n) == jnp.argmin(jnp.abs(eig))
+        zero_mask = jnp.arange(n) == jnp.argmin(jnp.abs(eig))
         return jnp.fft.ifft(jnp.where(zero_mask, 0, eig))
     else:
         eig = jnp.fft.rfft(column)
-        if zero_mask is None:
-            zero_mask = jnp.arange(eig.shape[0]) == jnp.argmin(jnp.abs(eig))
+        zero_mask = jnp.arange(eig.shape[0]) == jnp.argmin(jnp.abs(eig))
         return jnp.fft.irfft(jnp.where(zero_mask, 0, eig), n=n)
+
+
+@ft.singledispatch
+def _has_zero_diagonal(operator: lx.AbstractLinearOperator) -> bool:
+    """Test-only structural check, alongside lineax's own `lx.is_*` checks.
+
+    A unit diagonal is an affine constraint rather than a structure, so the tangent of
+    a unit-diagonal family has a *zero* diagonal -- and lineax, rightly, reports no
+    unit diagonal for it. Lineax has no check for a zero diagonal, so this one supplies
+    it for drawing test matrices.
+    """
+    return False
+
+
+@_has_zero_diagonal.register(lx.TangentLinearOperator)
+def _(operator):
+    return lx.has_unit_diagonal(operator.primal)
 
 
 @ft.cache
 def _construct_matrix_impl(
-    getkey, tags, size, dtype, cond_or_singular: int | float | str, i: int
+    getkey, tags, size, dtype, cond_or_singular: int | float | str | None, i: int
 ):
-    del i  # used to break the cache
+    """Draw `i == 0`: a matrix carrying `tags`. Draws `i > 0`: tangents to the family
+    of such matrices.
+
+    Every draw has the structure lineax's checks report for a stand-in operator:
+    `MatrixLinearOperator(..., tags)`, or for a tangent, a `TangentLinearOperator` of
+    it. Lineax only guarantees correct derivatives along tangents that keep the
+    structure the family constrains -- structured fast paths read only the stored band
+    or first column, and symmetric/Hermitian operators transpose to themselves -- and
+    doesn't pass on what the family doesn't constrain: the tangent of a
+    (semi)definite family is Hermitian of either sign.
+
+    `cond_or_singular` is a condition-number cutoff to redraw against, `None` for no
+    cutoff, `"spectral"` to zero the smallest singular value(s), or
+    `"trim_row"`/`"trim_col"` for a non-square draw.
+    """
+    # The checks are dtype-dependent (a real symmetric operator is also Hermitian), so
+    # the stand-in has the draw's dtype.
+    operator = lx.MatrixLinearOperator(jnp.zeros((size, size), dtype=dtype), tags)
+    if i > 0:
+        operator = lx.TangentLinearOperator(operator, operator)
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         if isinstance(cond_or_singular, str):
@@ -58,43 +91,44 @@ def _construct_matrix_impl(
             elif cond_or_singular == "trim_col":
                 matrix = matrix[:, 1:]
         if tags != ():
-            # Tagged draws are built with a condition cutoff or `spectral`.
-            assert (
-                isinstance(cond_or_singular, (int, float))
-                or cond_or_singular == "spectral"
-            )
-        if has_tag(tags, lx.diagonal_tag):
+            # Tagged draws are square: built with a condition cutoff, without one
+            # (tangents), or `spectral`.
+            assert cond_or_singular not in ("trim_row", "trim_col")
+        if lx.is_diagonal(operator):
             matrix = jnp.diag(jnp.diag(matrix))
-        if has_tag(tags, lx.circulant_tag):
-            row, col = jnp.ogrid[:size, :size]
-            matrix = matrix[:, 0][(row - col) % size]
-        if has_tag(tags, lx.symmetric_tag):
-            matrix = matrix + matrix.T
-        if has_tag(tags, lx.hermitian_tag):
-            matrix = matrix + matrix.conj().T
-        if has_tag(tags, lx.lower_triangular_tag):
-            matrix = jnp.tril(matrix)
-        if has_tag(tags, lx.upper_triangular_tag):
-            matrix = jnp.triu(matrix)
-        if has_tag(tags, lx.unit_diagonal_tag):
-            matrix = matrix.at[jnp.arange(size), jnp.arange(size)].set(1)
-        if has_tag(tags, lx.tridiagonal_tag):
+        elif lx.is_tridiagonal(operator):
             diagonal = jnp.diag(jnp.diag(matrix))
             upper_diagonal = jnp.diag(jnp.diag(matrix, k=1), k=1)
             lower_diagonal = jnp.diag(jnp.diag(matrix, k=-1), k=-1)
             matrix = lower_diagonal + diagonal + upper_diagonal
-        if has_tag(tags, lx.positive_semidefinite_tag):
+        if lx.is_circulant(operator):
+            row, col = jnp.ogrid[:size, :size]
+            matrix = matrix[:, 0][(row - col) % size]
+        if lx.is_symmetric(operator):
+            matrix = matrix + matrix.T
+        elif lx.is_hermitian(operator):
+            # Real Hermitian operators are also symmetric, and take the branch above.
+            matrix = matrix + matrix.conj().T
+        if lx.is_lower_triangular(operator):
+            matrix = jnp.tril(matrix)
+        if lx.is_upper_triangular(operator):
+            matrix = jnp.triu(matrix)
+        if lx.has_unit_diagonal(operator):
+            matrix = matrix.at[jnp.arange(size), jnp.arange(size)].set(1)
+        if _has_zero_diagonal(operator):
+            matrix = matrix.at[jnp.arange(size), jnp.arange(size)].set(0)
+        if lx.is_positive_semidefinite(operator):
             matrix = matrix @ matrix.T.conj()
-        if has_tag(tags, lx.negative_semidefinite_tag):
+        elif lx.is_negative_semidefinite(operator):
             matrix = -matrix @ matrix.T.conj()
-        if has_tag(tags, lx.semidefinite_tag):
+        elif lx.is_semidefinite(operator):
             # Semidefinite with a sign that isn't known statically: pick a random
             # sign each draw, so tests exercise both branches of the runtime sign
             # detection that `lx.Cholesky` performs for this tag.
             sign = jnp.where(jr.bernoulli(getkey()), 1, -1).astype(matrix.dtype)
             matrix = sign * (matrix @ matrix.T.conj())
         if cond_or_singular == "spectral":
-            if has_tag(tags, lx.circulant_tag):
+            if lx.is_circulant(operator):
                 # Circulancy is structural in the FFT domain, so zero the smallest
                 # eigenvalue(s) there.
                 column = _zero_circulant_modes(matrix[:, 0])
@@ -116,7 +150,7 @@ def _construct_matrix_impl(
                 u, s, vh = jnp.linalg.svd(matrix, full_matrices=False)
                 s = s.at[-1].set(0)
                 matrix = (u * s[None, :].astype(matrix.dtype)) @ vh
-        if isinstance(cond_or_singular, str):
+        if cond_or_singular is None or isinstance(cond_or_singular, str):
             break
         else:
             if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_or_singular):  # pyright: ignore
@@ -151,8 +185,27 @@ def cond_cutoff(solver, dtype=jnp.float64) -> float:
 def construct_matrix(getkey, solver, tags, num=1, *, size=3, dtype=jnp.float64):
     cutoff = cond_cutoff(solver, dtype)
     return tuple(
-        _construct_matrix_impl(getkey, tags, size, dtype, cutoff, i) for i in range(num)
+        # Tangents needn't be invertible, and some never are: a unit-diagonal
+        # triangular family's tangents are strictly triangular.
+        _construct_matrix_impl(getkey, tags, size, dtype, cutoff if i == 0 else None, i)
+        for i in range(num)
     )
+
+
+def _rank_preserving(tangent, matrix):
+    """Project `tangent` onto the tangent space of the matrices of `matrix`'s rank,
+    `{T : U₀ᴴ T V₀ = 0}` for `U₀`, `V₀` bases of the left and right null spaces.
+
+    The projection `T - P_L T P_R` (`P_L`, `P_R` projecting onto those null spaces)
+    keeps any structure kept by multiplying with `matrix`'s own null projectors:
+    Hermitian/complex-symmetric, diagonal and circulant -- everything the `spectral`
+    draws produce.
+    """
+    u, s, vh = jnp.linalg.svd(matrix, full_matrices=False)
+    null = (s < 1e-8 * s[0]).astype(matrix.dtype)
+    left_projector = (u * null[None, :]) @ u.conj().T
+    right_projector = (vh.conj().T * null[None, :]) @ vh
+    return tangent - left_projector @ tangent @ right_projector
 
 
 def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
@@ -184,55 +237,14 @@ def construct_singular_matrix(getkey, solver, tags, num=1, dtype=jnp.float64):
     # Create a rank-deficient matrix by zeroing the lowest singular value (or, for
     # circulants, the lowest FFT mode(s)). Then compute tangents to it along the
     # constant rank locus.
-    # Primal:
     matrix = _construct_matrix_impl(getkey, tags, size, dtype, "spectral", 0)
-    out = [matrix]
-    if has_tag(tags, lx.circulant_tag):
-        # A circulant family stays rank-preserving iff the tangent's spectrum
-        # vanishes on the primal's zeroed modes.
-        eig = (jnp.fft.fft if jnp.iscomplexobj(matrix) else jnp.fft.rfft)(matrix[:, 0])
-        zero_mask = jnp.abs(eig) < 1e-8 * jnp.max(jnp.abs(eig))
-        row, col = jnp.ogrid[:size, :size]
-        for _ in range(num - 1):
-            t_column = _zero_circulant_modes(
-                jr.normal(getkey(), (size,), dtype=dtype), zero_mask
-            )
-            out.append(t_column[(row - col) % size])
-    elif has_tag(tags, lx.diagonal_tag):
-        # A diagonal family is rank-preserving iff the tangent vanishes on the
-        # primal's zeroed entries; matching the slots keeps the rank exact for all t.
-        d = jnp.diag(matrix)
-        kept = jnp.abs(d) > 1e-8 * jnp.max(jnp.abs(d))
-        for _ in range(num - 1):
-            t_d = jnp.where(kept, jr.normal(getkey(), (size,), dtype=dtype), 0)
-            out.append(jnp.diag(t_d))
-    else:
-        # The family must keep the primal's tags along the path. Only untagged and
-        # Hermitian-family tags are handled here; anything else (e.g. a complex
-        # `symmetric_tag`, whose tangents must be complex symmetric rather than
-        # Hermitian) needs its own construction.
-        hermitian_tags = (
-            lx.hermitian_tag,
-            lx.positive_semidefinite_tag,
-            lx.negative_semidefinite_tag,
-            lx.semidefinite_tag,
+    tangents = (
+        _rank_preserving(
+            _construct_matrix_impl(getkey, tags, size, dtype, None, i), matrix
         )
-        hermitian_family = any(has_tag(tags, tag) for tag in hermitian_tags)
-        assert hermitian_family or tags == (), f"No tangent construction for {tags=}"
-        # Unit null vectors; the projection below is invariant to their sign/phase.
-        u_full, _, vh = jnp.linalg.svd(matrix, full_matrices=False)
-        u = u_full[:, -1]
-        null = vh[-1, :].conj()
-        for _ in range(num - 1):
-            # Project tangent onto range space `{T : u^H T v = 0}`, ensuring
-            # preservation of Hermiticity.
-            direction = jr.normal(getkey(), (size, size), dtype=dtype)
-            if hermitian_family:
-                direction = (direction + direction.T.conj()) / 2
-            component = u.conj() @ direction @ null
-            direction = direction - component * jnp.outer(u, null.conj())
-            out.append(direction)
-    return tuple(out)
+        for i in range(1, num)
+    )
+    return (matrix, *tangents)
 
 
 def construct_poisson_matrix(size, dtype=jnp.float64):
