@@ -113,6 +113,13 @@ def test_vmap_jvp(
                 jnp_solve2 = jnp_solve1
             else:
                 assert False
+            # The reference doesn't depend on `jvp_first`, so build (and compile) it
+            # once.
+            jnp_solve3 = ft.partial(
+                finite_difference_jvp if force_fd else eqx.filter_jvp, jnp_solve2
+            )
+            jnp_solve3 = eqx.filter_vmap(jnp_solve3)
+            jnp_solve3 = eqx.filter_jit(jnp_solve3)
             for jvp_first in (True, False):
                 if jvp_first:
                     linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve2)
@@ -122,11 +129,6 @@ def test_vmap_jvp(
                 if not jvp_first:
                     linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
                 linear_solve3 = eqx.filter_jit(linear_solve3)
-                jnp_solve3 = ft.partial(
-                    finite_difference_jvp if force_fd else eqx.filter_jvp, jnp_solve2
-                )
-                jnp_solve3 = eqx.filter_vmap(jnp_solve3)
-                jnp_solve3 = eqx.filter_jit(jnp_solve3)
                 if mode == "op":
                     out, t_out = linear_solve3((operator,), (t_operator,))
                     true_out, true_t_out = jnp_solve3((matrix,), (t_matrix,))
