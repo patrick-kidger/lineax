@@ -311,15 +311,20 @@ def _(operator):
 
 
 # These properties ARE preserved under composition.
-for check in (
-    is_lower_triangular,
-    is_upper_triangular,
-    is_circulant,
-):
+@is_circulant.register(ComposedLinearOperator)
+def _(operator):
+    return is_circulant(operator.operator1) and is_circulant(operator.operator2)
+
+
+# Also preserved under composition, and a diagonal composition (e.g. 1x1) is triangular
+# whatever its operands.
+for check in (is_lower_triangular, is_upper_triangular):
 
     @check.register(ComposedLinearOperator)
     def _(operator, check=check):
-        return check(operator.operator1) and check(operator.operator2)
+        return is_diagonal(operator) or (
+            check(operator.operator1) and check(operator.operator2)
+        )
 
 
 # is_symmetric: A@B is symmetric only if A and B commute. Diagonal matrices commute.
@@ -351,6 +356,8 @@ def _(operator):
 # tridiagonal @ diagonal = tridiagonal and diagonal @ tridiagonal = tridiagonal
 @is_tridiagonal.register(ComposedLinearOperator)
 def _(operator):
+    if is_diagonal(operator):
+        return True
     if is_diagonal(operator.operator1):
         return is_tridiagonal(operator.operator2)
     if is_diagonal(operator.operator2):
@@ -364,12 +371,13 @@ def _(operator):
 
 @has_unit_diagonal.register(ComposedLinearOperator)
 def _(operator):
-    a = is_diagonal(operator)
-    b = is_lower_triangular(operator)
-    c = is_upper_triangular(operator)
-    d = has_unit_diagonal(operator.operator1)
-    e = has_unit_diagonal(operator.operator2)
-    return (a or b or c) and d and e
+    # Diagonal operators count as triangular.
+    triangular = is_lower_triangular(operator) or is_upper_triangular(operator)
+    return (
+        triangular
+        and has_unit_diagonal(operator.operator1)
+        and has_unit_diagonal(operator.operator2)
+    )
 
 
 @max_rank.register(ComposedLinearOperator)
